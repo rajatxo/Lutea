@@ -324,14 +324,17 @@ private fun NameCardContent(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
                                         Color(0xFFFFD89E).copy(alpha = glowAlpha),
+                                        Color(0xFFFFD89E).copy(alpha = glowAlpha * 0.8f),
                                         Color(0xFFFF9A8B).copy(alpha = glowAlpha * 0.5f),
+                                        Color(0xFFFF9A8B).copy(alpha = glowAlpha * 0.25f),
+                                        Color(0xFFFF9A8B).copy(alpha = glowAlpha * 0.1f),
                                         Color.Transparent,
                                     ),
                                     center = androidx.compose.ui.geometry.Offset(
-                                        x = glowWidthPx * 0.52f,  // 52% — very very very little bit right
-                                        y = glowHeightPx * 0.20f,  // 20% down — just a little bit down from 18%
+                                        x = glowWidthPx * 0.52f,
+                                        y = glowHeightPx * 0.20f,
                                     ),
-                                    radius = glowWidthPx * 0.45f,  // smaller radius
+                                    radius = glowWidthPx * 0.45f,
                                 ),
                             ),
                     )
