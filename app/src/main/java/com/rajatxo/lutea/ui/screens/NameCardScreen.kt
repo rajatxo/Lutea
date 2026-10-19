@@ -258,7 +258,7 @@ private fun NameCardContent(
         label = "old_sentences_y",
     )
     val oldSentencesAlpha by animateFloatAsState(
-        targetValue = if (oldSentencesDissolving) 0.15f else 1f,
+        targetValue = if (oldSentencesDissolving) 0f else 1f,  // was 0.15f — fully invisible, no ghost
         animationSpec = tween(durationMillis = POST_CONTINUE_DURATION, easing = androidx.compose.animation.core.LinearOutSlowInEasing),
         label = "old_sentences_alpha",
     )
