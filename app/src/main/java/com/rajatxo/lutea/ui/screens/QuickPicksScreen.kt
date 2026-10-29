@@ -157,7 +157,6 @@ private fun QuickPicksContent() {
                 SongRowPlaceholder()
                 Spacer(Modifier.height(12.dp))
             }
-        }
     }
 }
 
