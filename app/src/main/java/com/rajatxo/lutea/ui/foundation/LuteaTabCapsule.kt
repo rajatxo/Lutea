@@ -95,8 +95,13 @@ fun LuteaTabCapsule(
     }
 
     // Combined tick + haptic function
+    // Uses VIRTUAL_KEY with FLAG_IGNORE settings (same as Coral X) — forces vibration.
     val doTick: () -> Unit = {
-        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        view.performHapticFeedback(
+            HapticFeedbackConstants.VIRTUAL_KEY,
+            HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING or
+                HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+        )
         if (tickSoundId.value != 0) {
             soundPool.play(tickSoundId.value, 0.5f, 0.5f, 1, 0, 1f)
         }
