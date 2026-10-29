@@ -9,6 +9,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -91,7 +92,19 @@ fun LuteaTabCapsule(
         modifier.width(actualWidth).height(actualHeight).clip(capsuleShape).background(Color.Black.copy(alpha = 0.5f))
     }
 
-    Box(modifier = glassModifier.pointerInput(tabs, activeTab) {
+    Box(modifier = glassModifier
+        // Tap to cycle to next tab (with haptic)
+        .pointerInput(tabs, activeTab) {
+            detectTapGestures(
+                onTap = {
+                    slideDirection = 1
+                    onTabSelected(tabs[(activeIndex + 1) % tabs.size])
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
+            )
+        }
+        // Drag to switch tabs (with haptic)
+        .pointerInput(tabs, activeTab) {
         detectHorizontalDragGestures(
             onDragEnd = { dragAccumulator = 0f },
             onHorizontalDrag = { _, dragAmount ->

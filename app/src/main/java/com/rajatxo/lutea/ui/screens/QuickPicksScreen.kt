@@ -44,20 +44,37 @@ import com.rajatxo.lutea.ui.util.LuteaTab
 fun QuickPicksScreen(
     modifier: Modifier = Modifier,
 ) {
-    var activeTab by remember { mutableStateOf(LuteaTab.QuickPicks) }
+    // Default tab is Playlists (per user request: 'make the playlist page default')
+    var activeTab by remember { mutableStateOf(LuteaTab.Playlists) }
 
     LuteaScaffold(
-        title = "Quick Picks",
+        title = when (activeTab) {
+            LuteaTab.QuickPicks -> "Quick Picks"
+            LuteaTab.Songs -> "Songs"
+            LuteaTab.Playlists -> "Playlists"
+        },
         activeTab = activeTab,
         onTabSelected = { activeTab = it },
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF1C1C1E))
-                .padding(horizontal = 20.dp)
-                .padding(top = 120.dp, bottom = 120.dp),
-        ) {
+        // Content changes based on the active tab
+        when (activeTab) {
+            LuteaTab.QuickPicks -> QuickPicksContent()
+            LuteaTab.Songs -> SongsContent()
+            LuteaTab.Playlists -> PlaylistsContent()
+        }
+    }
+}
+
+// ── Quick Picks content ──
+@Composable
+private fun QuickPicksContent() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1C1C1E))
+            .padding(horizontal = 20.dp)
+            .padding(top = 120.dp, bottom = 120.dp),
+    ) {
             // Section: Recently Played
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -208,6 +225,60 @@ private fun SongRowPlaceholder() {
                 .height(8.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(Color.White.copy(alpha = 0.08f)),
+        )
+    }
+}
+
+// ── Songs content (placeholder for now — will show scanned music later) ──
+@Composable
+private fun SongsContent() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1C1C1E))
+            .padding(horizontal = 20.dp)
+            .padding(top = 120.dp, bottom = 120.dp),
+    ) {
+        Text(
+            text = "All Songs",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = CalSansFamily,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Music scanning will be added next.",
+            color = Color(0xFF8E8E93),
+            fontSize = 14.sp,
+        )
+    }
+}
+
+// ── Playlists content (placeholder for now — will get the wheel UI later) ──
+@Composable
+private fun PlaylistsContent() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1C1C1E))
+            .padding(horizontal = 20.dp)
+            .padding(top = 120.dp, bottom = 120.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "Playlists",
+            color = Color.White,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = CalSansFamily,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Your playlists will appear here.",
+            color = Color(0xFF8E8E93),
+            fontSize = 14.sp,
         )
     }
 }
