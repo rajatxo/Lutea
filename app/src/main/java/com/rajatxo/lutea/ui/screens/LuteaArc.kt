@@ -47,23 +47,23 @@ fun LuteaArc(
             val w = size.width
             val h = size.height
 
-            // Pivot — center of the imaginary circle the arc belongs to.
-            // Off-screen to the left (makes the arc curve gracefully).
-            val pivotX = w * -0.50f
+            // Pivot — center of the imaginary circle.
+            // Less off-screen than before — smaller circle, more curve visible.
+            val pivotX = w * -0.20f
             val pivotY = h * 0.50f
 
-            // Radius — large imaginary circle, arc is a gentle curve.
-            val arcRadius = w * 0.65f
+            // Radius — SMALLER circle so we see 50% of it (half circle).
+            val arcRadius = w * 0.42f
 
-            // Arc spans 100°, centered at the bottom (apex at the pivot's Y).
-            val arcSweepDeg = 100f
+            // Arc spans 180° — half the circle visible.
+            val arcSweepDeg = 180f
             val arcStartDeg = -arcSweepDeg / 2f
 
-            // Stroke — 2px thin hairline.
-            val strokePx = with(density) { 2.dp.toPx() }
+            // Stroke — THICKER (was 2dp, now 3.5dp).
+            val strokePx = with(density) { 3.5.dp.toPx() }
 
             // Fade — last 20% of each end fades to transparent.
-            val fullAlpha = 0.25f  // subtle, ethereal
+            val fullAlpha = 0.25f
             val fadeRange = 0.20f
 
             // Draw arc in 40 segments with per-segment alpha for smooth fade.
