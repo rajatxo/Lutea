@@ -1,9 +1,11 @@
 package com.rajatxo.lutea.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,10 +14,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,12 +30,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import com.rajatxo.lutea.data.scanner.MusicScanner
+import com.rajatxo.lutea.domain.model.Song
+import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.util.LuteaTab
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * QuickPicksScreen — the first page of Lutea after onboarding.
@@ -228,30 +242,127 @@ private fun SongRowPlaceholder() {
     }
 }
 
-// ── Songs content (placeholder for now — will show scanned music later) ──
+// ── Songs content — scans device music + lists it + plays on tap ──
 @Composable
 private fun SongsContent() {
-    Column(
+    val context = LocalContext.current
+    var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var scanning by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        songs = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+        scanning = false
+    }
+
+    if (scanning) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1C1C1E)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Scanning music...",
+                color = Color(0xFF8E8E93),
+                fontSize = 14.sp,
+            )
+        }
+        return
+    }
+
+    if (songs.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1C1C1E)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "No music found",
+                color = Color(0xFF8E8E93),
+                fontSize = 14.sp,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF1C1C1E))
-            .padding(horizontal = 20.dp)
-            .padding(top = 120.dp, bottom = 120.dp),
+            .padding(horizontal = 20.dp),
+        contentPadding = PaddingValues(top = 120.dp, bottom = 120.dp),
     ) {
-        Text(
-            text = "All Songs",
-            color = Color.White,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = CalSansFamily,
+        item {
+            Text(
+                text = "All Songs (${songs.size})",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = CalSansFamily,
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+        items(songs) { song ->
+            SongItem(
+                song = song,
+                onClick = {
+                    PlaybackConnection.playSong(song, songs)
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SongItem(song: Song, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Album art thumbnail
+        AsyncImage(
+            model = song.albumArtUri,
+            contentDescription = null,
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(8.dp)),
+            contentScale = ContentScale.Crop,
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = song.title,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = song.artist,
+                color = Color(0xFF8E8E93),
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Text(
-            text = "Music scanning will be added next.",
+            text = formatDuration(song.duration),
             color = Color(0xFF8E8E93),
-            fontSize = 14.sp,
+            fontSize = 13.sp,
         )
     }
+}
+
+private fun formatDuration(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
 }
 
 // ── Playlists content (placeholder for now — will get the wheel UI later) ──

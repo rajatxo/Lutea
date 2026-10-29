@@ -97,6 +97,11 @@ dependencies {
     implementation("com.airbnb.android:lottie-compose:6.6.2")
 
     // ★ Kyant backdrop — liquid glass blur (same library Coral uses)
-    // Version 1.0.0 has minCompileSdk=1 (works with compileSdk 35)
     implementation("io.github.kyant0:backdrop:1.0.0")
+
+    // ★ Media3 — ExoPlayer + MediaSession for music playback
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-session:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("androidx.media3:media3-decoder:1.5.1")
 }
