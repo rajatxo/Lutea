@@ -1,5 +1,7 @@
 package com.rajatxo.lutea.ui.foundation
 
+import android.media.AudioManager
+import android.media.SoundPool
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -33,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,6 +48,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.vibrancy
+import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.util.LuteaTab
 
@@ -73,10 +78,29 @@ fun LuteaTabCapsule(
     customShape: Shape? = null
 ) {
     val view = LocalView.current
+    val context = LocalContext.current
     val activeIndex = tabs.indexOf(activeTab).coerceAtLeast(0)
     var slideDirection by remember { mutableIntStateOf(1) }
     var dragAccumulator by remember { mutableFloatStateOf(0f) }
     val dragThreshold = 60f
+
+    // SoundPool for tick sound
+    val soundPool = remember {
+        SoundPool.Builder().setMaxStreams(1).build()
+    }
+    val tickSoundId = remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        tickSoundId.value = soundPool.load(context, R.raw.wheel_tick, 1)
+        onDispose { soundPool.release() }
+    }
+
+    // Combined tick + haptic function
+    val doTick: () -> Unit = {
+        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        if (tickSoundId.value != 0) {
+            soundPool.play(tickSoundId.value, 0.5f, 0.5f, 1, 0, 1f)
+        }
+    }
 
     val capsuleShape: Shape = customShape ?: RoundedCornerShape(26.dp)
     val actualWidth = customWidth ?: 240.dp
@@ -99,7 +123,7 @@ fun LuteaTabCapsule(
                 onTap = {
                     slideDirection = 1
                     onTabSelected(tabs[(activeIndex + 1) % tabs.size])
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    doTick()
                 }
             )
         }
@@ -112,13 +136,13 @@ fun LuteaTabCapsule(
                 if (dragAccumulator < -dragThreshold) {
                     slideDirection = 1
                     onTabSelected(tabs[(activeIndex + 1) % tabs.size])
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    doTick()
                     dragAccumulator = 0f
                 } else if (dragAccumulator > dragThreshold) {
                     slideDirection = -1
                     val prev = if (activeIndex - 1 < 0) tabs.size - 1 else activeIndex - 1
                     onTabSelected(tabs[prev])
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    doTick()
                     dragAccumulator = 0f
                 }
             }
