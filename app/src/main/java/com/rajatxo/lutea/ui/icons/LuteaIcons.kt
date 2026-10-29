@@ -46,7 +46,7 @@ object LuteaIcons {
     val Search: ImageVector = stroke("Search") {
         moveTo(19f, 11f)
         arcTo(8f, 8f, 0f, true, true, 3f, 11f)
-        arcTo(8f, 8f, 0f, true, True, 19f, 11f)
+        arcTo(8f, 8f, 0f, true, true, 19f, 11f)
         moveTo(21f, 21f)
         lineTo(16.7f, 16.7f)
     }
@@ -56,7 +56,7 @@ object LuteaIcons {
         // Circle center
         moveTo(12f, 15f)
         arcTo(3f, 3f, 0f, true, true, 12f, 9f)
-        arcTo(3f, 3f, 0f, true, True, 12f, 15f)
+        arcTo(3f, 3f, 0f, true, true, 12f, 15f)
         // Gear teeth (simplified — 8 spokes)
         moveTo(19.4f, 15f)
         arcTo(1.65f, 1.65f, 0f, false, true, 18.4f, 13.0f)
@@ -75,11 +75,11 @@ object LuteaIcons {
         lineTo(6.4f, 16.4f)
         arcTo(1.65f, 1.65f, 0f, false, true, 8.0f, 17.4f)
         lineTo(9.4f, 18.2f)
-        arcTo(1.65f, 1.65f, 0f, false, True, 11.0f, 19.6f)
+        arcTo(1.65f, 1.65f, 0f, false, true, 11.0f, 19.6f)
         lineTo(13.0f, 19.6f)
-        arcTo(1.65f, 1.65f, 0f, false, True, 14.6f, 18.2f)
+        arcTo(1.65f, 1.65f, 0f, false, true, 14.6f, 18.2f)
         lineTo(16.0f, 17.4f)
-        arcTo(1.65f, 1.65f, 0f, false, True, 17.6f, 16.4f)
+        arcTo(1.65f, 1.65f, 0f, false, true, 17.6f, 16.4f)
         close()
     }
 
