@@ -368,27 +368,14 @@ private fun formatDuration(ms: Long): String {
 // ── Playlists content (placeholder for now — will get the wheel UI later) ──
 @Composable
 private fun PlaylistsContent() {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1C1C1E))
-            .padding(horizontal = 20.dp)
-            .padding(top = 120.dp, bottom = 120.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .background(Color.Black),
     ) {
-        Text(
-            text = "Playlists",
-            color = Color.White,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = CalSansFamily,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Your playlists will appear here.",
-            color = Color(0xFF8E8E93),
-            fontSize = 14.sp,
+        // The arc — playlist wheel indicator
+        LuteaArc(
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
