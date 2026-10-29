@@ -4,7 +4,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -13,24 +12,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlin.math.pow
 
 /**
- * LuteaArc — the playlist wheel arc.
+ * LuteaArc — the playlist wheel arc (built from scratch, not copied).
  *
- * Inspired by the Lutea-Inspiration image + Coral's PlaylistsScreen arc technique.
+ * Two concentric arcs:
  *
- * The arc is:
- *  - A partial circular curve (100° sweep)
- *  - White, ~25% opacity at center (fullAlpha = 0.25f)
- *  - 2px stroke (thin, elegant hairline)
- *  - Fades to transparent over the last 20% of each end
- *  - Positioned in the lower half of the screen (pivot at 50% height)
- *  - Radius = 65% of screen width (large imaginary circle — center is off-screen)
+ * 1. INNER ARC (the "needle"):
+ *    - Bright at center, fades to 0 at both ends
+ *    - Thickness tapers: thick in middle → thin at ends (like a needle)
+ *    - 180° sweep, radius = 42% screen width
+ *    - White, max alpha 0.8 at center (bright), 0 at ends (completely faded)
  *
- * The fade is achieved by drawing the arc in 40 segments, each with a
- * different alpha based on its distance from the endpoints. Segments near
- * the center are full alpha; segments near the endpoints fade linearly to 0.
- * This produces a smooth, continuous dissolve — no hard edges.
+ * 2. OUTER ARC (the "halo"):
+ *    - Wider, dimmer, sits OUTSIDE the inner arc
+ *    - Same 180° sweep but larger radius
+ *    - White, low alpha 0.08 — barely visible ghost ring
+ *    - Provides depth/structure (like Coral's second arc concept)
+ *
+ * The "needle" effect: stroke width varies per segment.
+ * Center segments are thickest (3.5dp), end segments taper to 0.5dp.
+ * Combined with the alpha fade, the arc looks like a glowing needle
+ * that's brightest and thickest at its apex, thinning and dimming
+ * toward both ends until it vanishes.
  */
 @Composable
 fun LuteaArc(
@@ -48,38 +53,82 @@ fun LuteaArc(
             val h = size.height
 
             // Pivot — center of the imaginary circle.
-            // Less off-screen than before — smaller circle, more curve visible.
             val pivotX = w * -0.20f
             val pivotY = h * 0.50f
 
-            // Radius — SMALLER circle so we see 50% of it (half circle).
-            val arcRadius = w * 0.42f
+            // Inner arc — the "needle"
+            val innerRadius = w * 0.42f
 
-            // Arc spans 180° — half the circle visible.
+            // Outer arc — the "halo" (bigger, dimmer)
+            val outerRadius = w * 0.55f
+
+            // Both arcs span 180° — half circle.
             val arcSweepDeg = 180f
             val arcStartDeg = -arcSweepDeg / 2f
 
-            // Stroke — THICKER (was 2dp, now 3.5dp).
-            val strokePx = with(density) { 3.5.dp.toPx() }
+            // ── INNER ARC: needle shape (tapered thickness + alpha fade) ──
+            // Max thickness at center (3.5dp), tapers to 0.5dp at ends.
+            // Max alpha at center (0.8 — bright), fades to 0 at ends.
+            val innerMaxStroke = with(density) { 3.5.dp.toPx() }
+            val innerMinStroke = with(density) { 0.5.dp.toPx() }
+            val innerMaxAlpha = 0.8f  // bright at center
+            val innerFadeRange = 0.45f  // last 45% of each end fades
 
-            // Fade — last 20% of each end fades to transparent.
-            val fullAlpha = 0.25f
-            val fadeRange = 0.20f
+            val segments = 60
+            for (i in 0 until segments) {
+                val segStart = i / segments.toFloat()
+                val segEnd = (i + 1) / segments.toFloat()
 
-            // Draw arc in 40 segments with per-segment alpha for smooth fade.
-            val arcSegments = 40
-            for (i in 0 until arcSegments) {
-                val segStart = i / arcSegments.toFloat()
-                val segEnd = (i + 1) / arcSegments.toFloat()
-
-                // Distance from nearest endpoint (0 at ends, 0.5 at center).
+                // Distance from nearest endpoint (0 at ends, 0.5 at center)
                 val distFromEndpoint = minOf(segStart, 1f - segStart)
 
-                // Alpha: full in the middle, fades to 0 near the ends.
-                val segAlpha = if (distFromEndpoint > fadeRange) {
-                    fullAlpha
+                // Alpha: bright at center, smooth fade to 0 at ends.
+                // Uses a smooth curve (not linear) for organic fade.
+                val alphaFactor = if (distFromEndpoint > innerFadeRange) {
+                    1f
                 } else {
-                    fullAlpha * (distFromEndpoint / fadeRange)
+                    // Smooth ease-out: starts fading slowly, accelerates near the end
+                    (distFromEndpoint / innerFadeRange).pow(1.5f)
+                }
+                val segAlpha = innerMaxAlpha * alphaFactor
+
+                if (segAlpha <= 0.005f) continue
+
+                // Thickness: tapers from max (center) to min (ends)
+                val strokeFactor = if (distFromEndpoint > innerFadeRange) {
+                    1f
+                } else {
+                    0.3f + 0.7f * (distFromEndpoint / innerFadeRange).pow(1.5f)
+                }
+                val segStroke = innerMinStroke + (innerMaxStroke - innerMinStroke) * strokeFactor
+
+                drawArc(
+                    color = Color.White.copy(alpha = segAlpha),
+                    startAngle = arcStartDeg + segStart * arcSweepDeg,
+                    sweepAngle = (segEnd - segStart) * arcSweepDeg,
+                    useCenter = false,
+                    topLeft = Offset(pivotX - innerRadius, pivotY - innerRadius),
+                    size = Size(innerRadius * 2f, innerRadius * 2f),
+                    style = Stroke(width = segStroke),
+                )
+            }
+
+            // ── OUTER ARC: halo (wider, dimmer, uniform thin) ──
+            // Barely visible ghost ring that provides structure/depth.
+            val outerStroke = with(density) { 1.dp.toPx() }
+            val outerMaxAlpha = 0.08f  // very dim
+            val outerFadeRange = 0.35f  // fades over last 35% of each end
+
+            for (i in 0 until segments) {
+                val segStart = i / segments.toFloat()
+                val segEnd = (i + 1) / segments.toFloat()
+
+                val distFromEndpoint = minOf(segStart, 1f - segStart)
+
+                val segAlpha = if (distFromEndpoint > outerFadeRange) {
+                    outerMaxAlpha
+                } else {
+                    outerMaxAlpha * (distFromEndpoint / outerFadeRange).pow(1.5f)
                 }
 
                 if (segAlpha <= 0.005f) continue
@@ -89,9 +138,9 @@ fun LuteaArc(
                     startAngle = arcStartDeg + segStart * arcSweepDeg,
                     sweepAngle = (segEnd - segStart) * arcSweepDeg,
                     useCenter = false,
-                    topLeft = Offset(pivotX - arcRadius, pivotY - arcRadius),
-                    size = Size(arcRadius * 2f, arcRadius * 2f),
-                    style = Stroke(width = strokePx),
+                    topLeft = Offset(pivotX - outerRadius, pivotY - outerRadius),
+                    size = Size(outerRadius * 2f, outerRadius * 2f),
+                    style = Stroke(width = outerStroke),
                 )
             }
         }
