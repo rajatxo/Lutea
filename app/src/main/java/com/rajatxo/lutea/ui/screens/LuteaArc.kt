@@ -59,8 +59,8 @@ fun LuteaArc(
             // Inner arc — the "needle"
             val innerRadius = w * 0.42f
 
-            // Outer arc — the "halo" (bigger, dimmer)
-            val outerRadius = w * 0.55f
+            // Outer arc — the "halo" (bigger, same brightness as inner)
+            val outerRadius = w * 0.48f  // was 0.55 — closer to inner (less gap)
 
             // Both arcs span 180° — half circle.
             val arcSweepDeg = 180f
@@ -115,9 +115,9 @@ fun LuteaArc(
             // ── OUTER ARC: SAME needle style as inner, just bigger + dimmer ──
             // Same tapered thickness, same fade curve — just a larger radius
             // and lower max alpha so it's a subtle halo around the inner arc.
-            val outerMaxStroke = with(density) { 2.5.dp.toPx() }
-            val outerMinStroke = with(density) { 0.3.dp.toPx() }
-            val outerMaxAlpha = 0.2f  // dimmer than inner (0.8 → 0.2)
+            val outerMaxStroke = with(density) { 3.5.dp.toPx() }  // same as inner
+            val outerMinStroke = with(density) { 0.5.dp.toPx() }  // same as inner
+            val outerMaxAlpha = 0.8f  // same brightness as inner (was 0.2)
             val outerFadeRange = 0.50f  // same fade range as inner
 
             for (i in 0 until segments) {
