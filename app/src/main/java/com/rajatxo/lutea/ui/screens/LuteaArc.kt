@@ -46,8 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.CalSansFamily
-import com.rajatxo.lutea.ui.components.InstrumentSerifFamily
-import com.rajatxo.lutea.ui.components.JunFamily
+import com.rajatxo.lutea.ui.components.NyghtSerifFamily
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
@@ -60,8 +59,8 @@ import kotlin.math.sin
  *  - ONE arc (thick + bright, needle-style fading at endpoints) — big arc removed
  *  - NO balls (removed per design)
  *  - 9 text labels along the arc (4 above + 1 main + 4 below)
- *  - Main text    = Jun (uppercase) — 60sp, the prominent active label
- *  - Secondary   = Instrument Serif (Coral's secondary text font) — lowercase, 40sp
+ *  - Main text    = CalSans (uppercase) — 60sp, the prominent active label
+ *  - Secondary   = NyghtSerif (Coral's secondary text font) — lowercase, 40sp
  *  - SMOOTH opacity (continuous smoothstep function of offset, NOT stepped when-blocks)
  *    — fades smoothly from 1.0 at center to 0.05 (95% fade) at the edge as you drag.
  *  - Coral-style auto-fit: if a label is wider than the available width budget,
@@ -197,9 +196,9 @@ fun LuteaArc(
 
             // SINGLE arc (Coral has two; per user request we keep only the small one).
             val arcRadius = w * 0.42f
-            // Text starts where the BIG arc USED TO BE (radius 0.52w).
-            // That gives the gap between the small arc and the text labels.
-            val textRadius = w * 0.52f
+            // Text starts just past the arc — tight gap (0.46w vs 0.42w = 0.04w ≈ 15dp).
+            // Old value was 0.52w (where the big arc used to be) — felt too far from the arc.
+            val textRadius = w * 0.46f
 
             val arcSweepDeg = 180f
             val arcStartDeg = -arcSweepDeg / 2f
@@ -288,13 +287,13 @@ fun LuteaArc(
                     val alpha = smoothAlpha.coerceAtLeast(0.05f)
 
                     // ── Text content + style ──
-                    //    Active   = Jun (uppercase) — 60sp, prominent main label
-                    //    Secondary = Instrument Serif (Coral's secondary text font) — lowercase, 40sp
+                    //    Active   = CalSans (uppercase) — 60sp, prominent main label
+                    //    Secondary = NyghtSerif (Coral's secondary text font) — lowercase, 40sp
                     if (name.isNotEmpty() && alpha > 0.04f) {
                         val displayText = if (isActive) name.uppercase() else name.lowercase()
                         val baseFontSize = if (isActive) 60f else 40f
                         val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                        val fontFamily = if (isActive) JunFamily else InstrumentSerifFamily
+                        val fontFamily = if (isActive) CalSansFamily else NyghtSerifFamily
                         val textColor = Color.White.copy(alpha = 1f)  // alpha applied via drawText.alpha
 
                         val textLayout = textMeasurer.measure(

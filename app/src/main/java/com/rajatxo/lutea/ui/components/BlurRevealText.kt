@@ -82,6 +82,22 @@ val JunFamily = FontFamily(
 )
 
 /**
+ * Nyght Serif — by Maksym Kobuzan, SIL Open Font License 1.1.
+ * Coral's secondary text font. Used for SECONDARY (inactive) playlist
+ * labels on the wheel. Lowercase, 40sp, faded alpha — pairs with CalSans
+ * as the main font, exactly like Coral's pairing.
+ *
+ * License: OFL 1.1 (commercial use OK, no attribution required in-app).
+ * License file: res/font/nyght_serif_license.txt
+ */
+val NyghtSerifFamily = FontFamily(
+    Font(R.font.nyght_serif_regular, FontWeight.Normal),
+    Font(R.font.nyght_serif_medium, FontWeight.Medium),
+    Font(R.font.nyght_serif_bold, FontWeight.Bold),
+    Font(R.font.nyght_serif_italic, FontWeight.Normal, FontStyle.Italic),
+)
+
+/**
  * Per-character blur reveal — port of codrops/ScrollBlurTypography Effect 1.
  *
  * Normal mode (reverse=false): chars start blurred+invisible, animate to sharp+visible.
