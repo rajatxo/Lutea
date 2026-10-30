@@ -67,30 +67,29 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * LuteaArc — the playlist wheel (1:1 port of Coral's PlaylistWheel).
+ * LuteaArc — the playlist wheel.
  *
- * Coral spec (what we copied):
+ * Geometry (Lutea's own — kept as you specified, NOT changed):
  *  - Pivot off-screen left (x = -50% width, y = 50% height)
- *  - Arc radius = 0.65w (the indicator arc, sits inside the text orbit)
- *  - Text orbit = arcRadius + 30dp
- *  - 100° sweep arc, endpoints fade out
- *  - 8° spacing between adjacent playlist items
- *  - ±7 items visible (~16 total)
- *  - Drag rotation with physics fling + spring snap to nearest item
- *  - Wheel position persists across tab switches (SharedPreferences)
- *  - Tick sound + haptic on each item boundary crossing
+ *  - INNER arc radius = 0.42w   (small arc, counter-rotating balls)
+ *  - OUTER arc radius = 0.52w   (big arc, primary balls + text)
+ *  - 180° sweep, both arcs thick + bright (3.5dp→0.5dp @ 0.8 alpha needle arc)
+ *  - Text orbit = outerRadius + 14dp (just past the outer arc)
+ *
+ * Coral mechanics (copied in):
+ *  - Physics fling (animateDecay) + spring snap to nearest item
  *  - Two-zone drag: left-half (counter-rotating) + full-screen (normal)
  *  - Tap near center opens the playlist
- *
- * Visual style:
- *  - Arc: white, fading endpoints (kept at Lutea's 3.5dp→0.5dp @ 0.8 alpha thickness)
+ *  - Wheel position persists across tab switches (SharedPreferences)
+ *  - Tick sound + haptic on each item boundary crossing
  *  - Balls on BOTH arcs (counter-rotating — pully coupling)
- *  - Active ball = accent color (default #F4B400), adjacent = blend, far = white
- *  - Text: Active = CalSans SemiBold 42sp TitleCase, accent color
- *          Inactive = NyghtSerif Light Italic 16sp, white
+ *  - ±7 items visible, 8° spacing, smooth opacity falloff
+ *
+ * Text style (Coral spec):
+ *  - Active   = CalSans SemiBold 42sp TitleCase, accent color (#F4B400 default)
+ *  - Inactive = NyghtSerif Light Italic 16sp TitleCase, white
+ *  - Adjacent items (offset ±1) get a white→accent vertical gradient
  *  - Auto-fit: long text shrinks to fit 173dp budget
- *  - Smooth opacity falloff: 1.0 → 0.7 → 0.45 → 0.25 → 0.07 → 0.02 → 0
- *  - Adjacent items get a vertical gradient (white → accentColor)
  *
  * Universal Layout Laws:
  *  - Law 1: statusBarsPadding() on the "+ New Playlist" capsule
@@ -341,27 +340,36 @@ fun LuteaArc(
                 val pivotX = w * -0.50f
                 val pivotY = h * 0.50f
 
-                // === 2. DUAL CONCENTRIC RADII SYSTEM ===
-                val arcRadius = w * 0.65f
-                val textRadius = arcRadius + with(density) { 30.dp.toPx() }
+                // === 2. DUAL CONCENTRIC RADII SYSTEM (Lutea's own geometry) ===
+                // Two thick + bright arcs (kept at Lutea's 3.5dp→0.5dp @ 0.8 alpha needle arc)
+                // at 0.42w (inner) and 0.52w (outer). Text sits just past the outer arc.
+                val innerRadius = w * 0.42f
+                val outerRadius = w * 0.52f
+                val textRadius = outerRadius + with(density) { 14.dp.toPx() }
 
-                val arcSweepDeg = 100f
+                val arcSweepDeg = 180f
                 val arcStartDeg = -arcSweepDeg / 2f
+                val segments = 200
 
-                // Helper: draw an arc with endpoints fading to 0 over [fadeRange] of each end.
-                fun drawFadingArc(radius: Float, fullAlpha: Float, strokePx: Float) {
-                    val arcSegments = 40
-                    val fadeRange = 0.35f
-                    for (i in 0 until arcSegments) {
-                        val segStart = i / arcSegments.toFloat()
-                        val segEnd = (i + 1) / arcSegments.toFloat()
+                // Helper: smooth fading needle arc (center thick → endpoints hairline).
+                fun drawNeedleArc(
+                    radius: Float,
+                    maxStrokePx: Float,
+                    minStrokePx: Float,
+                    maxAlpha: Float
+                ) {
+                    val fadeRange = 0.50f
+                    for (i in 0 until segments) {
+                        val segStart = i / segments.toFloat()
+                        val segEnd = (i + 1) / segments.toFloat()
                         val distFromEndpoint = minOf(segStart, 1f - segStart)
-                        val segAlpha = if (distFromEndpoint > fadeRange) {
-                            fullAlpha
-                        } else {
-                            fullAlpha * (distFromEndpoint / fadeRange)
-                        }
-                        if (segAlpha <= 0.01f) continue
+                        val alphaFactor = if (distFromEndpoint > fadeRange) 1f
+                        else (distFromEndpoint / fadeRange).pow(2.0f)
+                        val segAlpha = maxAlpha * alphaFactor
+                        if (segAlpha <= 0.001f) continue
+                        val strokeFactor = if (distFromEndpoint > fadeRange) 1f
+                        else 0.15f + 0.85f * (distFromEndpoint / fadeRange).pow(2.0f)
+                        val segStroke = minStrokePx + (maxStrokePx - minStrokePx) * strokeFactor
                         drawArc(
                             color = Color.White.copy(alpha = segAlpha),
                             startAngle = arcStartDeg + segStart * arcSweepDeg,
@@ -369,23 +377,23 @@ fun LuteaArc(
                             useCenter = false,
                             topLeft = Offset(pivotX - radius, pivotY - radius),
                             size = Size(radius * 2f, radius * 2f),
-                            style = Stroke(width = strokePx)
+                            style = Stroke(width = segStroke)
                         )
                     }
                 }
 
-                // Main indicator arc — Coral uses 1.5dp @ 0.6 alpha.
-                // (Per Lutea spec we keep the thicker 3.5dp→0.5dp @ 0.8 alpha needle arc.)
-                drawFadingArc(
-                    radius = arcRadius,
-                    fullAlpha = 0.8f,
-                    strokePx = with(density) { 3.5.dp.toPx() }
+                // ★ BOTH arcs thick + bright (Lutea's signature needle arc — DO NOT change).
+                drawNeedleArc(
+                    radius = innerRadius,
+                    maxStrokePx = with(density) { 3.5.dp.toPx() },
+                    minStrokePx = with(density) { 0.5.dp.toPx() },
+                    maxAlpha = 0.8f
                 )
-                // Second (outer) alignment arc — text orbit, dimmer.
-                drawFadingArc(
-                    radius = textRadius,
-                    fullAlpha = 0.35f,
-                    strokePx = with(density) { 1.0.dp.toPx() }
+                drawNeedleArc(
+                    radius = outerRadius,
+                    maxStrokePx = with(density) { 3.5.dp.toPx() },
+                    minStrokePx = with(density) { 0.5.dp.toPx() },
+                    maxAlpha = 0.8f
                 )
 
                 // === 4. TEXT ITEMS + BALLS on the wheel ===
@@ -435,40 +443,33 @@ fun LuteaArc(
                             else -> lerp(0.55f, 0.45f, (absOffset - 2.5f).coerceIn(0f, 1f))
                         }
 
-                        // === FIRST ARC BALL (counter-rotating, pully coupling) ===
+                        // === INNER ARC BALL (counter-rotating, pully coupling) ===
+                        // Solid white balls (Lutea look — no accent gradient on balls).
                         val firstArcFractionalOffset = -fractionalOffset
                         val firstArcAngleDeg = firstArcFractionalOffset * angleStepDeg
                         val firstArcAngleRad = (firstArcAngleDeg * PI / 180f).toFloat()
-                        val firstArcBallX = pivotX + arcRadius * cos(firstArcAngleRad)
-                        val firstArcBallY = pivotY + arcRadius * sin(firstArcAngleRad)
+                        val firstArcBallX = pivotX + innerRadius * cos(firstArcAngleRad)
+                        val firstArcBallY = pivotY + innerRadius * sin(firstArcAngleRad)
                         val firstArcBallRadiusPx = with(density) { 3.dp.toPx() }
-                        // Ball gradient: center = accent, adjacent = blend, far = white.
-                        val firstArcBallColor = when {
-                            absOffset < 0.5f -> accentColor
-                            absOffset < 1.5f -> lerp(accentColor, Color.White, (absOffset - 0.5f))
-                            else -> Color.White
-                        }
                         if (alpha > 0.01f) {
                             drawCircle(
-                                color = firstArcBallColor,
+                                color = Color.White,
                                 radius = firstArcBallRadiusPx,
                                 center = Offset(firstArcBallX, firstArcBallY),
                                 alpha = alpha
                             )
                         }
 
-                        // === SECOND ARC BALL (text orbit) ===
+                        // === OUTER ARC BALL (text orbit) ===
+                        // Solid white balls (Lutea look — no accent gradient on balls).
                         val ballRadiusPx = with(density) { 4.dp.toPx() }
-                        val ballColor = when {
-                            isActive -> accentColor
-                            absOffset < 1.5f -> lerp(accentColor, Color.White, (absOffset - 0.5f))
-                            else -> Color.White
-                        }
+                        val ballX = pivotX + outerRadius * cos(itemAngleRad)
+                        val ballY = pivotY + outerRadius * sin(itemAngleRad)
                         if (alpha > 0.01f) {
                             drawCircle(
-                                color = ballColor,
+                                color = Color.White,
                                 radius = ballRadiusPx,
-                                center = Offset(itemX, itemY),
+                                center = Offset(ballX, ballY),
                                 alpha = alpha
                             )
                         }
@@ -477,6 +478,7 @@ fun LuteaArc(
                         val displayText = playlist.name.replaceFirstChar { ch ->
                             if (ch.isLowerCase()) ch.uppercaseChar().toString() else ch.toString()
                         }
+                        // Active = accent color, inactive = white (Coral text-color rule).
                         val textColor = if (isActive) accentColor else Color.White
 
                         val gapAfterBallPx = with(density) { 6.dp.toPx() }
@@ -532,8 +534,9 @@ fun LuteaArc(
                         val textW = textLayout.size.width.toFloat()
                         val textH = textLayout.size.height.toFloat()
                         val textOffsetPx = ballRadiusPx + gapAfterBallPx + textW / 2f
-                        val textCenterX = itemX + textOffsetPx * cos(itemAngleRad)
-                        val textCenterY = itemY + textOffsetPx * sin(itemAngleRad)
+                        // Anchor: just past the OUTER ball, extending radially outward.
+                        val textCenterX = ballX + textOffsetPx * cos(itemAngleRad)
+                        val textCenterY = ballY + textOffsetPx * sin(itemAngleRad)
                         val radialDeg = itemAngleDeg
 
                         // Adjacent items get a vertical gradient (white → accentColor).
