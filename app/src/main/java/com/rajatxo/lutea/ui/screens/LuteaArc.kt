@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.CalSansFamily
-import com.rajatxo.lutea.ui.components.InstrumentSerifFamily
+import com.rajatxo.lutea.ui.components.PicaflorFamily
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
@@ -285,15 +285,14 @@ fun LuteaArc(
 
                     val isActive = absOffset < 0.5f
 
-                    // ★ Alpha curve — all 9 items visible (4 above + main + 4 below),
-                    //    smooth fade from center outward. Coral shows the full stack,
-                    //    not just 2 on each side.
+                    // ★ Alpha curve — all 9 items clearly visible (4 above + main + 4 below).
+                    //    Smooth fade from center outward, but the outermost is still readable.
                     val alpha = when {
                         absOffset < 0.5f -> 1f
-                        absOffset < 1.5f -> 0.82f
-                        absOffset < 2.5f -> 0.55f
-                        absOffset < 3.5f -> 0.32f
-                        else -> 0.16f
+                        absOffset < 1.5f -> 0.88f
+                        absOffset < 2.5f -> 0.68f
+                        absOffset < 3.5f -> 0.45f
+                        else -> 0.30f
                     }
 
                     // ★ Ball sizes proportional to arc size:
@@ -328,21 +327,24 @@ fun LuteaArc(
                     }
 
                     // ── TEXT — only beside OUTER arc, LEFT-ANCHORED, rotated radially ──
-                    // Active = CalSans SemiBold (large, bright)
-                    // Inactive = Instrument Serif (smaller, dimmed) — typographic contrast
+                    // Single font (Picaflor) for both, distinguished by CASE + size + alpha:
+                    //   - Active    = UPPERCASE, 28sp, full alpha (the main label, prominent)
+                    //   - Inactive  = lowercase, ~14sp, faded alpha (secondary labels)
                     if (name.isNotEmpty() && alpha > 0.05f) {
                         // Anchor: just past the outer ball, extending radially outward.
                         val textStartX = pivotX + (outerRadius + textGap) * cos(outerAngleRad)
                         val textStartY = pivotY + (outerRadius + textGap) * sin(outerAngleRad)
 
+                        // Case: main = UPPERCASE, secondary = lowercase
+                        val displayText = if (isActive) name.uppercase() else name.lowercase()
                         val fontSize = if (isActive) 28f
-                        else (18f - absOffset * 1.5f).coerceAtLeast(11f)
+                        else (15f - absOffset * 0.5f).coerceAtLeast(12f)
                         val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                        val fontFamily = if (isActive) CalSansFamily else InstrumentSerifFamily
+                        val fontFamily = PicaflorFamily
                         val textColor = Color.White.copy(alpha = alpha)
 
                         val textLayout = textMeasurer.measure(
-                            text = AnnotatedString(name),
+                            text = AnnotatedString(displayText),
                             style = TextStyle(
                                 color = textColor,
                                 fontSize = fontSize.sp,

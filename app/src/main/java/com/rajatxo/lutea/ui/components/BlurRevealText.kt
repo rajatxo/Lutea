@@ -59,6 +59,19 @@ val InstrumentSerifFamily = FontFamily(
 )
 
 /**
+ * Picaflor — display font bundled in res/font/picaflor.otf.
+ * Used for BOTH the active and secondary playlist names on the wheel:
+ *   - Active item   = UPPERCASE, large, full alpha
+ *   - Secondary items = lowercase, smaller, faded alpha
+ * Single font, two treatments (size + case + alpha) for clear hierarchy.
+ */
+val PicaflorFamily = FontFamily(
+    Font(R.font.picaflor, FontWeight.Normal),
+    Font(R.font.picaflor, FontWeight.SemiBold),
+    Font(R.font.picaflor, FontWeight.Bold),
+)
+
+/**
  * Per-character blur reveal — port of codrops/ScrollBlurTypography Effect 1.
  *
  * Normal mode (reverse=false): chars start blurred+invisible, animate to sharp+visible.
