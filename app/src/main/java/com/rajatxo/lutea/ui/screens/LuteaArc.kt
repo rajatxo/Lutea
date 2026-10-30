@@ -68,11 +68,11 @@ fun LuteaArc(
 
             // ── INNER ARC: needle shape (tapered thickness + alpha fade) ──
             // Max thickness at center (3.5dp), tapers to 0.5dp at ends.
-            // Max alpha at center (0.8 — bright), fades to 0 at ends.
+            // Max alpha at center (0.8 — bright), COMPLETELY fades to 0 at ends.
             val innerMaxStroke = with(density) { 3.5.dp.toPx() }
             val innerMinStroke = with(density) { 0.5.dp.toPx() }
             val innerMaxAlpha = 0.8f  // bright at center
-            val innerFadeRange = 0.45f  // last 45% of each end fades
+            val innerFadeRange = 0.50f  // last 50% of each end fades — MORE fade
 
             val segments = 60
             for (i in 0 until segments) {
@@ -82,23 +82,22 @@ fun LuteaArc(
                 // Distance from nearest endpoint (0 at ends, 0.5 at center)
                 val distFromEndpoint = minOf(segStart, 1f - segStart)
 
-                // Alpha: bright at center, smooth fade to 0 at ends.
-                // Uses a smooth curve (not linear) for organic fade.
+                // Alpha: bright at center, SMOOTH complete fade to 0 at ends.
+                // Uses pow(2.0) for a steeper curve — ends fade MORE aggressively.
                 val alphaFactor = if (distFromEndpoint > innerFadeRange) {
                     1f
                 } else {
-                    // Smooth ease-out: starts fading slowly, accelerates near the end
-                    (distFromEndpoint / innerFadeRange).pow(1.5f)
+                    (distFromEndpoint / innerFadeRange).pow(2.0f)
                 }
                 val segAlpha = innerMaxAlpha * alphaFactor
 
-                if (segAlpha <= 0.005f) continue
+                if (segAlpha <= 0.001f) continue  // skip nearly-invisible segments
 
                 // Thickness: tapers from max (center) to min (ends)
                 val strokeFactor = if (distFromEndpoint > innerFadeRange) {
                     1f
                 } else {
-                    0.3f + 0.7f * (distFromEndpoint / innerFadeRange).pow(1.5f)
+                    0.15f + 0.85f * (distFromEndpoint / innerFadeRange).pow(2.0f)
                 }
                 val segStroke = innerMinStroke + (innerMaxStroke - innerMinStroke) * strokeFactor
 
@@ -113,11 +112,13 @@ fun LuteaArc(
                 )
             }
 
-            // ── OUTER ARC: halo (wider, dimmer, uniform thin) ──
-            // Barely visible ghost ring that provides structure/depth.
-            val outerStroke = with(density) { 1.dp.toPx() }
-            val outerMaxAlpha = 0.08f  // very dim
-            val outerFadeRange = 0.35f  // fades over last 35% of each end
+            // ── OUTER ARC: SAME needle style as inner, just bigger + dimmer ──
+            // Same tapered thickness, same fade curve — just a larger radius
+            // and lower max alpha so it's a subtle halo around the inner arc.
+            val outerMaxStroke = with(density) { 2.5.dp.toPx() }
+            val outerMinStroke = with(density) { 0.3.dp.toPx() }
+            val outerMaxAlpha = 0.2f  // dimmer than inner (0.8 → 0.2)
+            val outerFadeRange = 0.50f  // same fade range as inner
 
             for (i in 0 until segments) {
                 val segStart = i / segments.toFloat()
@@ -125,13 +126,23 @@ fun LuteaArc(
 
                 val distFromEndpoint = minOf(segStart, 1f - segStart)
 
-                val segAlpha = if (distFromEndpoint > outerFadeRange) {
-                    outerMaxAlpha
+                // Same fade curve as inner arc
+                val alphaFactor = if (distFromEndpoint > outerFadeRange) {
+                    1f
                 } else {
-                    outerMaxAlpha * (distFromEndpoint / outerFadeRange).pow(1.5f)
+                    (distFromEndpoint / outerFadeRange).pow(2.0f)
                 }
+                val segAlpha = outerMaxAlpha * alphaFactor
 
-                if (segAlpha <= 0.005f) continue
+                if (segAlpha <= 0.001f) continue
+
+                // Same tapered thickness as inner arc
+                val strokeFactor = if (distFromEndpoint > outerFadeRange) {
+                    1f
+                } else {
+                    0.15f + 0.85f * (distFromEndpoint / outerFadeRange).pow(2.0f)
+                }
+                val segStroke = outerMinStroke + (outerMaxStroke - outerMinStroke) * strokeFactor
 
                 drawArc(
                     color = Color.White.copy(alpha = segAlpha),
@@ -140,7 +151,7 @@ fun LuteaArc(
                     useCenter = false,
                     topLeft = Offset(pivotX - outerRadius, pivotY - outerRadius),
                     size = Size(outerRadius * 2f, outerRadius * 2f),
-                    style = Stroke(width = outerStroke),
+                    style = Stroke(width = segStroke),
                 )
             }
         }
