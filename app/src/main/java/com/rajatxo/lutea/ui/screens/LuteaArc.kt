@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -39,10 +40,8 @@ import kotlin.math.sin
  * LuteaArc — the playlist wheel.
  *
  * Two concentric smooth arcs + balls on BOTH arcs (aligned via imaginary line).
- * Playlist names show next to balls.
- *
- * "New Playlist" button replaces the "Playlists" title.
- * Tapping it opens a dialog to create a new playlist.
+ * Balls always show (even with 0 playlists) as placeholder dots.
+ * "New Playlist" capsule button at top center.
  */
 @Composable
 fun LuteaArc(
@@ -52,10 +51,6 @@ fun LuteaArc(
     val playlists by PlaylistStore.playlists.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
     var activeIndex by remember { mutableStateOf(0) }
-
-    // Use actual playlists, or empty if none created yet
-    val playlistNames = playlists.map { it.name }
-    val hasPlaylists = playlistNames.isNotEmpty()
 
     if (showCreateDialog) {
         var playlistName by remember { mutableStateOf("") }
@@ -74,7 +69,7 @@ fun LuteaArc(
                 TextButton(onClick = {
                     if (playlistName.isNotBlank()) {
                         PlaylistStore.createPlaylist(playlistName)
-                        activeIndex = playlists.size // new playlist becomes active
+                        activeIndex = playlists.size
                     }
                     showCreateDialog = false
                 }) { Text("Create") }
@@ -85,21 +80,33 @@ fun LuteaArc(
         )
     }
 
+    // Use actual playlists, or placeholder names if empty
+    val playlistNames = if (playlists.isNotEmpty()) {
+        playlists.map { it.name }
+    } else {
+        // Show placeholder balls even with no playlists
+        listOf("Tap + New Playlist", "", "", "", "", "", "", "")
+    }
+    val itemCount = playlistNames.size
+    val safeActive = activeIndex.coerceIn(0, itemCount - 1)
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF0A0A0A)),
     ) {
-        // "New Playlist" button at top (replaces "Playlists" title)
+        // ── "New Playlist" capsule button at TOP CENTER ──
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color.White.copy(alpha = 0.05f))
+                .align(Alignment.TopCenter)
+                .padding(top = 80.dp)  // below status bar + header
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.White.copy(alpha = 0.08f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                 ) { showCreateDialog = true }
-                .then(Modifier.padding(horizontal = 20.dp, vertical = 10.dp)),
+                .padding(horizontal = 24.dp, vertical = 12.dp),
         ) {
             Text(
                 text = "+ New Playlist",
@@ -153,60 +160,60 @@ fun LuteaArc(
             // Outer arc
             drawNeedleArc(outerRadius, with(density) { 3.5.dp.toPx() }, with(density) { 0.5.dp.toPx() }, 0.8f)
 
-            // ── BALLS on BOTH arcs ──
-            if (hasPlaylists) {
-                val ballSpacingDeg = 22f
-                val ballFadeRange = 4
-                val itemCount = playlistNames.size
-                val safeActive = activeIndex.coerceIn(0, itemCount - 1)
+            // ── BALLS on BOTH arcs (always show — even with no playlists) ──
+            val ballSpacingDeg = 22f
+            val ballFadeRange = 4
 
-                for (offset in -ballFadeRange..ballFadeRange) {
-                    val index = safeActive + offset
-                    if (index < 0 || index >= itemCount) continue
+            for (offset in -ballFadeRange..ballFadeRange) {
+                val index = safeActive + offset
+                if (index < 0 || index >= itemCount) continue
 
-                    val ballAngleDeg = offset * ballSpacingDeg
-                    val ballAngleRad = Math.toRadians(ballAngleDeg.toDouble())
-                    val cosA = cos(ballAngleRad).toFloat()
-                    val sinA = sin(ballAngleRad).toFloat()
+                val ballAngleDeg = offset * ballSpacingDeg
+                val ballAngleRad = Math.toRadians(ballAngleDeg.toDouble())
+                val cosA = cos(ballAngleRad).toFloat()
+                val sinA = sin(ballAngleRad).toFloat()
 
-                    // Positions on both arcs (same angle = aligned via imaginary line)
-                    val innerBallX = pivotX + innerRadius * cosA
-                    val innerBallY = pivotY + innerRadius * sinA
-                    val outerBallX = pivotX + outerRadius * cosA
-                    val outerBallY = pivotY + outerRadius * sinA
+                // Positions on BOTH arcs (same angle = aligned via imaginary line)
+                val innerBallX = pivotX + innerRadius * cosA
+                val innerBallY = pivotY + innerRadius * sinA
+                val outerBallX = pivotX + outerRadius * cosA
+                val outerBallY = pivotY + outerRadius * sinA
 
-                    val dist = kotlin.math.abs(offset)
-                    val isActive = offset == 0
+                val dist = kotlin.math.abs(offset)
+                val isActive = offset == 0
 
-                    // Active ball is SLIGHTLY smaller (was 6dp, now 5dp)
-                    val ballRadius = if (isActive) {
-                        with(density) { 5.dp.toPx() }
-                    } else {
-                        with(density) { (4f - dist * 0.5f).coerceAtLeast(1.5f).dp.toPx() }
-                    }
+                // Active ball = 5dp, others = 4dp → 1.5dp
+                val ballRadius = if (isActive) {
+                    with(density) { 5.dp.toPx() }
+                } else {
+                    with(density) { (4f - dist * 0.5f).coerceAtLeast(1.5f).dp.toPx() }
+                }
 
-                    val ballAlpha = if (isActive) 1f else (1f - dist * 0.2f).coerceAtLeast(0f)
-                    if (ballAlpha <= 0.01f) continue
+                val ballAlpha = if (isActive) 1f else (1f - dist * 0.2f).coerceAtLeast(0f)
+                if (ballAlpha <= 0.01f) continue
 
-                    // Ball on inner arc
-                    drawCircle(
-                        color = Color.White.copy(alpha = ballAlpha),
-                        radius = ballRadius,
-                        center = Offset(innerBallX, innerBallY),
-                    )
+                // Ball on INNER arc
+                drawCircle(
+                    color = Color.White.copy(alpha = ballAlpha),
+                    radius = ballRadius,
+                    center = Offset(innerBallX, innerBallY),
+                )
 
-                    // Ball on outer arc (aligned — same imaginary line)
-                    drawCircle(
-                        color = Color.White.copy(alpha = ballAlpha * 0.6f),  // slightly dimmer
-                        radius = ballRadius * 0.8f,  // slightly smaller
-                        center = Offset(outerBallX, outerBallY),
-                    )
+                // Ball on OUTER arc (aligned — same imaginary line)
+                // Slightly smaller + dimmer
+                drawCircle(
+                    color = Color.White.copy(alpha = ballAlpha * 0.6f),
+                    radius = ballRadius * 0.8f,
+                    center = Offset(outerBallX, outerBallY),
+                )
 
-                    // Playlist name text next to the ball (outside outer arc)
+                // Playlist name text next to ball (only if not empty)
+                val name = playlistNames[index]
+                if (name.isNotEmpty()) {
                     val textRadius = outerRadius + with(density) { 25.dp.toPx() }
                     val textX = pivotX + textRadius * cosA
                     val textY = pivotY + textRadius * sinA
-                    val rotationDeg = ballAngleDeg - 90f // perpendicular to radius
+                    val rotationDeg = ballAngleDeg - 90f
 
                     val fontSize = if (isActive) 32f else (22f - dist * 2f).coerceAtLeast(10f)
                     val textAlpha = if (isActive) 1f else (1f - dist * 0.2f).coerceAtLeast(0f)
@@ -227,24 +234,10 @@ fun LuteaArc(
                                 )
                                 textAlign = android.graphics.Paint.Align.CENTER
                             }
-                            drawText(playlistNames[index], 0f, 0f, paint)
+                            drawText(name, 0f, 0f, paint)
                             restore()
                         }
                     }
-                }
-            } else {
-                // No playlists yet — show hint text
-                drawContext.canvas.nativeCanvas.apply {
-                    val paint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.argb(100, 255, 255, 255)
-                        textSize = with(density) { 14.sp.toPx() }
-                        textAlign = android.graphics.Paint.Align.CENTER
-                    }
-                    drawText(
-                        "Tap \"+ New Playlist\" to create one",
-                        w * 0.5f, h * 0.5f,
-                        paint
-                    )
                 }
             }
         }
