@@ -250,9 +250,11 @@ fun LuteaArc(
 
             // ── BALLS + TEXT on the wheel ──
             if (itemCount > 0) {
-                // 22° spacing — fits 4 items on each side within the 180° arc
-                // (4 * 22° = 88°, within ±90° half-arc) so all 9 items stay on the arc.
-                val ballSpacingDeg = 22f
+                // 16° spacing — fits all 9 items (4 + main + 4) within the visible portion
+                // of the arc. With pivot off-screen left at -0.2w and outerRadius = 0.52w,
+                // balls stay on-screen up to angle ~67° (cos ≥ 0.385). 4 × 16° = 64° → fits.
+                // The old 22° put offset ±4 at 88° (off-screen), which is why you only saw 3+1+3.
+                val ballSpacingDeg = 16f
                 // Text starts just past the outer ball and extends radially outward.
                 // LEFT-ANCHORED → a long name can never overlap the ball.
                 val textGap = with(density) { 14.dp.toPx() }
@@ -285,14 +287,15 @@ fun LuteaArc(
 
                     val isActive = absOffset < 0.5f
 
-                    // ★ Alpha curve — all 9 items clearly visible (4 above + main + 4 below).
-                    //    Smooth fade from center outward, but the outermost is still readable.
+                    // ★ Coral-style linear opacity fade.
+                    //    Center = 1.0 (full), edge = 0.05 (95% faded, just barely visible).
+                    //    Smooth linear interpolation between — same shape Coral uses on its wheel.
                     val alpha = when {
-                        absOffset < 0.5f -> 1f
-                        absOffset < 1.5f -> 0.88f
-                        absOffset < 2.5f -> 0.68f
-                        absOffset < 3.5f -> 0.45f
-                        else -> 0.30f
+                        absOffset < 0.5f -> 1.00f
+                        absOffset < 1.5f -> 0.75f
+                        absOffset < 2.5f -> 0.50f
+                        absOffset < 3.5f -> 0.25f
+                        else -> 0.05f   // edge: 95% faded
                     }
 
                     // ★ Ball sizes proportional to arc size:
@@ -328,17 +331,16 @@ fun LuteaArc(
 
                     // ── TEXT — only beside OUTER arc, LEFT-ANCHORED, rotated radially ──
                     // Single font (Picaflor) for both, distinguished by CASE + size + alpha:
-                    //   - Active    = UPPERCASE, 28sp, full alpha (the main label, prominent)
-                    //   - Inactive  = lowercase, ~14sp, faded alpha (secondary labels)
-                    if (name.isNotEmpty() && alpha > 0.05f) {
+                    //   - Active    = UPPERCASE, 60sp, full alpha (the main label, prominent)
+                    //   - Inactive  = lowercase, 40sp (constant), faded alpha (secondary labels)
+                    if (name.isNotEmpty() && alpha > 0.04f) {
                         // Anchor: just past the outer ball, extending radially outward.
                         val textStartX = pivotX + (outerRadius + textGap) * cos(outerAngleRad)
                         val textStartY = pivotY + (outerRadius + textGap) * sin(outerAngleRad)
 
                         // Case: main = UPPERCASE, secondary = lowercase
                         val displayText = if (isActive) name.uppercase() else name.lowercase()
-                        val fontSize = if (isActive) 28f
-                        else (15f - absOffset * 0.5f).coerceAtLeast(12f)
+                        val fontSize = if (isActive) 60f else 40f
                         val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
                         val fontFamily = PicaflorFamily
                         val textColor = Color.White.copy(alpha = alpha)
