@@ -112,112 +112,27 @@ fun LuteaScaffold(
                 content()
             }
 
-            // Header blur (120dp) — sits ON TOP of content
-            val useRE = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            // Settings icon only — top-right corner (no header blur, no profile)
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .height(120.dp)
-                    .graphicsLayer {
-                        compositingStrategy = CompositingStrategy.Offscreen
-                        clip = true
-                        if (useRE) {
-                            renderEffect = BlurEffect(20.dp.toPx(), 20.dp.toPx())
-                        }
-                    }
-                    .drawWithContent {
-                        if (useRE) {
-                            drawLayer(graphicsLayer)
-                        } else {
-                            drawContent()
-                        }
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0.0f to Color.Black,
-                                    0.6f to Color.Black,
-                                    1.0f to Color.Transparent
-                                )
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
-            ) {
-                if (!useRE) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .drawBackdrop(
-                                backdrop = glassBackdrop,
-                                shape = { RectangleShape },
-                                effects = {
-                                    vibrancy()
-                                    blur(20f.dp.toPx())
-                                }
-                            )
-                    )
-                }
-            }
-
-            // Header row: profile + title + settings
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
+                    .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .height(56.dp)
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(end = 16.dp, top = 8.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onSettingsClick
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                // Profile icon
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onProfileClick
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = LuteaIcons.CircleUser,
-                        contentDescription = "Profile",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                // Title
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = CalSansFamily,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f)
+                Icon(
+                    imageVector = LuteaIcons.Cog,
+                    contentDescription = "Settings",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
                 )
-                // Settings icon
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onSettingsClick
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = LuteaIcons.Cog,
-                        contentDescription = "Settings",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
             }
 
             // Bottom: TabCapsule + Search FAB

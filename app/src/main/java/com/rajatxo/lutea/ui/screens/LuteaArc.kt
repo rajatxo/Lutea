@@ -3,6 +3,7 @@ package com.rajatxo.lutea.ui.screens
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,13 +26,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -39,18 +46,25 @@ import kotlin.math.sin
 /**
  * LuteaArc — the playlist wheel.
  *
- * Two concentric smooth arcs + balls on BOTH arcs (aligned via imaginary line).
- * Balls always show (even with 0 playlists) as placeholder dots.
- * "New Playlist" capsule button at top center.
+ * - Two concentric smooth arcs (200 segments, no visible bands)
+ * - Balls on BOTH arcs (aligned via imaginary line)
+ * - Text placed radially — ROTATED to follow the arc curve (like Coral)
+ *   Uses Compose textMeasurer + drawText (NOT nativeCanvas)
+ *   Active = CalSans SemiBold, Inactive = Instrument Serif
+ * - Drag to rotate the wheel (vertical drag gesture)
+ * - "+ New Playlist" capsule button at top center
  */
 @Composable
 fun LuteaArc(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
     val playlists by PlaylistStore.playlists.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
-    var activeIndex by remember { mutableStateOf(0) }
+
+    // Wheel rotation state — drag to rotate
+    var rotationItems by remember { mutableStateOf(0f) } // how many "items" rotated
 
     if (showCreateDialog) {
         var playlistName by remember { mutableStateOf("") }
@@ -69,7 +83,6 @@ fun LuteaArc(
                 TextButton(onClick = {
                     if (playlistName.isNotBlank()) {
                         PlaylistStore.createPlaylist(playlistName)
-                        activeIndex = playlists.size
                     }
                     showCreateDialog = false
                 }) { Text("Create") }
@@ -80,26 +93,24 @@ fun LuteaArc(
         )
     }
 
-    // Use actual playlists, or placeholder names if empty
+    // Use actual playlists, or placeholder names
     val playlistNames = if (playlists.isNotEmpty()) {
         playlists.map { it.name }
     } else {
-        // Show placeholder balls even with no playlists
-        listOf("Tap + New Playlist", "", "", "", "", "", "", "")
+        listOf("Create a playlist", "", "", "", "", "", "")
     }
     val itemCount = playlistNames.size
-    val safeActive = activeIndex.coerceIn(0, itemCount - 1)
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF0A0A0A)),
     ) {
-        // ── "New Playlist" capsule button at TOP CENTER ──
+        // "New Playlist" capsule button at TOP CENTER
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 80.dp)  // below status bar + header
+                .padding(top = 16.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color.White.copy(alpha = 0.08f))
                 .clickable(
@@ -117,7 +128,18 @@ fun LuteaArc(
             )
         }
 
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(itemCount) {
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { _, dragAmount ->
+                            // Drag up = rotate one way, drag down = other way
+                            rotationItems += dragAmount / 80f
+                        }
+                    )
+                }
+        ) {
             val w = size.width
             val h = size.height
 
@@ -155,88 +177,119 @@ fun LuteaArc(
                 }
             }
 
-            // Inner arc
+            // Draw arcs
             drawNeedleArc(innerRadius, with(density) { 3.5.dp.toPx() }, with(density) { 0.5.dp.toPx() }, 0.8f)
-            // Outer arc
             drawNeedleArc(outerRadius, with(density) { 3.5.dp.toPx() }, with(density) { 0.5.dp.toPx() }, 0.8f)
 
-            // ── BALLS on BOTH arcs (always show — even with no playlists) ──
-            val ballSpacingDeg = 22f
-            val ballFadeRange = 4
+            // ── BALLS + TEXT on the wheel ──
+            if (itemCount > 0) {
+                val ballSpacingDeg = 22f
+                val textRadius = outerRadius + with(density) { 25.dp.toPx() }
+                val visibleSpan = 4
 
-            for (offset in -ballFadeRange..ballFadeRange) {
-                val index = safeActive + offset
-                if (index < 0 || index >= itemCount) continue
+                for (offset in -visibleSpan..visibleSpan) {
+                    // Calculate which playlist item is at this position
+                    val rawIdx = (rotationItems.toInt() - offset)
+                    val modIdx = ((rawIdx % itemCount) + itemCount) % itemCount
+                    val name = playlistNames[modIdx]
 
-                val ballAngleDeg = offset * ballSpacingDeg
-                val ballAngleRad = Math.toRadians(ballAngleDeg.toDouble())
-                val cosA = cos(ballAngleRad).toFloat()
-                val sinA = sin(ballAngleRad).toFloat()
+                    // Fractional offset for smooth rotation
+                    val fractionalOffset = rotationItems - rotationItems.toInt() + offset
+                    val absOffset = abs(fractionalOffset)
 
-                // Positions on BOTH arcs (same angle = aligned via imaginary line)
-                val innerBallX = pivotX + innerRadius * cosA
-                val innerBallY = pivotY + innerRadius * sinA
-                val outerBallX = pivotX + outerRadius * cosA
-                val outerBallY = pivotY + outerRadius * sinA
+                    if (absOffset > visibleSpan) continue
 
-                val dist = kotlin.math.abs(offset)
-                val isActive = offset == 0
+                    // Angle on the arc
+                    val itemAngleDeg = fractionalOffset * ballSpacingDeg
+                    val itemAngleRad = (itemAngleDeg * Math.PI / 180f).toFloat()
 
-                // Active ball = 5dp, others = 4dp → 1.5dp
-                val ballRadius = if (isActive) {
-                    with(density) { 5.dp.toPx() }
-                } else {
-                    with(density) { (4f - dist * 0.5f).coerceAtLeast(1.5f).dp.toPx() }
-                }
+                    // Position on inner arc (balls)
+                    val ballX = pivotX + innerRadius * cos(itemAngleRad)
+                    val ballY = pivotY + innerRadius * sin(itemAngleRad)
 
-                val ballAlpha = if (isActive) 1f else (1f - dist * 0.2f).coerceAtLeast(0f)
-                if (ballAlpha <= 0.01f) continue
+                    // Position on outer arc (balls)
+                    val outerBallX = pivotX + outerRadius * cos(itemAngleRad)
+                    val outerBallY = pivotY + outerRadius * sin(itemAngleRad)
 
-                // Ball on INNER arc
-                drawCircle(
-                    color = Color.White.copy(alpha = ballAlpha),
-                    radius = ballRadius,
-                    center = Offset(innerBallX, innerBallY),
-                )
+                    // Skip if off-screen
+                    if (ballX < -200f || ballX > w + 200f) continue
 
-                // Ball on OUTER arc (aligned — same imaginary line)
-                // Slightly smaller + dimmer
-                drawCircle(
-                    color = Color.White.copy(alpha = ballAlpha * 0.6f),
-                    radius = ballRadius * 0.8f,
-                    center = Offset(outerBallX, outerBallY),
-                )
+                    val isActive = absOffset < 0.5f
 
-                // Playlist name text next to ball (only if not empty)
-                val name = playlistNames[index]
-                if (name.isNotEmpty()) {
-                    val textRadius = outerRadius + with(density) { 25.dp.toPx() }
-                    val textX = pivotX + textRadius * cosA
-                    val textY = pivotY + textRadius * sinA
-                    val rotationDeg = ballAngleDeg - 90f
+                    // Alpha: smooth fade based on distance
+                    val alpha = when {
+                        absOffset < 0.5f -> 1f
+                        absOffset < 1.5f -> 0.7f
+                        absOffset < 2.5f -> 0.4f
+                        absOffset < 3.5f -> 0.15f
+                        else -> 0.05f
+                    }
 
-                    val fontSize = if (isActive) 32f else (22f - dist * 2f).coerceAtLeast(10f)
-                    val textAlpha = if (isActive) 1f else (1f - dist * 0.2f).coerceAtLeast(0f)
+                    // Ball sizes
+                    val ballRadius = if (isActive) {
+                        with(density) { 5.dp.toPx() }
+                    } else {
+                        with(density) { (4f - absOffset * 0.5f).coerceAtLeast(1.5f).dp.toPx() }
+                    }
 
-                    if (textAlpha > 0.05f) {
-                        drawContext.canvas.nativeCanvas.apply {
-                            save()
-                            translate(textX, textY)
-                            rotate(rotationDeg)
-                            val paint = android.graphics.Paint().apply {
-                                color = android.graphics.Color.argb(
-                                    (textAlpha * 255).toInt(), 255, 255, 255
-                                )
-                                textSize = with(density) { fontSize.sp.toPx() }
-                                typeface = android.graphics.Typeface.create(
-                                    android.graphics.Typeface.SERIF,
-                                    android.graphics.Typeface.NORMAL
-                                )
-                                textAlign = android.graphics.Paint.Align.CENTER
-                            }
-                            drawText(name, 0f, 0f, paint)
-                            restore()
-                        }
+                    if (alpha > 0.01f) {
+                        // Ball on inner arc
+                        drawCircle(
+                            color = Color.White.copy(alpha = alpha),
+                            radius = ballRadius,
+                            center = Offset(ballX, ballY),
+                        )
+
+                        // Ball on outer arc (aligned, smaller + dimmer)
+                        drawCircle(
+                            color = Color.White.copy(alpha = alpha * 0.6f),
+                            radius = ballRadius * 0.8f,
+                            center = Offset(outerBallX, outerBallY),
+                        )
+                    }
+
+                    // ── TEXT — rotated radially (like Coral) ──
+                    if (name.isNotEmpty() && alpha > 0.05f) {
+                        // Text position — OUTSIDE the outer arc
+                        val textX = pivotX + textRadius * cos(itemAngleRad)
+                        val textY = pivotY + textRadius * sin(itemAngleRad)
+
+                        // Font: active = CalSans SemiBold, inactive = serif
+                        val fontSize = if (isActive) 36f else (24f - absOffset * 3f).coerceAtLeast(10f)
+                        val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                        val textColor = Color.White.copy(alpha = alpha)
+
+                        // Measure text
+                        val textLayout = textMeasurer.measure(
+                            text = AnnotatedString(name),
+                            style = TextStyle(
+                                color = textColor,
+                                fontSize = fontSize.sp,
+                                fontWeight = fontWeight,
+                                fontFamily = CalSansFamily,  // using CalSans for now
+                            ),
+                            overflow = TextOverflow.Visible,
+                            maxLines = 1,
+                            softWrap = false,
+                            constraints = Constraints(
+                                maxWidth = Int.MAX_VALUE,
+                                maxHeight = Int.MAX_VALUE
+                            )
+                        )
+
+                        val textW = textLayout.size.width.toFloat()
+                        val textH = textLayout.size.height.toFloat()
+
+                        // Draw text — TRANSLATE to position, ROTATE radially, DRAW centered
+                        drawContext.canvas.save()
+                        drawContext.canvas.translate(textX, textY)
+                        drawContext.canvas.rotate(itemAngleDeg)  // rotate to follow curve
+                        drawText(
+                            textLayoutResult = textLayout,
+                            topLeft = Offset(-textW / 2f, -textH / 2f),
+                            alpha = alpha,
+                        )
+                        drawContext.canvas.restore()
                     }
                 }
             }
