@@ -10,32 +10,34 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.rajatxo.lutea.R
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.pow
 
 /**
- * LuteaArc — the playlist wheel arc (built from scratch, not copied).
+ * LuteaArc — the playlist wheel arc (built from scratch).
  *
- * Two concentric arcs:
+ * Two concentric arcs with ultra-smooth fading + sample text on the arc.
  *
- * 1. INNER ARC (the "needle"):
- *    - Bright at center, fades to 0 at both ends
- *    - Thickness tapers: thick in middle → thin at ends (like a needle)
- *    - 180° sweep, radius = 42% screen width
- *    - White, max alpha 0.8 at center (bright), 0 at ends (completely faded)
+ * Inner arc (radius 0.42w):
+ *  - Needle shape: thick+bright at center, thin+dim at ends
+ *  - 200 segments for buttery-smooth fade (no visible bands)
  *
- * 2. OUTER ARC (the "halo"):
- *    - Wider, dimmer, sits OUTSIDE the inner arc
- *    - Same 180° sweep but larger radius
- *    - White, low alpha 0.08 — barely visible ghost ring
- *    - Provides depth/structure (like Coral's second arc concept)
+ * Outer arc (radius 0.52w):
+ *  - Same needle style, slightly bigger gap from inner
  *
- * The "needle" effect: stroke width varies per segment.
- * Center segments are thickest (3.5dp), end segments taper to 0.5dp.
- * Combined with the alpha fade, the arc looks like a glowing needle
- * that's brightest and thickest at its apex, thinning and dimming
- * toward both ends until it vanishes.
+ * Text: Instrument Serif font, rotated to follow the curve.
+ * Active item is large + bright white. Inactive items are smaller + dim gray.
  */
 @Composable
 fun LuteaArc(
@@ -43,116 +45,140 @@ fun LuteaArc(
 ) {
     val density = LocalDensity.current
 
+    // Instrument Serif font (OFL licensed)
+    val instrumentSerif = FontFamily(
+        Font(R.font.instrument_serif, FontWeight.Normal),
+        Font(R.font.instrument_serif_italic, FontWeight.Normal),  // italic variant if available
+    )
+
+    // Sample playlist names for the wheel
+    val playlistNames = listOf("Chill Vibes", "Workout", "Late Night", "Road Trip", "Acoustic", "Jazz", "Lo-Fi", "Classical")
+    val activeIndex = 3 // "Road Trip" is the active/selected one
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color(0xFF0A0A0A)),
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
 
-            // Pivot — center of the imaginary circle.
             val pivotX = w * -0.20f
             val pivotY = h * 0.50f
 
-            // Inner arc — the "needle"
             val innerRadius = w * 0.42f
+            val outerRadius = w * 0.52f  // bigger gap (was 0.48)
 
-            // Outer arc — the "halo" (bigger, same brightness as inner)
-            val outerRadius = w * 0.48f  // was 0.55 — closer to inner (less gap)
-
-            // Both arcs span 180° — half circle.
             val arcSweepDeg = 180f
             val arcStartDeg = -arcSweepDeg / 2f
 
-            // ── INNER ARC: needle shape (tapered thickness + alpha fade) ──
-            // Max thickness at center (3.5dp), tapers to 0.5dp at ends.
-            // Max alpha at center (0.8 — bright), COMPLETELY fades to 0 at ends.
-            val innerMaxStroke = with(density) { 3.5.dp.toPx() }
-            val innerMinStroke = with(density) { 0.5.dp.toPx() }
-            val innerMaxAlpha = 0.8f  // bright at center
-            val innerFadeRange = 0.50f  // last 50% of each end fades — MORE fade
+            // ── Helper: draw a smooth fading needle arc ──
+            // 200 segments = ultra-smooth, NO visible bands
+            val segments = 200
 
-            val segments = 60
-            for (i in 0 until segments) {
-                val segStart = i / segments.toFloat()
-                val segEnd = (i + 1) / segments.toFloat()
+            fun drawNeedleArc(radius: Float, maxStroke: Float, minStroke: Float, maxAlpha: Float) {
+                val fadeRange = 0.50f
 
-                // Distance from nearest endpoint (0 at ends, 0.5 at center)
-                val distFromEndpoint = minOf(segStart, 1f - segStart)
+                for (i in 0 until segments) {
+                    val segStart = i / segments.toFloat()
+                    val segEnd = (i + 1) / segments.toFloat()
 
-                // Alpha: bright at center, SMOOTH complete fade to 0 at ends.
-                // Uses pow(2.0) for a steeper curve — ends fade MORE aggressively.
-                val alphaFactor = if (distFromEndpoint > innerFadeRange) {
-                    1f
-                } else {
-                    (distFromEndpoint / innerFadeRange).pow(2.0f)
+                    val distFromEndpoint = minOf(segStart, 1f - segStart)
+
+                    // Ultra-smooth fade using pow(2.0) — 200 segments means
+                    // each step is tiny, so NO visible banding
+                    val alphaFactor = if (distFromEndpoint > fadeRange) {
+                        1f
+                    } else {
+                        (distFromEndpoint / fadeRange).pow(2.0f)
+                    }
+                    val segAlpha = maxAlpha * alphaFactor
+
+                    if (segAlpha <= 0.001f) continue
+
+                    val strokeFactor = if (distFromEndpoint > fadeRange) {
+                        1f
+                    } else {
+                        0.15f + 0.85f * (distFromEndpoint / fadeRange).pow(2.0f)
+                    }
+                    val segStroke = minStroke + (maxStroke - minStroke) * strokeFactor
+
+                    drawArc(
+                        color = Color.White.copy(alpha = segAlpha),
+                        startAngle = arcStartDeg + segStart * arcSweepDeg,
+                        sweepAngle = (segEnd - segStart) * arcSweepDeg,
+                        useCenter = false,
+                        topLeft = Offset(pivotX - radius, pivotY - radius),
+                        size = Size(radius * 2f, radius * 2f),
+                        style = Stroke(width = segStroke),
+                    )
                 }
-                val segAlpha = innerMaxAlpha * alphaFactor
-
-                if (segAlpha <= 0.001f) continue  // skip nearly-invisible segments
-
-                // Thickness: tapers from max (center) to min (ends)
-                val strokeFactor = if (distFromEndpoint > innerFadeRange) {
-                    1f
-                } else {
-                    0.15f + 0.85f * (distFromEndpoint / innerFadeRange).pow(2.0f)
-                }
-                val segStroke = innerMinStroke + (innerMaxStroke - innerMinStroke) * strokeFactor
-
-                drawArc(
-                    color = Color.White.copy(alpha = segAlpha),
-                    startAngle = arcStartDeg + segStart * arcSweepDeg,
-                    sweepAngle = (segEnd - segStart) * arcSweepDeg,
-                    useCenter = false,
-                    topLeft = Offset(pivotX - innerRadius, pivotY - innerRadius),
-                    size = Size(innerRadius * 2f, innerRadius * 2f),
-                    style = Stroke(width = segStroke),
-                )
             }
 
-            // ── OUTER ARC: SAME needle style as inner, just bigger + dimmer ──
-            // Same tapered thickness, same fade curve — just a larger radius
-            // and lower max alpha so it's a subtle halo around the inner arc.
-            val outerMaxStroke = with(density) { 3.5.dp.toPx() }  // same as inner
-            val outerMinStroke = with(density) { 0.5.dp.toPx() }  // same as inner
-            val outerMaxAlpha = 0.8f  // same brightness as inner (was 0.2)
-            val outerFadeRange = 0.50f  // same fade range as inner
+            // Inner arc
+            drawNeedleArc(
+                radius = innerRadius,
+                maxStroke = with(density) { 3.5.dp.toPx() },
+                minStroke = with(density) { 0.5.dp.toPx() },
+                maxAlpha = 0.8f,
+            )
 
-            for (i in 0 until segments) {
-                val segStart = i / segments.toFloat()
-                val segEnd = (i + 1) / segments.toFloat()
+            // Outer arc — same brightness, bigger radius
+            drawNeedleArc(
+                radius = outerRadius,
+                maxStroke = with(density) { 3.5.dp.toPx() },
+                minStroke = with(density) { 0.5.dp.toPx() },
+                maxAlpha = 0.8f,
+            )
 
-                val distFromEndpoint = minOf(segStart, 1f - segStart)
+            // ── Text on the arc ──
+            // Each playlist name is positioned along the outer arc's circumference.
+            // Active item is large + bright. Others are smaller + dim.
+            val textRadius = outerRadius + with(density) { 20.dp.toPx() }
+            val visibleRange = 4 // items each side of active
 
-                // Same fade curve as inner arc
-                val alphaFactor = if (distFromEndpoint > outerFadeRange) {
-                    1f
-                } else {
-                    (distFromEndpoint / outerFadeRange).pow(2.0f)
+            for (offset in -visibleRange..visibleRange) {
+                val index = (activeIndex + offset).coerceIn(0, playlistNames.lastIndex)
+                val name = playlistNames[index]
+
+                // Angle for this item on the arc
+                val itemAngle = offset * 22f // 22° per item
+                val angleRad = Math.toRadians(itemAngle.toDouble())
+
+                // Position on the arc circumference
+                val textX = pivotX + textRadius * cos(angleRad).toFloat()
+                val textY = pivotY + textRadius * sin(angleRad).toFloat()
+
+                // Rotation — text baseline follows the curve (perpendicular to radius)
+                val rotationDeg = itemAngle - 90f // -90 so text is upright at center
+
+                // Size + alpha based on distance from active item
+                val dist = kotlin.math.abs(offset)
+                val isActive = offset == 0
+                val fontSize = if (isActive) 42f else (30f - dist * 3f).coerceAtLeast(12f)
+                val alpha = if (isActive) 1f else (1f - dist * 0.18f).coerceAtLeast(0.1f)
+                val textColor = if (isActive) Color.White else Color.White.copy(alpha = alpha)
+
+                // Draw text using native canvas (for rotation)
+                drawContext.canvas.nativeCanvas.apply {
+                    save()
+                    translate(textX, textY)
+                    rotate(rotationDeg)
+                    val paint = android.graphics.Paint().apply {
+                        color = android.graphics.Color.argb(
+                            (alpha * 255).toInt(), 255, 255, 255
+                        )
+                        textSize = with(density) { fontSize.sp.toPx() }
+                        typeface = android.graphics.Typeface.create(
+                            android.graphics.Typeface.SERIF,
+                            if (isActive) android.graphics.Typeface.NORMAL else android.graphics.Typeface.NORMAL
+                        )
+                        textAlign = android.graphics.Paint.Align.CENTER
+                    }
+                    drawText(name, 0f, 0f, paint)
+                    restore()
                 }
-                val segAlpha = outerMaxAlpha * alphaFactor
-
-                if (segAlpha <= 0.001f) continue
-
-                // Same tapered thickness as inner arc
-                val strokeFactor = if (distFromEndpoint > outerFadeRange) {
-                    1f
-                } else {
-                    0.15f + 0.85f * (distFromEndpoint / outerFadeRange).pow(2.0f)
-                }
-                val segStroke = outerMinStroke + (outerMaxStroke - outerMinStroke) * strokeFactor
-
-                drawArc(
-                    color = Color.White.copy(alpha = segAlpha),
-                    startAngle = arcStartDeg + segStart * arcSweepDeg,
-                    sweepAngle = (segEnd - segStart) * arcSweepDeg,
-                    useCenter = false,
-                    topLeft = Offset(pivotX - outerRadius, pivotY - outerRadius),
-                    size = Size(outerRadius * 2f, outerRadius * 2f),
-                    style = Stroke(width = segStroke),
-                )
             }
         }
     }
