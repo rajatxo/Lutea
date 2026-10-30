@@ -337,8 +337,12 @@ fun LuteaArc(
                 val w = size.width
                 val h = size.height
 
-                // === 1. PIVOT (off-screen, left) — Coral spec ===
-                val pivotX = w * -0.50f
+                // === 1. PIVOT (off-screen, left) ===
+                // Lutea's pivot at -20% width (smaller offset than Coral's -50%
+                // because Lutea's radii are 0.42w/0.52w, not Coral's 0.65w).
+                // With outerRadius = 0.52w, the arc's right edge lands at
+                // -0.20w + 0.52w = 0.32w — covers the left third of the screen.
+                val pivotX = w * -0.20f
                 val pivotY = h * 0.50f
 
                 // === 2. DUAL CONCENTRIC RADII SYSTEM (Lutea's own geometry) ===
