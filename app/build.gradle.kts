@@ -5,6 +5,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 // ─── Signing keystore ───
@@ -107,4 +108,7 @@ dependencies {
 
     // ★ Coil3 — image loading (album art)
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
+
+    // ★ Kotlinx Serialization — playlist persistence
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 }

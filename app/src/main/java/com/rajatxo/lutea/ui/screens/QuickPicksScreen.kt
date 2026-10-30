@@ -65,7 +65,7 @@ fun QuickPicksScreen(
         title = when (activeTab) {
             LuteaTab.QuickPicks -> "Quick Picks"
             LuteaTab.Songs -> "Songs"
-            LuteaTab.Playlists -> "Playlists"
+            LuteaTab.Playlists -> ""  // empty — LuteaArc has its own "New Playlist" button
         },
         activeTab = activeTab,
         onTabSelected = { activeTab = it },
