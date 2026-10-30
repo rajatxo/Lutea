@@ -10,34 +10,26 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.rajatxo.lutea.R
 import kotlin.math.cos
-import kotlin.math.sin
 import kotlin.math.pow
+import kotlin.math.sin
 
 /**
  * LuteaArc — the playlist wheel arc (built from scratch).
  *
- * Two concentric arcs with ultra-smooth fading + sample text on the arc.
+ * Two concentric smooth arcs + balls on the arc (one per playlist item).
  *
- * Inner arc (radius 0.42w):
+ * The balls:
+ *  - Positioned ON the inner arc (on the curve)
+ *  - Active ball (center) is LARGER (6dp) + bright white
+ *  - Inactive balls are SMALLER (4dp) + dim, getting dimmer further away
+ *  - Generous spacing between balls (breathable, not cluttered like Coral)
+ *
+ * Arcs:
+ *  - 200 segments for ultra-smooth fade (no visible bands)
  *  - Needle shape: thick+bright at center, thin+dim at ends
- *  - 200 segments for buttery-smooth fade (no visible bands)
- *
- * Outer arc (radius 0.52w):
- *  - Same needle style, slightly bigger gap from inner
- *
- * Text: Instrument Serif font, rotated to follow the curve.
- * Active item is large + bright white. Inactive items are smaller + dim gray.
  */
 @Composable
 fun LuteaArc(
@@ -45,15 +37,9 @@ fun LuteaArc(
 ) {
     val density = LocalDensity.current
 
-    // Instrument Serif font (OFL licensed)
-    val instrumentSerif = FontFamily(
-        Font(R.font.instrument_serif, FontWeight.Normal),
-        Font(R.font.instrument_serif_italic, FontWeight.Normal),  // italic variant if available
-    )
-
-    // Sample playlist names for the wheel
-    val playlistNames = listOf("Chill Vibes", "Workout", "Late Night", "Road Trip", "Acoustic", "Jazz", "Lo-Fi", "Classical")
-    val activeIndex = 3 // "Road Trip" is the active/selected one
+    // Sample playlist count
+    val playlistCount = 8
+    val activeIndex = 3
 
     Box(
         modifier = modifier
@@ -68,13 +54,12 @@ fun LuteaArc(
             val pivotY = h * 0.50f
 
             val innerRadius = w * 0.42f
-            val outerRadius = w * 0.52f  // bigger gap (was 0.48)
+            val outerRadius = w * 0.52f
 
             val arcSweepDeg = 180f
             val arcStartDeg = -arcSweepDeg / 2f
 
-            // ── Helper: draw a smooth fading needle arc ──
-            // 200 segments = ultra-smooth, NO visible bands
+            // ── Helper: draw smooth fading needle arc ──
             val segments = 200
 
             fun drawNeedleArc(radius: Float, maxStroke: Float, minStroke: Float, maxAlpha: Float) {
@@ -86,8 +71,6 @@ fun LuteaArc(
 
                     val distFromEndpoint = minOf(segStart, 1f - segStart)
 
-                    // Ultra-smooth fade using pow(2.0) — 200 segments means
-                    // each step is tiny, so NO visible banding
                     val alphaFactor = if (distFromEndpoint > fadeRange) {
                         1f
                     } else {
@@ -124,7 +107,7 @@ fun LuteaArc(
                 maxAlpha = 0.8f,
             )
 
-            // Outer arc — same brightness, bigger radius
+            // Outer arc
             drawNeedleArc(
                 radius = outerRadius,
                 maxStroke = with(density) { 3.5.dp.toPx() },
@@ -132,53 +115,48 @@ fun LuteaArc(
                 maxAlpha = 0.8f,
             )
 
-            // ── Text on the arc ──
-            // Each playlist name is positioned along the outer arc's circumference.
-            // Active item is large + bright. Others are smaller + dim.
-            val textRadius = outerRadius + with(density) { 20.dp.toPx() }
-            val visibleRange = 4 // items each side of active
+            // ── BALLS on the inner arc ──
+            // One ball per playlist item, positioned ON the arc curve.
+            // Generous spacing — 22° per item (breathable, not cluttered).
+            val ballSpacingDeg = 22f
+            val ballFadeRange = 4 // items visible each side of active
 
-            for (offset in -visibleRange..visibleRange) {
-                val index = (activeIndex + offset).coerceIn(0, playlistNames.lastIndex)
-                val name = playlistNames[index]
+            for (offset in -ballFadeRange..ballFadeRange) {
+                val index = (activeIndex + offset)
+                if (index < 0 || index >= playlistCount) continue
 
-                // Angle for this item on the arc
-                val itemAngle = offset * 22f // 22° per item
-                val angleRad = Math.toRadians(itemAngle.toDouble())
+                // Angle on the arc for this ball
+                val ballAngleDeg = offset * ballSpacingDeg
+                val ballAngleRad = Math.toRadians(ballAngleDeg.toDouble())
 
-                // Position on the arc circumference
-                val textX = pivotX + textRadius * cos(angleRad).toFloat()
-                val textY = pivotY + textRadius * sin(angleRad).toFloat()
+                // Position ON the inner arc
+                val ballX = pivotX + innerRadius * cos(ballAngleRad).toFloat()
+                val ballY = pivotY + innerRadius * sin(ballAngleRad).toFloat()
 
-                // Rotation — text baseline follows the curve (perpendicular to radius)
-                val rotationDeg = itemAngle - 90f // -90 so text is upright at center
-
-                // Size + alpha based on distance from active item
+                // Size + alpha based on distance from active
                 val dist = kotlin.math.abs(offset)
                 val isActive = offset == 0
-                val fontSize = if (isActive) 42f else (30f - dist * 3f).coerceAtLeast(12f)
-                val alpha = if (isActive) 1f else (1f - dist * 0.18f).coerceAtLeast(0.1f)
-                val textColor = if (isActive) Color.White else Color.White.copy(alpha = alpha)
 
-                // Draw text using native canvas (for rotation)
-                drawContext.canvas.nativeCanvas.apply {
-                    save()
-                    translate(textX, textY)
-                    rotate(rotationDeg)
-                    val paint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.argb(
-                            (alpha * 255).toInt(), 255, 255, 255
-                        )
-                        textSize = with(density) { fontSize.sp.toPx() }
-                        typeface = android.graphics.Typeface.create(
-                            android.graphics.Typeface.SERIF,
-                            if (isActive) android.graphics.Typeface.NORMAL else android.graphics.Typeface.NORMAL
-                        )
-                        textAlign = android.graphics.Paint.Align.CENTER
-                    }
-                    drawText(name, 0f, 0f, paint)
-                    restore()
+                val ballRadius = if (isActive) {
+                    with(density) { 6.dp.toPx() }  // active = bigger
+                } else {
+                    with(density) { (4f - dist * 0.5f).coerceAtLeast(1.5f).dp.toPx() }
                 }
+
+                // Alpha: bright at center, fades smoothly to 0
+                val ballAlpha = if (isActive) {
+                    1f
+                } else {
+                    (1f - dist * 0.2f).coerceAtLeast(0f)
+                }
+
+                if (ballAlpha <= 0.01f) continue
+
+                drawCircle(
+                    color = Color.White.copy(alpha = ballAlpha),
+                    radius = ballRadius,
+                    center = Offset(ballX, ballY),
+                )
             }
         }
     }
