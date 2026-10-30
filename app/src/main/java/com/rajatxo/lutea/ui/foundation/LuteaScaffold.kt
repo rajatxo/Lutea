@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,7 +57,7 @@ import com.rajatxo.lutea.ui.util.consistentNavBottomPadding
  *  - Law 1: ONE CompositionLocal for ALL insets (LocalLuteaWindowInsets)
  *  - Law 2: Manual edge-to-edge (WindowCompat in MainActivity)
  *  - Law 3: Theme XML with enforceNavigationBarContrast=false
- *  - Law 7: BoxWithConstraints not needed here (using Box fillMaxSize)
+ *  - Law 7: BoxWithConstraints at root (NEVER screenHeightDp)
  *  - Law 8: Manifest flags already set
  *
  * Structure:
@@ -93,7 +94,9 @@ fun LuteaScaffold(
     }
 
     CompositionLocalProvider(LocalLuteaWindowInsets provides insets) {
-        Box(
+        // ★ Law 7: BoxWithConstraints at root (NEVER screenHeightDp).
+        //    Works in multi-window, split-screen, floating windows, foldables.
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)

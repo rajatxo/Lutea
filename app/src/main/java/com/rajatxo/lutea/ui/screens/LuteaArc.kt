@@ -404,10 +404,16 @@ fun LuteaArc(
                 // === 4. TEXT ITEMS + BALLS on the wheel ===
                 if (playlists.isNotEmpty()) {
                     val rotationItems = scrollOffset.value / pxPerItem
-                    val angleStepDeg = 8f
+                    // ★ 14° spacing = breathable gap between labels (was 8°, too tight).
+                    //    Vertical gap between adjacent items at this radius:
+                    //    0.52w × sin(14°) ≈ 0.126w ≈ 136px on 1080px screen.
+                    //    With 42sp active text (~56px), gap ≈ 80px — plenty of room.
+                    val angleStepDeg = 14f
                     val activeFontSp = 42f
                     val inactiveFontSp = 16f
-                    val visibleSpan = 7
+                    // ±4 = 9 items total (4+1+4). At 14° × 4 = 56°, items stay on-screen
+                    // (cos(56°) = 0.559, ballX = -0.20w + 0.52w×0.559 = 0.091w > 0 ✓).
+                    val visibleSpan = 4
 
                     for (offset in -visibleSpan..visibleSpan) {
                         val rawIdx = (rotationItems.roundToInt() - offset)
