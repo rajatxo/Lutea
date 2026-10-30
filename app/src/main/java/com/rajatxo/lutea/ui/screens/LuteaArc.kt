@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.components.InstrumentSerifFamily
 import com.rajatxo.lutea.ui.components.PicaflorFamily
 import kotlin.math.abs
 import kotlin.math.cos
@@ -55,17 +56,16 @@ import kotlin.math.sin
 /**
  * LuteaArc — the playlist wheel.
  *
- * Coral's layout (what we're repolishing):
- *  - Two concentric arcs, BOTH thick and bright (we don't thin the inner one).
- *  - Balls on BOTH arcs — outer (big arc) balls are BIGGER + BRIGHTER,
- *    inner (small arc) balls are SMALLER + DIMMER, proportional to arc size.
- *  - The two arcs rotate in OPPOSITE directions when you drag.
- *  - Text labels sit ONLY beside the OUTER (big) arc — LEFT-ANCHORED just past
- *    the ball so they extend radially outward. A long name never overlaps the
- *    ball, because the text starts AT the ball + small gap, not centered on it.
- *  - Active item = CalSans SemiBold (large, bright white).
- *    Inactive items = Instrument Serif (smaller, dimmed) — typographic contrast.
- *  - Drag vertically to rotate — each integer step fires tick haptic + sound.
+ * Coral-inspired, simplified:
+ *  - ONE arc (thick + bright, needle-style fading at endpoints) — big arc removed
+ *  - NO balls (removed per design)
+ *  - 9 text labels along the arc (4 above + 1 main + 4 below)
+ *  - Main text    = Picaflor (uppercase glyphs only) — UPPERCASE, 60sp
+ *  - Secondary   = Instrument Serif (Coral's secondary text font) — lowercase, 40sp
+ *  - SMOOTH opacity (continuous smoothstep function of offset, NOT stepped when-blocks)
+ *    — fades smoothly from 1.0 at center to 0.05 (95% fade) at the edge as you drag.
+ *  - Coral-style auto-fit: if a label is wider than the available width budget,
+ *    the canvas is scaled down so the text fits on-screen.
  *
  * Universal Layout Laws:
  *  - Law 1: statusBarsPadding() on the "+ New Playlist" capsule.
@@ -195,8 +195,8 @@ fun LuteaArc(
             val pivotX = w * -0.20f
             val pivotY = h * 0.50f
 
-            val innerRadius = w * 0.42f   // small arc
-            val outerRadius = w * 0.52f   // big arc (primary)
+            // SINGLE arc (Coral has two; per user request we keep only the small one).
+            val arcRadius = w * 0.42f
 
             val arcSweepDeg = 180f
             val arcStartDeg = -arcSweepDeg / 2f
@@ -233,32 +233,26 @@ fun LuteaArc(
                 }
             }
 
-            // ★ BOTH arcs thick + bright — Coral's look (do NOT thin the inner arc).
-            //    "what we did the difference is we just thiken the arc"
+            // ★ Single arc (thick + bright, needle-style fading at endpoints).
+            //    Big (outer) arc removed per user request; balls removed entirely.
             drawNeedleArc(
-                radius = outerRadius,
-                maxStrokePx = with(density) { 3.5.dp.toPx() },
-                minStrokePx = with(density) { 0.5.dp.toPx() },
-                maxAlpha = 0.8f,
-            )
-            drawNeedleArc(
-                radius = innerRadius,
+                radius = arcRadius,
                 maxStrokePx = with(density) { 3.5.dp.toPx() },
                 minStrokePx = with(density) { 0.5.dp.toPx() },
                 maxAlpha = 0.8f,
             )
 
-            // ── BALLS + TEXT on the wheel ──
+            // ── TEXT LABELS along the arc (no balls) ──
             if (itemCount > 0) {
                 // 16° spacing — fits all 9 items (4 + main + 4) within the visible portion
-                // of the arc. With pivot off-screen left at -0.2w and outerRadius = 0.52w,
-                // balls stay on-screen up to angle ~67° (cos ≥ 0.385). 4 × 16° = 64° → fits.
-                // The old 22° put offset ±4 at 88° (off-screen), which is why you only saw 3+1+3.
-                val ballSpacingDeg = 16f
-                // Text starts just past the outer ball and extends radially outward.
-                // LEFT-ANCHORED → a long name can never overlap the ball.
+                // of the arc (with pivot off-screen left at -0.2w and arcRadius = 0.42w,
+                // 4 × 16° = 64° keeps balls on-screen).
+                val itemSpacingDeg = 16f
                 val textGap = with(density) { 14.dp.toPx() }
                 val visibleSpan = 4
+                // Max width budget for each text label (Coral-style auto-fit).
+                // If a label is wider than this, we scale it down to fit.
+                val maxTextWidthPx = w * 0.55f
 
                 for (offset in -visibleSpan..visibleSpan) {
                     val rawIdx = (rotationItems.toInt() - offset)
@@ -269,87 +263,42 @@ fun LuteaArc(
                     val absOffset = abs(fractionalOffset)
                     if (absOffset > visibleSpan) continue
 
-                    // ★ OUTER arc rotates WITH rotationItems direction.
-                    val outerAngleDeg = fractionalOffset * ballSpacingDeg
-                    val outerAngleRad = (outerAngleDeg * Math.PI / 180f).toFloat()
+                    val angleDeg = fractionalOffset * itemSpacingDeg
+                    val angleRad = (angleDeg * Math.PI / 180f).toFloat()
 
-                    // ★ INNER arc rotates in OPPOSITE direction (counter-rotating).
-                    val innerAngleDeg = -fractionalOffset * ballSpacingDeg
-                    val innerAngleRad = (innerAngleDeg * Math.PI / 180f).toFloat()
+                    // Text anchor: just past the arc, extending radially outward.
+                    val textStartX = pivotX + (arcRadius + textGap) * cos(angleRad)
+                    val textStartY = pivotY + (arcRadius + textGap) * sin(angleRad)
 
-                    val outerBallX = pivotX + outerRadius * cos(outerAngleRad)
-                    val outerBallY = pivotY + outerRadius * sin(outerAngleRad)
-
-                    val innerBallX = pivotX + innerRadius * cos(innerAngleRad)
-                    val innerBallY = pivotY + innerRadius * sin(innerAngleRad)
-
-                    if (outerBallX < -300f || outerBallX > w + 300f) continue
+                    // Skip if completely off-screen.
+                    if (textStartX > w + 50f || textStartX < -w) continue
 
                     val isActive = absOffset < 0.5f
 
-                    // ★ Coral-style linear opacity fade.
-                    //    Center = 1.0 (full), edge = 0.05 (95% faded, just barely visible).
-                    //    Smooth linear interpolation between — same shape Coral uses on its wheel.
-                    val alpha = when {
-                        absOffset < 0.5f -> 1.00f
-                        absOffset < 1.5f -> 0.75f
-                        absOffset < 2.5f -> 0.50f
-                        absOffset < 3.5f -> 0.25f
-                        else -> 0.05f   // edge: 95% faded
-                    }
+                    // ★ Coral-style SMOOTH opacity (continuous, no stepped when-blocks).
+                    //    norm = 0 at center → 1 at the visible edge.
+                    //    smoothstep(baseAlpha) gives an ease-in-out fade.
+                    //    Floor at 0.05 so edge items are 95% faded but still visible.
+                    val norm = (absOffset / visibleSpan).coerceIn(0f, 1f)
+                    val baseAlpha = 1f - norm
+                    val smoothAlpha = baseAlpha * baseAlpha * (3f - 2f * baseAlpha)
+                    val alpha = smoothAlpha.coerceAtLeast(0.05f)
 
-                    // ★ Ball sizes proportional to arc size:
-                    //    big (outer) arc  → BIGGER + BRIGHTER balls (primary)
-                    //    small (inner) arc → SMALLER + DIMMER balls (decorative)
-                    val outerBallRadius = if (isActive) {
-                        with(density) { 6.dp.toPx() }
-                    } else {
-                        with(density) { (5f - absOffset * 0.6f).coerceAtLeast(2f).dp.toPx() }
-                    }
-                    val innerBallRadius = if (isActive) {
-                        with(density) { 3.5.dp.toPx() }
-                    } else {
-                        with(density) { (3f - absOffset * 0.5f).coerceAtLeast(1f).dp.toPx() }
-                    }
-
-                    if (alpha > 0.01f) {
-                        // OUTER arc ball — full alpha (BRIGHTER, BIGGER).
-                        // No glow halo (Coral doesn't have one — plain solid circles).
-                        drawCircle(
-                            color = Color.White.copy(alpha = alpha),
-                            radius = outerBallRadius,
-                            center = Offset(outerBallX, outerBallY),
-                        )
-
-                        // INNER arc ball — 45% alpha (DIMMER, SMALLER), counter-rotating.
-                        drawCircle(
-                            color = Color.White.copy(alpha = alpha * 0.45f),
-                            radius = innerBallRadius,
-                            center = Offset(innerBallX, innerBallY),
-                        )
-                    }
-
-                    // ── TEXT — only beside OUTER arc, LEFT-ANCHORED, rotated radially ──
-                    // Single font (Picaflor) for both, distinguished by CASE + size + alpha:
-                    //   - Active    = UPPERCASE, 60sp, full alpha (the main label, prominent)
-                    //   - Inactive  = lowercase, 40sp (constant), faded alpha (secondary labels)
+                    // ── Text content + style ──
+                    //    Active   = Picaflor (uppercase glyphs only) → UPPER the string
+                    //    Secondary = Instrument Serif (Coral's secondary text font) → lower the string
                     if (name.isNotEmpty() && alpha > 0.04f) {
-                        // Anchor: just past the outer ball, extending radially outward.
-                        val textStartX = pivotX + (outerRadius + textGap) * cos(outerAngleRad)
-                        val textStartY = pivotY + (outerRadius + textGap) * sin(outerAngleRad)
-
-                        // Case: main = UPPERCASE, secondary = lowercase
                         val displayText = if (isActive) name.uppercase() else name.lowercase()
-                        val fontSize = if (isActive) 60f else 40f
+                        val baseFontSize = if (isActive) 60f else 40f
                         val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                        val fontFamily = PicaflorFamily
-                        val textColor = Color.White.copy(alpha = alpha)
+                        val fontFamily = if (isActive) PicaflorFamily else InstrumentSerifFamily
+                        val textColor = Color.White.copy(alpha = 1f)  // alpha applied via drawText.alpha
 
                         val textLayout = textMeasurer.measure(
                             text = AnnotatedString(displayText),
                             style = TextStyle(
                                 color = textColor,
-                                fontSize = fontSize.sp,
+                                fontSize = baseFontSize.sp,
                                 fontWeight = fontWeight,
                                 fontFamily = fontFamily,
                             ),
@@ -362,14 +311,17 @@ fun LuteaArc(
                             ),
                         )
 
+                        val textW = textLayout.size.width.toFloat()
                         val textH = textLayout.size.height.toFloat()
 
-                        // Translate → rotate radially → draw LEFT-ANCHORED.
-                        // topLeft = (0, -textH/2) means the text's LEFT edge sits at
-                        // (textStartX, textStartY) and extends outward in +x (rotated frame).
+                        // ★ Coral-style auto-fit: if the text is wider than the
+                        //    available budget, scale the canvas down so it fits.
+                        val scale = if (textW > maxTextWidthPx) maxTextWidthPx / textW else 1f
+
                         drawContext.canvas.save()
                         drawContext.canvas.translate(textStartX, textStartY)
-                        drawContext.canvas.rotate(outerAngleDeg)
+                        drawContext.canvas.rotate(angleDeg)
+                        if (scale < 1f) drawContext.canvas.scale(scale, scale)
                         drawText(
                             textLayoutResult = textLayout,
                             topLeft = Offset(0f, -textH / 2f),
