@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.components.InstrumentSerifFamily
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
@@ -54,21 +55,21 @@ import kotlin.math.sin
 /**
  * LuteaArc — the playlist wheel.
  *
- * Universal Layout Laws followed:
- *  - Law 1: status bar inset via `statusBarsPadding()` for the capsule
- *  - Law 7: Box root, Canvas measured by its own size
- *  - Edge-to-edge: MainActivity already set DecorFitsSystemWindows = false
+ * Coral's layout (what we're repolishing):
+ *  - Two concentric arcs, BOTH thick and bright (we don't thin the inner one).
+ *  - Balls on BOTH arcs — outer (big arc) balls are BIGGER + BRIGHTER,
+ *    inner (small arc) balls are SMALLER + DIMMER, proportional to arc size.
+ *  - The two arcs rotate in OPPOSITE directions when you drag.
+ *  - Text labels sit ONLY beside the OUTER (big) arc — LEFT-ANCHORED just past
+ *    the ball so they extend radially outward. A long name never overlaps the
+ *    ball, because the text starts AT the ball + small gap, not centered on it.
+ *  - Active item = CalSans SemiBold (large, bright white).
+ *    Inactive items = Instrument Serif (smaller, dimmed) — typographic contrast.
+ *  - Drag vertically to rotate — each integer step fires tick haptic + sound.
  *
- * Layout:
- *  - Canvas FIRST (rotating arcs + balls + text labels)
- *  - "+ New Playlist" capsule on TOP (so its click handler wins)
- *
- * Wheel mechanics:
- *  - Two concentric arcs (200 segments each, needle-style fading)
- *  - OUTER (big) arc  = primary, brighter line + bigger/brighter balls + text labels
- *  - INNER (small) arc = counter-rotating, dimmer line + smaller/dimmer balls, no text
- *  - Drag up/down rotates the wheel — outer goes CW, inner goes CCW
- *  - Each integer step crosses an item boundary → tick haptic + sound (Coral pattern)
+ * Universal Layout Laws:
+ *  - Law 1: statusBarsPadding() on the "+ New Playlist" capsule.
+ *  - Edge-to-edge: MainActivity already set DecorFitsSystemWindows = false.
  */
 @Composable
 fun LuteaArc(
@@ -84,7 +85,7 @@ fun LuteaArc(
     // ── Rotation state ──
     var rotationItems by remember { mutableStateOf(0f) }
 
-    // ── Sound + Haptic (same pattern as CynthiaArcDial / LuteaTabCapsule) ──
+    // ── Sound + Haptic (Coral pattern: SoundPool + VIRTUAL_KEY + FLAG_IGNORE) ──
     val soundPool = remember {
         SoundPool.Builder()
             .setMaxStreams(2)
@@ -122,7 +123,7 @@ fun LuteaArc(
     }
     val itemCount = playlistNames.size
 
-    // ── Create Playlist dialog (rendered OUTSIDE the Box so it overlays everything) ──
+    // ── Create Playlist dialog ──
     if (showCreateDialog) {
         var playlistName by remember { mutableStateOf("") }
         AlertDialog(
@@ -147,8 +148,8 @@ fun LuteaArc(
                 TextButton(onClick = {
                     if (playlistName.isNotBlank()) {
                         PlaylistStore.createPlaylist(playlistName)
-                        // Snap the wheel to the freshly created playlist (last index).
-                        // playlists.size here is the OLD count, which equals the new playlist's index.
+                        // Snap the wheel to the freshly created playlist.
+                        // playlists.size here is the OLD count = new playlist's index.
                         rotationItems = playlists.size.toFloat()
                     }
                     showCreateDialog = false
@@ -166,7 +167,7 @@ fun LuteaArc(
             .background(Color(0xFF0A0A0A)),
     ) {
         // ──────────────────────────────────────────────────────────────
-        // 1) CANVAS — rotating arcs + balls + text labels
+        // 1) CANVAS — rotating arcs + balls + text labels.
         //    Placed FIRST so the "+ New Playlist" capsule (drawn next)
         //    sits ON TOP and wins tap events.
         // ──────────────────────────────────────────────────────────────
@@ -177,10 +178,9 @@ fun LuteaArc(
                     detectVerticalDragGestures(
                         onVerticalDrag = { _, dragAmount ->
                             val oldInt = rotationItems.toInt()
-                            // Drag up (negative) = next item; drag down (positive) = prev.
                             rotationItems += dragAmount / 80f
                             val newInt = rotationItems.toInt()
-                            // Tick haptic + sound only when crossing an item boundary.
+                            // Tick haptic + sound only on item-boundary crossings.
                             if (newInt != oldInt) {
                                 tickHaptic()
                             }
@@ -202,7 +202,7 @@ fun LuteaArc(
             val arcStartDeg = -arcSweepDeg / 2f
             val segments = 200
 
-            // Helper: smooth fading needle arc.
+            // Helper: smooth fading needle arc (center thick → endpoints hairline).
             fun drawNeedleArc(
                 radius: Float,
                 maxStrokePx: Float,
@@ -233,35 +233,36 @@ fun LuteaArc(
                 }
             }
 
-            // Outer (big / primary) arc — thicker + brighter.
+            // ★ BOTH arcs thick + bright — Coral's look (do NOT thin the inner arc).
+            //    "what we did the difference is we just thiken the arc"
             drawNeedleArc(
                 radius = outerRadius,
-                maxStrokePx = with(density) { 4.dp.toPx() },
-                minStrokePx = with(density) { 0.6.dp.toPx() },
-                maxAlpha = 0.9f,
+                maxStrokePx = with(density) { 3.5.dp.toPx() },
+                minStrokePx = with(density) { 0.5.dp.toPx() },
+                maxAlpha = 0.8f,
             )
-            // Inner (small / counter-rotating) arc — thinner + dimmer.
             drawNeedleArc(
                 radius = innerRadius,
-                maxStrokePx = with(density) { 2.dp.toPx() },
-                minStrokePx = with(density) { 0.3.dp.toPx() },
-                maxAlpha = 0.5f,
+                maxStrokePx = with(density) { 3.5.dp.toPx() },
+                minStrokePx = with(density) { 0.5.dp.toPx() },
+                maxAlpha = 0.8f,
             )
 
             // ── BALLS + TEXT on the wheel ──
             if (itemCount > 0) {
-                val ballSpacingDeg = 22f
-                // Text sits clearly OUTSIDE the big arc — wide gap so it never overlaps balls.
-                val textRadius = outerRadius + with(density) { 38.dp.toPx() }
+                // 26° spacing — "increase the gap between each text" so labels
+                // never crowd each other even with long playlist names.
+                val ballSpacingDeg = 26f
+                // Text starts just past the outer ball and extends radially outward.
+                // LEFT-ANCHORED → a long name can never overlap the ball.
+                val textGap = with(density) { 14.dp.toPx() }
                 val visibleSpan = 4
 
                 for (offset in -visibleSpan..visibleSpan) {
-                    // Which playlist item is at this position?
                     val rawIdx = (rotationItems.toInt() - offset)
                     val modIdx = ((rawIdx % itemCount) + itemCount) % itemCount
                     val name = playlistNames[modIdx]
 
-                    // Fractional offset from the active slot — smooth rotation.
                     val fractionalOffset = rotationItems - rotationItems.toInt() + offset
                     val absOffset = abs(fractionalOffset)
                     if (absOffset > visibleSpan) continue
@@ -274,20 +275,16 @@ fun LuteaArc(
                     val innerAngleDeg = -fractionalOffset * ballSpacingDeg
                     val innerAngleRad = (innerAngleDeg * Math.PI / 180f).toFloat()
 
-                    // Position on OUTER arc (big).
                     val outerBallX = pivotX + outerRadius * cos(outerAngleRad)
                     val outerBallY = pivotY + outerRadius * sin(outerAngleRad)
 
-                    // Position on INNER arc (small).
                     val innerBallX = pivotX + innerRadius * cos(innerAngleRad)
                     val innerBallY = pivotY + innerRadius * sin(innerAngleRad)
 
-                    // Skip if off-screen.
                     if (outerBallX < -300f || outerBallX > w + 300f) continue
 
                     val isActive = absOffset < 0.5f
 
-                    // Smooth fade based on distance from active slot.
                     val alpha = when {
                         absOffset < 0.5f -> 1f
                         absOffset < 1.5f -> 0.7f
@@ -296,9 +293,9 @@ fun LuteaArc(
                         else -> 0.05f
                     }
 
-                    // ★ Ball sizes — proportional to arc size:
-                    //    big (outer) arc  → bigger + brighter balls (primary)
-                    //    small (inner) arc → smaller + dimmer balls (decorative)
+                    // ★ Ball sizes proportional to arc size:
+                    //    big (outer) arc  → BIGGER + BRIGHTER balls (primary)
+                    //    small (inner) arc → SMALLER + DIMMER balls (decorative)
                     val outerBallRadius = if (isActive) {
                         with(density) { 6.dp.toPx() }
                     } else {
@@ -317,7 +314,7 @@ fun LuteaArc(
                             radius = outerBallRadius,
                             center = Offset(outerBallX, outerBallY),
                         )
-                        // Glow halo behind the active outer ball for extra prominence.
+                        // Soft glow halo behind the active outer ball.
                         if (isActive) {
                             drawCircle(
                                 color = Color.White.copy(alpha = 0.18f),
@@ -326,7 +323,7 @@ fun LuteaArc(
                             )
                         }
 
-                        // INNER arc ball — 45% alpha (DIMMER, SMALLER), counter-rotating
+                        // INNER arc ball — 45% alpha (DIMMER, SMALLER), counter-rotating.
                         drawCircle(
                             color = Color.White.copy(alpha = alpha * 0.45f),
                             radius = innerBallRadius,
@@ -334,16 +331,18 @@ fun LuteaArc(
                         )
                     }
 
-                    // ── TEXT — only beside the OUTER (big) arc, rotated to follow curve ──
+                    // ── TEXT — only beside OUTER arc, LEFT-ANCHORED, rotated radially ──
+                    // Active = CalSans SemiBold (large, bright)
+                    // Inactive = Instrument Serif (smaller, dimmed) — typographic contrast
                     if (name.isNotEmpty() && alpha > 0.05f) {
-                        val textX = pivotX + textRadius * cos(outerAngleRad)
-                        val textY = pivotY + textRadius * sin(outerAngleRad)
+                        // Anchor: just past the outer ball, extending radially outward.
+                        val textStartX = pivotX + (outerRadius + textGap) * cos(outerAngleRad)
+                        val textStartY = pivotY + (outerRadius + textGap) * sin(outerAngleRad)
 
-                        // Slightly smaller active size than before so labels never collide
-                        // with adjacent balls when the playlist name is long.
-                        val fontSize = if (isActive) 30f
-                        else (20f - absOffset * 2.5f).coerceAtLeast(10f)
+                        val fontSize = if (isActive) 28f
+                        else (18f - absOffset * 1.5f).coerceAtLeast(11f)
                         val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                        val fontFamily = if (isActive) CalSansFamily else InstrumentSerifFamily
                         val textColor = Color.White.copy(alpha = alpha)
 
                         val textLayout = textMeasurer.measure(
@@ -352,7 +351,7 @@ fun LuteaArc(
                                 color = textColor,
                                 fontSize = fontSize.sp,
                                 fontWeight = fontWeight,
-                                fontFamily = CalSansFamily,
+                                fontFamily = fontFamily,
                             ),
                             overflow = TextOverflow.Visible,
                             maxLines = 1,
@@ -363,16 +362,17 @@ fun LuteaArc(
                             ),
                         )
 
-                        val textW = textLayout.size.width.toFloat()
                         val textH = textLayout.size.height.toFloat()
 
-                        // Translate → rotate radially → draw centered.
+                        // Translate → rotate radially → draw LEFT-ANCHORED.
+                        // topLeft = (0, -textH/2) means the text's LEFT edge sits at
+                        // (textStartX, textStartY) and extends outward in +x (rotated frame).
                         drawContext.canvas.save()
-                        drawContext.canvas.translate(textX, textY)
+                        drawContext.canvas.translate(textStartX, textStartY)
                         drawContext.canvas.rotate(outerAngleDeg)
                         drawText(
                             textLayoutResult = textLayout,
-                            topLeft = Offset(-textW / 2f, -textH / 2f),
+                            topLeft = Offset(0f, -textH / 2f),
                             alpha = alpha,
                         )
                         drawContext.canvas.restore()
@@ -384,8 +384,7 @@ fun LuteaArc(
         // ──────────────────────────────────────────────────────────────
         // 2) "+ NEW PLAYLIST" CAPSULE — TOP CENTER, beside the settings button.
         //    Drawn AFTER the Canvas so it sits ON TOP and its clickable wins.
-        //    Universal Layout Law: statusBarsPadding() respects the status bar inset,
-        //    so it lines up with the settings cog in LuteaScaffold (not "way to top").
+        //    statusBarsPadding() lines it up with the settings cog (Law #1).
         // ──────────────────────────────────────────────────────────────
         Box(
             modifier = Modifier

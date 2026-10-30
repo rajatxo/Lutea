@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -43,6 +44,18 @@ val CalSansFamily = FontFamily(
     Font(R.font.cal_sans_semibold, FontWeight.SemiBold),
     Font(R.font.cal_sans_semibold, FontWeight.Medium),
     Font(R.font.cal_sans_semibold, FontWeight.Bold),
+)
+
+/**
+ * Instrument Serif font family — bundled in res/font/.
+ * Used for SECONDARY (inactive) playlist names on the wheel, to contrast
+ * with the active item's CalSans SemiBold. The serif italic feel matches
+ * the original LuteaArc.kt design intent: "Active = CalSans SemiBold,
+ * Inactive = Instrument Serif".
+ */
+val InstrumentSerifFamily = FontFamily(
+    Font(R.font.instrument_serif, FontWeight.Normal),
+    Font(R.font.instrument_serif_italic, FontWeight.Normal, FontStyle.Italic),
 )
 
 /**
