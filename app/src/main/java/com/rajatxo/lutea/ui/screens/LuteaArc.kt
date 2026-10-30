@@ -250,9 +250,9 @@ fun LuteaArc(
 
             // ── BALLS + TEXT on the wheel ──
             if (itemCount > 0) {
-                // 26° spacing — "increase the gap between each text" so labels
-                // never crowd each other even with long playlist names.
-                val ballSpacingDeg = 26f
+                // 22° spacing — fits 4 items on each side within the 180° arc
+                // (4 * 22° = 88°, within ±90° half-arc) so all 9 items stay on the arc.
+                val ballSpacingDeg = 22f
                 // Text starts just past the outer ball and extends radially outward.
                 // LEFT-ANCHORED → a long name can never overlap the ball.
                 val textGap = with(density) { 14.dp.toPx() }
@@ -285,12 +285,15 @@ fun LuteaArc(
 
                     val isActive = absOffset < 0.5f
 
+                    // ★ Alpha curve — all 9 items visible (4 above + main + 4 below),
+                    //    smooth fade from center outward. Coral shows the full stack,
+                    //    not just 2 on each side.
                     val alpha = when {
                         absOffset < 0.5f -> 1f
-                        absOffset < 1.5f -> 0.7f
-                        absOffset < 2.5f -> 0.4f
-                        absOffset < 3.5f -> 0.15f
-                        else -> 0.05f
+                        absOffset < 1.5f -> 0.82f
+                        absOffset < 2.5f -> 0.55f
+                        absOffset < 3.5f -> 0.32f
+                        else -> 0.16f
                     }
 
                     // ★ Ball sizes proportional to arc size:
@@ -308,20 +311,13 @@ fun LuteaArc(
                     }
 
                     if (alpha > 0.01f) {
-                        // OUTER arc ball — full alpha (BRIGHTER, BIGGER)
+                        // OUTER arc ball — full alpha (BRIGHTER, BIGGER).
+                        // No glow halo (Coral doesn't have one — plain solid circles).
                         drawCircle(
                             color = Color.White.copy(alpha = alpha),
                             radius = outerBallRadius,
                             center = Offset(outerBallX, outerBallY),
                         )
-                        // Soft glow halo behind the active outer ball.
-                        if (isActive) {
-                            drawCircle(
-                                color = Color.White.copy(alpha = 0.18f),
-                                radius = outerBallRadius * 2.4f,
-                                center = Offset(outerBallX, outerBallY),
-                            )
-                        }
 
                         // INNER arc ball — 45% alpha (DIMMER, SMALLER), counter-rotating.
                         drawCircle(
