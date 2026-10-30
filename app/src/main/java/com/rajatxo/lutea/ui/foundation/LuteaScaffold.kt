@@ -4,20 +4,15 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -135,53 +130,24 @@ fun LuteaScaffold(
                 )
             }
 
-            // Bottom: TabCapsule + Search FAB
-            Row(
+            // Bottom: TabCapsule ONLY — search FAB removed per user request.
+            // Capsule is centered horizontally on the bottom line, smaller (180dp × 44dp).
+            Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
                     .padding(bottom = effBottomDp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
+                contentAlignment = Alignment.Center
             ) {
                 LuteaTabCapsule(
                     tabs = LuteaTab.entries.toList(),
                     activeTab = activeTab,
                     onTabSelected = onTabSelected,
-                    backdrop = glassBackdrop
+                    backdrop = glassBackdrop,
+                    customWidth = 180.dp,
+                    customHeight = 44.dp,
+                    customShape = RoundedCornerShape(22.dp),
                 )
-                Spacer(modifier = Modifier.width(12.dp))
-                // Search FAB
-                val fabShape = CircleShape
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(fabShape)
-                        .drawBackdrop(
-                            backdrop = glassBackdrop,
-                            shape = { fabShape },
-                            effects = {
-                                vibrancy()
-                                colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
-                                blur(18f.dp.toPx())
-                            },
-                            onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
-                        )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onSearchClick
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = LuteaIcons.Search,
-                        contentDescription = "Search",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
             }
         }
     }

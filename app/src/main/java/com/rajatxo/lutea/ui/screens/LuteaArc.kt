@@ -47,7 +47,7 @@ import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.components.InstrumentSerifFamily
-import com.rajatxo.lutea.ui.components.PicaflorFamily
+import com.rajatxo.lutea.ui.components.JunFamily
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
@@ -60,7 +60,7 @@ import kotlin.math.sin
  *  - ONE arc (thick + bright, needle-style fading at endpoints) — big arc removed
  *  - NO balls (removed per design)
  *  - 9 text labels along the arc (4 above + 1 main + 4 below)
- *  - Main text    = Picaflor (uppercase glyphs only) — UPPERCASE, 60sp
+ *  - Main text    = Jun (uppercase) — 60sp, the prominent active label
  *  - Secondary   = Instrument Serif (Coral's secondary text font) — lowercase, 40sp
  *  - SMOOTH opacity (continuous smoothstep function of offset, NOT stepped when-blocks)
  *    — fades smoothly from 1.0 at center to 0.05 (95% fade) at the edge as you drag.
@@ -197,6 +197,9 @@ fun LuteaArc(
 
             // SINGLE arc (Coral has two; per user request we keep only the small one).
             val arcRadius = w * 0.42f
+            // Text starts where the BIG arc USED TO BE (radius 0.52w).
+            // That gives the gap between the small arc and the text labels.
+            val textRadius = w * 0.52f
 
             val arcSweepDeg = 180f
             val arcStartDeg = -arcSweepDeg / 2f
@@ -248,7 +251,6 @@ fun LuteaArc(
                 // of the arc (with pivot off-screen left at -0.2w and arcRadius = 0.42w,
                 // 4 × 16° = 64° keeps balls on-screen).
                 val itemSpacingDeg = 16f
-                val textGap = with(density) { 14.dp.toPx() }
                 val visibleSpan = 4
                 // Max width budget for each text label (Coral-style auto-fit).
                 // If a label is wider than this, we scale it down to fit.
@@ -266,9 +268,10 @@ fun LuteaArc(
                     val angleDeg = fractionalOffset * itemSpacingDeg
                     val angleRad = (angleDeg * Math.PI / 180f).toFloat()
 
-                    // Text anchor: just past the arc, extending radially outward.
-                    val textStartX = pivotX + (arcRadius + textGap) * cos(angleRad)
-                    val textStartY = pivotY + (arcRadius + textGap) * sin(angleRad)
+                    // Text anchor: at the old big-arc radius, extending radially outward.
+                    // (gives a clean gap between the small arc and the text)
+                    val textStartX = pivotX + textRadius * cos(angleRad)
+                    val textStartY = pivotY + textRadius * sin(angleRad)
 
                     // Skip if completely off-screen.
                     if (textStartX > w + 50f || textStartX < -w) continue
@@ -285,13 +288,13 @@ fun LuteaArc(
                     val alpha = smoothAlpha.coerceAtLeast(0.05f)
 
                     // ── Text content + style ──
-                    //    Active   = Picaflor (uppercase glyphs only) → UPPER the string
-                    //    Secondary = Instrument Serif (Coral's secondary text font) → lower the string
+                    //    Active   = Jun (uppercase) — 60sp, prominent main label
+                    //    Secondary = Instrument Serif (Coral's secondary text font) — lowercase, 40sp
                     if (name.isNotEmpty() && alpha > 0.04f) {
                         val displayText = if (isActive) name.uppercase() else name.lowercase()
                         val baseFontSize = if (isActive) 60f else 40f
                         val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                        val fontFamily = if (isActive) PicaflorFamily else InstrumentSerifFamily
+                        val fontFamily = if (isActive) JunFamily else InstrumentSerifFamily
                         val textColor = Color.White.copy(alpha = 1f)  // alpha applied via drawText.alpha
 
                         val textLayout = textMeasurer.measure(
@@ -330,6 +333,42 @@ fun LuteaArc(
                         drawContext.canvas.restore()
                     }
                 }
+            }
+
+            // ──────────────────────────────────────────────────────────────
+            // ★ VERTICAL SLIDER on the RIGHT EDGE — Coral-style wheel position indicator.
+            //    A thin vertical track + a knob whose vertical position reflects which
+            //    playlist is currently active (rotationItems mod itemCount).
+            // ──────────────────────────────────────────────────────────────
+            if (itemCount > 1) {
+                val sliderMarginRight = with(density) { 16.dp.toPx() }
+                val sliderTop = h * 0.30f
+                val sliderBottom = h * 0.70f
+                val sliderHeight = sliderBottom - sliderTop
+                val sliderX = w - sliderMarginRight
+                val sliderStrokePx = with(density) { 1.5.dp.toPx() }
+
+                // Knob position = continuous (rotation mod itemCount) / itemCount.
+                // Wraps smoothly as you rotate past the last item back to the first.
+                val continuousIdx = ((rotationItems % itemCount) + itemCount) % itemCount
+                val knobFraction = (continuousIdx / itemCount).coerceIn(0f, 1f)
+                val knobY = sliderBottom - knobFraction * sliderHeight
+
+                // Track (thin grey line).
+                drawLine(
+                    color = Color.White.copy(alpha = 0.18f),
+                    start = Offset(sliderX, sliderTop),
+                    end = Offset(sliderX, sliderBottom),
+                    strokeWidth = sliderStrokePx,
+                )
+
+                // Knob (small bright dot at the current wheel position).
+                val knobRadius = with(density) { 3.dp.toPx() }
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.85f),
+                    radius = knobRadius,
+                    center = Offset(sliderX, knobY),
+                )
             }
         }
 

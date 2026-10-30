@@ -72,6 +72,16 @@ val PicaflorFamily = FontFamily(
 )
 
 /**
+ * Jun — display font bundled in res/font/jun_regular.otf.
+ * Used for the MAIN (active) playlist label on the wheel — supports both
+ * upper and lowercase glyphs (unlike Picaflor which is uppercase-only).
+ * Rendered UPPERCASE at 60sp for prominence.
+ */
+val JunFamily = FontFamily(
+    Font(R.font.jun_regular, FontWeight.Normal),
+)
+
+/**
  * Per-character blur reveal — port of codrops/ScrollBlurTypography Effect 1.
  *
  * Normal mode (reverse=false): chars start blurred+invisible, animate to sharp+visible.
