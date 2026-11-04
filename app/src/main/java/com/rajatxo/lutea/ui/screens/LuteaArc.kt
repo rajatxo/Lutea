@@ -352,11 +352,10 @@ fun LuteaArc(
                 val pivotY = h * 0.50f
 
                 // === 2. DUAL CONCENTRIC RADII SYSTEM (Lutea's own geometry) ===
-                // ★ Scaled down — everything a little smaller per user request.
-                //    Was: 0.42w / 0.52w. Now: 0.36w / 0.46w (about 12% smaller).
-                //    Arc right edge: -0.20w + 0.46w = 0.26w (was 0.32w) — still on screen.
-                val innerRadius = w * 0.36f   // small arc
-                val outerRadius = w * 0.46f   // big arc (primary — text sits here)
+                // Two thick + bright arcs (kept at Lutea's 3.5dp→0.5dp @ 0.8 alpha needle arc)
+                // at 0.42w (inner) and 0.52w (outer). Text sits just past the outer arc.
+                val innerRadius = w * 0.42f
+                val outerRadius = w * 0.52f
                 val textRadius = outerRadius + with(density) { 14.dp.toPx() }
 
                 val arcSweepDeg = 180f
@@ -416,8 +415,8 @@ fun LuteaArc(
                     //    Keeps the original spacing — outer items extend vertically along
                     //    the arc, even if their balls are slightly off-screen left.
                     val angleStepDeg = 14f
-                    val activeFontSp = 36f
-                    val inactiveFontSp = 14f
+                    val activeFontSp = 42f
+                    val inactiveFontSp = 16f
                     // ±5 = 11 items total (5+1+5), arranged VERTICALLY along the arc curve.
                     // The outermost 2 items are at the very top/bottom of the visible stack.
                     val visibleSpan = 5
@@ -540,8 +539,8 @@ fun LuteaArc(
                 val rotationItems = scrollOffset.value / pxPerItem
                 val angleStepDeg = 14f
                 val visibleSpan = 5
-                val activeFontSp = 36f
-                val inactiveFontSp = 14f
+                val activeFontSp = 42f
+                val inactiveFontSp = 16f
                 val maxBlurDp = 30f
 
             // Cache RenderEffects (Mochy pattern) — quantize to avoid thousands of allocations.
@@ -571,7 +570,7 @@ fun LuteaArc(
 
             val pivotX = w * -0.20f
             val pivotY = h * 0.50f
-            val outerRadius = w * 0.46f
+            val outerRadius = w * 0.52f
             val ballRadiusPx = with(density) { 4.dp.toPx() }
             val gapAfterBallPx = with(density) { 6.dp.toPx() }
             val maxTextWidthPx = with(density) { 173.dp.toPx() }
@@ -657,8 +656,11 @@ fun LuteaArc(
 
                 val textW = textLayout.size.width.toFloat()
                 val textH = textLayout.size.height.toFloat()
+                val textOffsetPx = ballRadiusPx + gapAfterBallPx + textW / 2f
                 val ballX = pivotX + outerRadius * cos(itemAngleRad)
                 val ballY = pivotY + outerRadius * sin(itemAngleRad)
+                val textCenterX = ballX + textOffsetPx * cos(itemAngleRad)
+                val textCenterY = ballY + textOffsetPx * sin(itemAngleRad)
 
                 // ★ Gradient brush for adjacent items (position 2) — white → accent.
                 val isAdjacent = absOffset >= 0.5f && absOffset < 1.5f
@@ -681,26 +683,20 @@ fun LuteaArc(
                 val blurRadiusDp = blurFor(absOffset)
                 val blurEffect = getBlurEffect(blurRadiusDp)
 
-                // ★ 100% PERFECT CIRCLE — all text CENTERS sit on the SAME arc radius.
-                //    Previously text extended radially outward from balls (left-anchored),
-                //    so each label's center was at a different radius depending on its width.
-                //    That broke the circular illusion. Now we center each text on a FIXED
-                //    radius (outerRadius + gap), so all 11 labels form a clean circle.
-                val textCircleRadius = outerRadius + with(density) { 18.dp.toPx() }
-                val textCenterX = pivotX + textCircleRadius * cos(itemAngleRad)
-                val textCenterY = pivotY + textCircleRadius * sin(itemAngleRad)
+                // ★ Position the text so its LEFT-CENTER is at the ball + gap position.
+                //    The text rotates around its LEFT-CENTER (transformOrigin 0, 0.5),
+                //    so we need to move the text up by half its height so the left-center
+                //    lands exactly at the ball position.
+                val textLeftX = ballX + (ballRadiusPx + gapAfterBallPx) * cos(itemAngleRad)
+                val textLeftY = ballY + (ballRadiusPx + gapAfterBallPx) * sin(itemAngleRad)
+                // ★ Compensate: move text up by textH/2 so the rotation pivot (left-center)
+                //    is at the ball position. Without this, the text's top-left corner sits
+                //    at the ball, making the text appear ~half-text-height too low.
+                val pivotXpx = textLeftX
+                val pivotYpx = textLeftY - textH / 2f
 
-                // ★ Rotation pivot = text CENTER (transformOrigin 0.5, 0.5 = default).
-                //    Translate so text center lands at (textCenterX, textCenterY).
-                //    Since the Composable's top-left is at (0,0) after translation,
-                //    the center is at (textW/2, textH/2). We translate by
-                //    (textCenterX - textW/2, textCenterY - textH/2) so the center
-                //    lands on the arc.
-                val translationXpx = textCenterX - textW / 2f
-                val translationYpx = textCenterY - textH / 2f
-
-                val translationXDp = with(density) { translationXpx.toDp() }
-                val translationYDp = with(density) { translationYpx.toDp() }
+                val translationXDp = with(density) { pivotXpx.toDp() }
+                val translationYDp = with(density) { pivotYpx.toDp() }
 
                 // ★ Use TextStyle with brush for gradient text, or color for solid.
                 val style = if (textBrush != null) {
@@ -730,8 +726,7 @@ fun LuteaArc(
                             this.translationX = with(density) { translationXDp.toPx() }
                             this.translationY = with(density) { translationYDp.toPx() }
                             this.rotationZ = itemAngleDeg
-                            // ★ Center pivot (default) — text rotates around its own center,
-                            //    which is now ON the arc. This gives the perfect circle feel.
+                            this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
                             this.renderEffect = blurEffect
                             this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
                         },
