@@ -677,14 +677,19 @@ fun LuteaArc(
                 val blurEffect = getBlurEffect(blurRadiusDp)
 
                 // ★ Position the text so its LEFT-CENTER is at the ball + gap position.
-                //    Use translationX/Y in graphicsLayer (not Modifier.offset) so the
-                //    rotation pivot is at the LEFT-CENTER of the text (transformOrigin 0, 0.5)
-                //    — that's where the ball is, so the text rotates around the ball.
+                //    The text rotates around its LEFT-CENTER (transformOrigin 0, 0.5),
+                //    so we need to move the text up by half its height so the left-center
+                //    lands exactly at the ball position.
                 val textLeftX = ballX + (ballRadiusPx + gapAfterBallPx) * cos(itemAngleRad)
                 val textLeftY = ballY + (ballRadiusPx + gapAfterBallPx) * sin(itemAngleRad)
+                // ★ Compensate: move text up by textH/2 so the rotation pivot (left-center)
+                //    is at the ball position. Without this, the text's top-left corner sits
+                //    at the ball, making the text appear ~half-text-height too low.
+                val pivotXpx = textLeftX
+                val pivotYpx = textLeftY - textH / 2f
 
-                val translationXDp = with(density) { textLeftX.toDp() }
-                val translationYDp = with(density) { textLeftY.toDp() }
+                val translationXDp = with(density) { pivotXpx.toDp() }
+                val translationYDp = with(density) { pivotYpx.toDp() }
 
                 // ★ Use TextStyle with brush for gradient text, or color for solid.
                 val style = if (textBrush != null) {
