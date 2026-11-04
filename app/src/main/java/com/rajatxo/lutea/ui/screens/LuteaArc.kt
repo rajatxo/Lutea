@@ -611,7 +611,7 @@ fun LuteaArc(
                                     android.graphics.Shader.TileMode.DECAL
                                 )
                                 drawIntoCanvas { canvas ->
-                                    canvas.nativeCanvas.renderEffect = renderEffect
+                                    canvas.nativeCanvas.setRenderEffect(renderEffect)
                                 }
                             }
 
@@ -634,7 +634,7 @@ fun LuteaArc(
                             if (blurRadiusDp > 0.1f &&
                                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                                 drawIntoCanvas { canvas ->
-                                    canvas.nativeCanvas.renderEffect = null
+                                    canvas.nativeCanvas.setRenderEffect(null)
                                 }
                             }
 
