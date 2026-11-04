@@ -60,6 +60,17 @@ fun QuickPicksScreen(
 ) {
     // Default tab is Playlists (per user request: 'make the playlist page default')
     var activeTab by remember { mutableStateOf(LuteaTab.Playlists) }
+    // When non-null, the playlist detail screen overlays the wheel.
+    var selectedPlaylist by remember { mutableStateOf<com.rajatxo.lutea.data.model.Playlist?>(null) }
+
+    // Playlist detail screen overlays everything when a playlist is selected.
+    selectedPlaylist?.let { playlist ->
+        PlaylistDetailScreen(
+            playlist = playlist,
+            onBackClick = { selectedPlaylist = null },
+        )
+        return
+    }
 
     LuteaScaffold(
         title = when (activeTab) {
@@ -74,7 +85,7 @@ fun QuickPicksScreen(
         when (activeTab) {
             LuteaTab.QuickPicks -> QuickPicksContent()
             LuteaTab.Songs -> SongsContent()
-            LuteaTab.Playlists -> PlaylistsContent()
+            LuteaTab.Playlists -> PlaylistsContent(onOpenPlaylist = { selectedPlaylist = it })
         }
     }
 }
@@ -365,9 +376,9 @@ private fun formatDuration(ms: Long): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
-// ── Playlists content (placeholder for now — will get the wheel UI later) ──
+// ── Playlists content — the wheel — tap main text opens the playlist ──
 @Composable
-private fun PlaylistsContent() {
+private fun PlaylistsContent(onOpenPlaylist: (com.rajatxo.lutea.data.model.Playlist) -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -376,6 +387,7 @@ private fun PlaylistsContent() {
         // The arc — playlist wheel indicator
         LuteaArc(
             modifier = Modifier.fillMaxSize(),
+            onOpenPlaylist = onOpenPlaylist,
         )
     }
 }

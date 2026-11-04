@@ -250,15 +250,15 @@ fun LuteaArc(
                                 val velocity = velocityTracker.calculateVelocity().y
                                 coroutineScope.launch {
                                     scrollOffset.animateDecay(
-                                        initialVelocity = -velocity * 0.35f,
-                                        animationSpec = exponentialDecay(frictionMultiplier = 0.9f)
+                                        initialVelocity = -velocity * 0.45f,
+                                        animationSpec = exponentialDecay(frictionMultiplier = 2.5f)
                                     )
                                     val nearest = (scrollOffset.value / pxPerItem).roundToInt()
                                     scrollOffset.animateTo(
                                         targetValue = nearest * pxPerItem,
                                         animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessMedium
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessLow
                                         )
                                     )
                                 }
@@ -290,15 +290,15 @@ fun LuteaArc(
                             val velocity = velocityTracker.calculateVelocity().y
                             coroutineScope.launch {
                                 scrollOffset.animateDecay(
-                                    initialVelocity = velocity * 0.20f,
-                                    animationSpec = exponentialDecay(frictionMultiplier = 1.2f)
+                                    initialVelocity = velocity * 0.30f,
+                                    animationSpec = exponentialDecay(frictionMultiplier = 2.5f)
                                 )
                                 val nearest = (scrollOffset.value / pxPerItem).roundToInt()
                                 scrollOffset.animateTo(
                                     targetValue = nearest * pxPerItem,
                                     animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessMedium
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessLow
                                     )
                                 )
                             }
@@ -440,7 +440,7 @@ fun LuteaArc(
                         // ★ Opacity falloff — exact user spec (mirrored top + bottom).
                         //    Position 1 (absOffset 0) = main, colourful accent, 100%
                         //    Position 2 (absOffset 1) = gradient white→accent (kept unchanged)
-                        //    Position 3 (absOffset 2) = pure white 100%
+                        //    Position 3 (absOffset 2) = pure white 90%
                         //    Position 4 (absOffset 3) = 70%
                         //    Position 5 (absOffset 4) = 45%
                         //    Position 6 (absOffset 5) = 25%
@@ -449,8 +449,8 @@ fun LuteaArc(
                         val alpha = when {
                             absOffset < 0.5f -> 1f                                                       // position 1: active, full
                             absOffset < 1.5f -> lerp(1.00f, 0.85f, (absOffset - 0.5f))                   // position 2: gradient zone (kept)
-                            absOffset < 2.5f -> lerp(0.85f, 1.00f, (absOffset - 1.5f))                   // ramp back UP to 100% pure white at position 3
-                            absOffset < 3.5f -> lerp(1.00f, 0.70f, (absOffset - 2.5f))                   // position 4: 70%
+                            absOffset < 2.5f -> lerp(0.85f, 0.90f, (absOffset - 1.5f))                   // ramp to 90% pure white at position 3
+                            absOffset < 3.5f -> lerp(0.90f, 0.70f, (absOffset - 2.5f))                   // position 4: 70%
                             absOffset < 4.5f -> lerp(0.70f, 0.45f, (absOffset - 3.5f))                   // position 5: 45%
                             absOffset < 5.5f -> lerp(0.45f, 0.25f, (absOffset - 4.5f))                   // position 6: 25%
                             else -> lerp(0.25f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))                 // smooth fade-out (anti-blink)
