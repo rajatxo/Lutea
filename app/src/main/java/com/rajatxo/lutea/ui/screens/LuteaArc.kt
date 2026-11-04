@@ -13,8 +13,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -528,15 +528,20 @@ fun LuteaArc(
         //    Smooth lerp between each position — no sudden jumps.
         // ──────────────────────────────────────────────────────────────
         if (playlists.isNotEmpty()) {
-            val configuration = LocalConfiguration.current
-            val w = with(density) { configuration.screenWidthDp.dp.toPx() }
-            val h = with(density) { configuration.screenHeightDp.dp.toPx() }
-            val rotationItems = scrollOffset.value / pxPerItem
-            val angleStepDeg = 14f
-            val visibleSpan = 5
-            val activeFontSp = 42f
-            val inactiveFontSp = 16f
-            val maxBlurDp = 30f
+            // ★ Use BoxWithConstraints to get the ACTUAL measured width/height (not
+            //    configuration.screenWidthDp which includes system bars and is wrong
+            //    for the wheel's coordinate system). The Canvas uses size.width which
+            //    is the same as maxWidth here — this keeps the overlay aligned with
+            //    the arcs/balls drawn in the Canvas.
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val w = with(density) { maxWidth.toPx() }
+                val h = with(density) { maxHeight.toPx() }
+                val rotationItems = scrollOffset.value / pxPerItem
+                val angleStepDeg = 14f
+                val visibleSpan = 5
+                val activeFontSp = 42f
+                val inactiveFontSp = 16f
+                val maxBlurDp = 30f
 
             // Cache RenderEffects (Mochy pattern) — quantize to avoid thousands of allocations.
             val blurCache = remember { mutableMapOf<Int, androidx.compose.ui.graphics.RenderEffect>() }
@@ -584,15 +589,21 @@ fun LuteaArc(
 
                 val isActive = absOffset < 0.5f
 
-                // Alpha (same curve as before).
+                // ★ Opacity per user spec (text opacity, NOT blur opacity):
+                //    Position 1 (main): accent colour, 100%
+                //    Position 2 (gradient): kept
+                //    Position 3: 100% white
+                //    Position 4: 80%
+                //    Position 5: 70%
+                //    Position 6: 61%
                 val alpha = when {
                     absOffset < 0.5f -> 1f
                     absOffset < 1.5f -> lerp(1.00f, 0.85f, (absOffset - 0.5f))
-                    absOffset < 2.5f -> lerp(0.85f, 0.90f, (absOffset - 1.5f))
-                    absOffset < 3.5f -> lerp(0.90f, 0.70f, (absOffset - 2.5f))
-                    absOffset < 4.5f -> lerp(0.70f, 0.45f, (absOffset - 3.5f))
-                    absOffset < 5.5f -> lerp(0.45f, 0.25f, (absOffset - 4.5f))
-                    else -> lerp(0.25f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
+                    absOffset < 2.5f -> lerp(0.85f, 1.00f, (absOffset - 1.5f))    // position 3: 100%
+                    absOffset < 3.5f -> lerp(1.00f, 0.80f, (absOffset - 2.5f))    // position 4: 80%
+                    absOffset < 4.5f -> lerp(0.80f, 0.70f, (absOffset - 3.5f))    // position 5: 70%
+                    absOffset < 5.5f -> lerp(0.70f, 0.61f, (absOffset - 4.5f))    // position 6: 61%
+                    else -> lerp(0.61f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
                 }.coerceIn(0f, 1f)
                 if (alpha < 0.02f) continue
 
@@ -665,8 +676,15 @@ fun LuteaArc(
                 val blurRadiusDp = blurFor(absOffset)
                 val blurEffect = getBlurEffect(blurRadiusDp)
 
-                val offsetXDp = with(density) { (textCenterX - textW / 2f).toDp() }
-                val offsetYDp = with(density) { (textCenterY - textH / 2f).toDp() }
+                // ★ Position the text so its LEFT-CENTER is at the ball + gap position.
+                //    Use translationX/Y in graphicsLayer (not Modifier.offset) so the
+                //    rotation pivot is at the LEFT-CENTER of the text (transformOrigin 0, 0.5)
+                //    — that's where the ball is, so the text rotates around the ball.
+                val textLeftX = ballX + (ballRadiusPx + gapAfterBallPx) * cos(itemAngleRad)
+                val textLeftY = ballY + (ballRadiusPx + gapAfterBallPx) * sin(itemAngleRad)
+
+                val translationXDp = with(density) { textLeftX.toDp() }
+                val translationYDp = with(density) { textLeftY.toDp() }
 
                 // ★ Use TextStyle with brush for gradient text, or color for solid.
                 val style = if (textBrush != null) {
@@ -691,15 +709,18 @@ fun LuteaArc(
                     text = displayText,
                     style = style,
                     modifier = Modifier
-                        .offset(x = offsetXDp, y = offsetYDp)
                         .graphicsLayer {
                             this.alpha = alpha
+                            this.translationX = with(density) { translationXDp.toPx() }
+                            this.translationY = with(density) { translationYDp.toPx() }
                             this.rotationZ = itemAngleDeg
+                            this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
                             this.renderEffect = blurEffect
                             this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
                         },
                 )
             }
+            }  // close BoxWithConstraints
         }
 
         // ──────────────────────────────────────────────────────────────
