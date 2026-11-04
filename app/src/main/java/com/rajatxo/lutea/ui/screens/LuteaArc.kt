@@ -404,15 +404,14 @@ fun LuteaArc(
                 // === 4. TEXT ITEMS + BALLS on the wheel ===
                 if (playlists.isNotEmpty()) {
                     val rotationItems = scrollOffset.value / pxPerItem
-                    // ★ 14° spacing = breathable gap between labels.
-                    //    Vertical gap = 0.52w × sin(14°) ≈ 136px on 1080px screen.
-                    //    Keeps the original spacing — outer items extend vertically along
-                    //    the arc, even if their balls are slightly off-screen left.
-                    val angleStepDeg = 14f
+                    // ★ 10° spacing — tight but not touching (matches Picsart mockup).
+                    //    Vertical gap = 0.52w × sin(10°) ≈ 90px on 1080px screen.
+                    //    Dense, continuous carousel feel — half a line-height breathing room.
+                    val angleStepDeg = 10f
                     val activeFontSp = 42f
                     val inactiveFontSp = 16f
-                    // ±5 = 11 items total (5+1+5), arranged VERTICALLY along the arc curve.
-                    // The outermost 2 items are at the very top/bottom of the visible stack.
+                    // ±5 = 11 items total (5+1+5), arranged along the arc curve.
+                    // All follow the arc tangent (tilted) — outermost items face each other.
                     val visibleSpan = 5
 
                     for (offset in -visibleSpan..visibleSpan) {
@@ -437,24 +436,25 @@ fun LuteaArc(
 
                         val isActive = absOffset < 0.5f
 
-                        // ★ Opacity falloff — raised so the outermost items (absOffset 4–5)
-                        //    are clearly visible (not "barely visible"). Smooth lerp between
-                        //    integer positions so no blink during rotation.
-                        //       absOffset 0  → 1.00   (main, full)
+                        // ★ Opacity falloff — smooth lerp between integer positions.
+                        //    Outermost items (absOffset 4–5) at 35% and 22% — dim but visible,
+                        //    NOT bright white like the mockup (mockup exaggerated brightness
+                        //    for emphasis only). Center stays at 100% with full accent color.
+                        //       absOffset 0  → 1.00   (main, full accent)
                         //       absOffset 1  → 0.70   (70%)
-                        //       absOffset 2  → 0.45   (45%)
-                        //       absOffset 3  → 0.28   (28%)
-                        //       absOffset 4  → 0.15   (15% — outermost visible, was 0.07)
-                        //       absOffset 5  → 0.08   (8% — newest outer items, was 0.045)
-                        //       absOffset 5.5 → 0.03  (smooth fade-out for anti-blink)
+                        //       absOffset 2  → 0.50   (50%)
+                        //       absOffset 3  → 0.35   (35%)
+                        //       absOffset 4  → 0.22   (22% — dim outermost visible)
+                        //       absOffset 5  → 0.12   (12% — newest outer items, very dim)
+                        //       absOffset 5.5 → 0.04  (smooth fade-out for anti-blink)
                         val alpha = when {
                             absOffset < 0.5f -> 1f
                             absOffset < 1.5f -> lerp(1.00f, 0.70f, (absOffset - 0.5f))
-                            absOffset < 2.5f -> lerp(0.70f, 0.45f, (absOffset - 1.5f))
-                            absOffset < 3.5f -> lerp(0.45f, 0.28f, (absOffset - 2.5f))
-                            absOffset < 4.5f -> lerp(0.28f, 0.15f, (absOffset - 3.5f))
-                            absOffset < 5.5f -> lerp(0.15f, 0.08f, (absOffset - 4.5f))
-                            else -> lerp(0.08f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
+                            absOffset < 2.5f -> lerp(0.70f, 0.50f, (absOffset - 1.5f))
+                            absOffset < 3.5f -> lerp(0.50f, 0.35f, (absOffset - 2.5f))
+                            absOffset < 4.5f -> lerp(0.35f, 0.22f, (absOffset - 3.5f))
+                            absOffset < 5.5f -> lerp(0.22f, 0.12f, (absOffset - 4.5f))
+                            else -> lerp(0.12f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
                         }.coerceIn(0f, 1f)
 
                         // Scale: 1.0 at apex → 0.70 → 0.55 → 0.45
@@ -559,19 +559,8 @@ fun LuteaArc(
                         // Anchor: just past the OUTER ball, extending radially outward.
                         val textCenterX = ballX + textOffsetPx * cos(itemAngleRad)
                         val textCenterY = ballY + textOffsetPx * sin(itemAngleRad)
-
-                        // ★ Text rotation — smooth transition from arc-tangent (inner items)
-                        //    to HORIZONTAL (outermost items). The outermost 2 items (absOffset 4–5)
-                        //    render at 0° (vertical on screen, reading normally) instead of being
-                        //    tilted 50–70° like the arc tangent. Inner items (absOffset 0–3) keep
-                        //    their radial rotation so the wheel still feels curved.
-                        //    Transition window: absOffset 3.0 → 4.0 (smooth lerp from arc angle to 0°).
-                        val rotationFactor = when {
-                            absOffset < 3.0f -> 1.0f                                   // full arc rotation
-                            absOffset < 4.0f -> lerp(1.0f, 0.0f, (absOffset - 3.0f))     // smooth transition
-                            else -> 0.0f                                                // horizontal (vertical on screen)
-                        }
-                        val radialDeg = itemAngleDeg * rotationFactor
+                        // Text follows the arc tangent (tilted along the curve, like the mockup).
+                        val radialDeg = itemAngleDeg
 
                         // Adjacent items get a vertical gradient (white → accentColor).
                         val isAdjacent = absOffset >= 0.5f && absOffset < 1.5f
