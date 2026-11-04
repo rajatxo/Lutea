@@ -437,24 +437,23 @@ fun LuteaArc(
 
                         val isActive = absOffset < 0.5f
 
-                        // ★ Opacity falloff — raised so the outermost items (absOffset 4–5)
-                        //    are clearly visible (not "barely visible"). Smooth lerp between
-                        //    integer positions so no blink during rotation.
-                        //       absOffset 0  → 1.00   (main, full)
-                        //       absOffset 1  → 0.70   (70%)
-                        //       absOffset 2  → 0.45   (45%)
-                        //       absOffset 3  → 0.28   (28%)
-                        //       absOffset 4  → 0.15   (15% — outermost visible, was 0.07)
-                        //       absOffset 5  → 0.08   (8% — newest outer items, was 0.045)
-                        //       absOffset 5.5 → 0.03  (smooth fade-out for anti-blink)
+                        // ★ Opacity falloff — exact user spec (mirrored top + bottom).
+                        //    Position 1 (absOffset 0) = main, colourful accent, 100%
+                        //    Position 2 (absOffset 1) = gradient white→accent (kept unchanged)
+                        //    Position 3 (absOffset 2) = pure white 100%
+                        //    Position 4 (absOffset 3) = 70%
+                        //    Position 5 (absOffset 4) = 45%
+                        //    Position 6 (absOffset 5) = 25%
+                        //    Smooth lerp between integer positions; mirror applies automatically
+                        //    because abs(fractionalOffset) is symmetric.
                         val alpha = when {
-                            absOffset < 0.5f -> 1f
-                            absOffset < 1.5f -> lerp(1.00f, 0.70f, (absOffset - 0.5f))
-                            absOffset < 2.5f -> lerp(0.70f, 0.45f, (absOffset - 1.5f))
-                            absOffset < 3.5f -> lerp(0.45f, 0.28f, (absOffset - 2.5f))
-                            absOffset < 4.5f -> lerp(0.28f, 0.15f, (absOffset - 3.5f))
-                            absOffset < 5.5f -> lerp(0.15f, 0.08f, (absOffset - 4.5f))
-                            else -> lerp(0.08f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
+                            absOffset < 0.5f -> 1f                                                       // position 1: active, full
+                            absOffset < 1.5f -> lerp(1.00f, 0.85f, (absOffset - 0.5f))                   // position 2: gradient zone (kept)
+                            absOffset < 2.5f -> lerp(0.85f, 1.00f, (absOffset - 1.5f))                   // ramp back UP to 100% pure white at position 3
+                            absOffset < 3.5f -> lerp(1.00f, 0.70f, (absOffset - 2.5f))                   // position 4: 70%
+                            absOffset < 4.5f -> lerp(0.70f, 0.45f, (absOffset - 3.5f))                   // position 5: 45%
+                            absOffset < 5.5f -> lerp(0.45f, 0.25f, (absOffset - 4.5f))                   // position 6: 25%
+                            else -> lerp(0.25f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))                 // smooth fade-out (anti-blink)
                         }.coerceIn(0f, 1f)
 
                         // Scale: 1.0 at apex → 0.70 → 0.55 → 0.45
