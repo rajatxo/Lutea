@@ -63,8 +63,8 @@ import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.model.Playlist
 import com.rajatxo.lutea.data.store.PlaylistStore
+import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
-import com.rajatxo.lutea.ui.components.NyghtSerifFamily
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
@@ -650,14 +650,15 @@ fun LuteaArc(
                     else -> lerp(0.80f, 0.78f, (absOffset - 4.5f).coerceIn(0f, 1f))
                 }
 
-                val displayText = playlist.name.replaceFirstChar { ch ->
-                    if (ch.isLowerCase()) ch.uppercaseChar().toString() else ch.toString()
-                }
+                // ★ Billie Eilish font for both — distinguished by CASE:
+                //    Active   = UPPERCASE (large, accent colour)
+                //    Inactive = lowercase (smaller, white/faded)
+                val displayText = if (isActive) playlist.name.uppercase() else playlist.name.lowercase()
                 val textColor = if (isActive) accentColor else Color.White
                 var baseFontSp = lerp(activeFontSp, inactiveFontSp, (1f - scale).coerceIn(0f, 1f))
-                val fontFamily = if (isActive) CalSansFamily else NyghtSerifFamily
-                val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Light
-                val fontStyle = if (isActive) FontStyle.Normal else FontStyle.Italic
+                val fontFamily = BillieEilishFamily
+                val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                val fontStyle = FontStyle.Normal
 
                 // ★ Auto-fit: measure text, shrink font if wider than 173dp budget.
                 val textLayout = textMeasurer.measure(

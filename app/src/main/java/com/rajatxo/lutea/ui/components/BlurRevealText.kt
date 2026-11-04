@@ -100,6 +100,20 @@ val NyghtSerifFamily = FontFamily(
 )
 
 /**
+ * Billie Eilish — display font bundled in res/font/billie_eilish.ttf.
+ * Used for BOTH the active and secondary playlist names on the wheel:
+ *   - Active item   = UPPERCASE, larger, accent color
+ *   - Secondary items = lowercase, smaller, white/faded
+ * Single font, two treatments (case + size + color) for clear hierarchy.
+ */
+val BillieEilishFamily = FontFamily(
+    Font(R.font.billie_eilish, FontWeight.Normal),
+    Font(R.font.billie_eilish, FontWeight.Medium),
+    Font(R.font.billie_eilish, FontWeight.SemiBold),
+    Font(R.font.billie_eilish, FontWeight.Bold),
+)
+
+/**
  * Per-character blur reveal — port of codrops/ScrollBlurTypography Effect 1.
  *
  * Normal mode (reverse=false): chars start blurred+invisible, animate to sharp+visible.
