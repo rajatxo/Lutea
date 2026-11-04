@@ -404,14 +404,15 @@ fun LuteaArc(
                 // === 4. TEXT ITEMS + BALLS on the wheel ===
                 if (playlists.isNotEmpty()) {
                     val rotationItems = scrollOffset.value / pxPerItem
-                    // ★ 12° spacing — fits all 11 items (5+1+5) on-screen comfortably.
-                    //    At 12° × 5 = 60°, cos(60°) = 0.5, so the outermost ball is at
-                    //    ballX = -0.20w + 0.52w × 0.5 = 0.06w (6% from left edge — on screen).
-                    //    Vertical gap = 0.52w × sin(12°) ≈ 0.108w ≈ 117px on 1080px screen.
-                    val angleStepDeg = 12f
+                    // ★ 14° spacing = breathable gap between labels.
+                    //    Vertical gap = 0.52w × sin(14°) ≈ 136px on 1080px screen.
+                    //    Keeps the original spacing — outer items extend vertically along
+                    //    the arc, even if their balls are slightly off-screen left.
+                    val angleStepDeg = 14f
                     val activeFontSp = 42f
                     val inactiveFontSp = 16f
-                    // ±5 = 11 items total (5+1+5). The outermost 2 are very faded but visible.
+                    // ±5 = 11 items total (5+1+5), arranged VERTICALLY along the arc curve.
+                    // The outermost 2 items are at the very top/bottom of the visible stack.
                     val visibleSpan = 5
 
                     for (offset in -visibleSpan..visibleSpan) {
@@ -421,10 +422,8 @@ fun LuteaArc(
 
                         val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
                         val absOffset = abs(fractionalOffset)
-                        // ★ Anti-blink: allow items slightly past visibleSpan to keep rendering
-                        //    so they smoothly fade to alpha 0 (instead of being abruptly cut off
-                        //    when absOffset crosses the integer boundary). Items with alpha < 0.005
-                        //    are effectively invisible anyway, so no visible cost.
+                        // ★ Anti-blink: let items render past visibleSpan so they smoothly
+                        //    fade to alpha 0 instead of being abruptly cut off mid-fade.
                         if (absOffset > visibleSpan + 0.5f) continue
 
                         val itemAngleDeg = fractionalOffset * angleStepDeg
@@ -438,15 +437,24 @@ fun LuteaArc(
 
                         val isActive = absOffset < 0.5f
 
-                        // Coral's smooth opacity falloff (smooth lerp between integer positions).
+                        // ★ Opacity falloff — raised so the outermost items (absOffset 4–5)
+                        //    are clearly visible (not "barely visible"). Smooth lerp between
+                        //    integer positions so no blink during rotation.
+                        //       absOffset 0  → 1.00   (main, full)
+                        //       absOffset 1  → 0.70   (70%)
+                        //       absOffset 2  → 0.45   (45%)
+                        //       absOffset 3  → 0.28   (28%)
+                        //       absOffset 4  → 0.15   (15% — outermost visible, was 0.07)
+                        //       absOffset 5  → 0.08   (8% — newest outer items, was 0.045)
+                        //       absOffset 5.5 → 0.03  (smooth fade-out for anti-blink)
                         val alpha = when {
                             absOffset < 0.5f -> 1f
                             absOffset < 1.5f -> lerp(1.00f, 0.70f, (absOffset - 0.5f))
                             absOffset < 2.5f -> lerp(0.70f, 0.45f, (absOffset - 1.5f))
-                            absOffset < 3.5f -> lerp(0.45f, 0.25f, (absOffset - 2.5f))
-                            absOffset < 4.5f -> lerp(0.25f, 0.07f, (absOffset - 3.5f))
-                            absOffset < 5.5f -> lerp(0.07f, 0.02f, (absOffset - 4.5f))
-                            else -> lerp(0.02f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
+                            absOffset < 3.5f -> lerp(0.45f, 0.28f, (absOffset - 2.5f))
+                            absOffset < 4.5f -> lerp(0.28f, 0.15f, (absOffset - 3.5f))
+                            absOffset < 5.5f -> lerp(0.15f, 0.08f, (absOffset - 4.5f))
+                            else -> lerp(0.08f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
                         }.coerceIn(0f, 1f)
 
                         // Scale: 1.0 at apex → 0.70 → 0.55 → 0.45
