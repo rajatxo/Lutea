@@ -611,8 +611,15 @@ fun LuteaArc(
                                     android.graphics.Shader.TileMode.DECAL
                                 )
                                 drawIntoCanvas { canvas ->
-                                    val nc: android.graphics.Canvas = canvas.nativeCanvas
-                                    nc.setRenderEffect(renderEffect)
+                                    val nc = canvas.nativeCanvas
+                                    // Use reflection — Kotlin compiler can't resolve setRenderEffect
+                                    // directly on the native Canvas (Compose SDK version issue).
+                                    // The method exists at runtime on API 31+.
+                                    try {
+                                        val method = android.graphics.Canvas::class.java
+                                            .getMethod("setRenderEffect", android.graphics.RenderEffect::class.java)
+                                        method.invoke(nc, renderEffect)
+                                    } catch (_: Exception) { }
                                 }
                             }
 
@@ -635,8 +642,12 @@ fun LuteaArc(
                             if (blurRadiusDp > 0.1f &&
                                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                                 drawIntoCanvas { canvas ->
-                                    val nc: android.graphics.Canvas = canvas.nativeCanvas
-                                    nc.setRenderEffect(null)
+                                    val nc = canvas.nativeCanvas
+                                    try {
+                                        val method = android.graphics.Canvas::class.java
+                                            .getMethod("setRenderEffect", android.graphics.RenderEffect::class.java)
+                                        method.invoke(nc, null as Any?)
+                                    } catch (_: Exception) { }
                                 }
                             }
 
