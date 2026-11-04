@@ -501,129 +501,33 @@ fun LuteaArc(
                             )
                         }
 
-                        // === TEXT ===
-                        val displayText = playlist.name.replaceFirstChar { ch ->
-                            if (ch.isLowerCase()) ch.uppercaseChar().toString() else ch.toString()
-                        }
-                        // Active = accent color, inactive = white (Coral text-color rule).
-                        val textColor = if (isActive) accentColor else Color.White
-
-                        val gapAfterBallPx = with(density) { 6.dp.toPx() }
-                        val maxTextWidthPx = with(density) { 173.dp.toPx() }
-                        val baseFontSp = lerp(activeFontSp, inactiveFontSp, (1f - scale).coerceIn(0f, 1f))
-                        val textFontFamily = if (isActive) CalSansFamily else NyghtSerifFamily
-                        val textFontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Light
-                        val textFontStyle = if (isActive) FontStyle.Normal else FontStyle.Italic
-
-                        var fontSp = baseFontSp
-                        var textLayout = textMeasurer.measure(
-                            text = AnnotatedString(displayText),
-                            style = TextStyle(
-                                color = textColor,
-                                fontSize = fontSp.sp,
-                                fontWeight = textFontWeight,
-                                fontStyle = textFontStyle,
-                                fontFamily = textFontFamily
-                            ),
-                            overflow = TextOverflow.Visible,
-                            maxLines = 1,
-                            softWrap = false,
-                            constraints = Constraints(
-                                maxWidth = Int.MAX_VALUE,
-                                maxHeight = Int.MAX_VALUE
-                            )
-                        )
-
-                        // SHRINK ONLY: if text wider than 173dp, scale font down to fit.
-                        val measuredWidth = textLayout.size.width.toFloat()
-                        if (measuredWidth > maxTextWidthPx && measuredWidth > 0f) {
-                            val shrinkRatio = maxTextWidthPx / measuredWidth
-                            fontSp = (baseFontSp * shrinkRatio).coerceAtLeast(8f)
-                            textLayout = textMeasurer.measure(
-                                text = AnnotatedString(displayText),
-                                style = TextStyle(
-                                    color = textColor,
-                                    fontSize = fontSp.sp,
-                                    fontWeight = textFontWeight,
-                                    fontStyle = textFontStyle,
-                                    fontFamily = textFontFamily
-                                ),
-                                overflow = TextOverflow.Visible,
-                                maxLines = 1,
-                                softWrap = false,
-                                constraints = Constraints(
-                                    maxWidth = Int.MAX_VALUE,
-                                    maxHeight = Int.MAX_VALUE
-                                )
-                            )
-                        }
-
-                        val textW = textLayout.size.width.toFloat()
-                        val textH = textLayout.size.height.toFloat()
-                        val textOffsetPx = ballRadiusPx + gapAfterBallPx + textW / 2f
-                        // Anchor: just past the OUTER ball, extending radially outward.
-                        val textCenterX = ballX + textOffsetPx * cos(itemAngleRad)
-                        val textCenterY = ballY + textOffsetPx * sin(itemAngleRad)
-                        val radialDeg = itemAngleDeg
-
-                        // Adjacent items get a vertical gradient (white → accentColor).
-                        val isAdjacent = absOffset >= 0.5f && absOffset < 1.5f
-                        val textBrush: Brush? = if (isAdjacent) {
-                            if (fractionalOffset < 0) {
-                                Brush.verticalGradient(
-                                    colors = listOf(Color.White, accentColor),
-                                    startY = 0f,
-                                    endY = textH
-                                )
-                            } else {
-                                Brush.verticalGradient(
-                                    colors = listOf(accentColor, Color.White),
-                                    startY = 0f,
-                                    endY = textH
-                                )
-                            }
-                        } else null
-
-                        if (alpha > 0.01f) {
-                            drawContext.canvas.save()
-                            drawContext.canvas.translate(textCenterX, textCenterY)
-                            drawContext.canvas.rotate(radialDeg)
-
-                            if (textBrush != null) {
-                                drawText(
-                                    textLayoutResult = textLayout,
-                                    topLeft = Offset(-textW / 2f, -textH / 2f),
-                                    alpha = alpha,
-                                    brush = textBrush
-                                )
-                            } else {
-                                drawText(
-                                    textLayoutResult = textLayout,
-                                    topLeft = Offset(-textW / 2f, -textH / 2f),
-                                    alpha = alpha
-                                )
-                            }
-
-                            drawContext.canvas.restore()
-                        }
+                        // ★ Text labels are now rendered as separate Composables in the
+                        //    overlay below (for per-item blur via graphicsLayer). Nothing
+                        //    text-related is drawn here — prevents the "shadow/ghost" double
+                        //    rendering that happened when text was drawn in BOTH the Canvas
+                        //    (sharp) and the overlay (blurred).
                     }
                 }
             }
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ PROGRESSIVE BLUR OVERLAY — text labels rendered as separate Composables
-        //    so each can have its own `graphicsLayer { renderEffect = blur }`.
-        //    Drawing blur inside the Canvas via nativeCanvas.setRenderEffect() compiles
-        //    but doesn't render (single display-list pass). The Mochy-Music pattern
-        //    (graphicsLayer + asComposeRenderEffect) is the correct Compose way.
+        // ★ PROGRESSIVE BLUR OVERLAY — ALL 11 text labels rendered as separate
+        //    Composables so each can have its own `graphicsLayer { renderEffect }`.
         //
-        // User spec (new):
-        //    Position 4 (absOffset 3): blur 10% with gradient to clear
-        //    Position 5 (absOffset 4): blur 35%
-        //    Position 6 (absOffset 5): blur 50%
+        //    Text is NO LONGER drawn in the Canvas — this prevents the "shadow"
+        //    double-rendering (sharp underneath + blurred on top).
+        //
+        //    Blur is a SMOOTH GRADIENT from clear (center) to blurred (edges):
+        //       Position 1 (absOffset 0): 0dp — sharp, accent colour
+        //       Position 2 (absOffset 1): 0dp — sharp, gradient white→accent
+        //       Position 3 (absOffset 2): 0.5dp — barely visible blur starts
+        //       Position 4 (absOffset 3): 3dp — light blur (gradient to clear)
+        //       Position 5 (absOffset 4): 10dp — medium blur (35%)
+        //       Position 6 (absOffset 5): 15dp — heavy blur (50%)
+        //    Smooth lerp between each position — no sudden jumps.
         // ──────────────────────────────────────────────────────────────
-        if (playlists.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        if (playlists.isNotEmpty()) {
             val configuration = LocalConfiguration.current
             val w = with(density) { configuration.screenWidthDp.dp.toPx() }
             val h = with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -632,6 +536,7 @@ fun LuteaArc(
             val visibleSpan = 5
             val activeFontSp = 42f
             val inactiveFontSp = 16f
+            val maxBlurDp = 30f
 
             // Cache RenderEffects (Mochy pattern) — quantize to avoid thousands of allocations.
             val blurCache = remember { mutableMapOf<Int, androidx.compose.ui.graphics.RenderEffect>() }
@@ -647,19 +552,23 @@ fun LuteaArc(
                 }
             }
 
-            // Blur radii per user spec (in dp):
-            //   absOffset 3 → 10% of max → ~3dp (gradient to clear)
-            //   absOffset 4 → 35% of max → ~10dp
-            //   absOffset 5 → 50% of max → ~15dp
-            // Max blur = 30dp (tunable). Smooth lerp between integer positions.
-            val maxBlurDp = 30f
+            // ★ SMOOTH blur gradient — no sudden jumps. Starts barely visible at position 3,
+            //    ramps through 10% (pos 4) → 35% (pos 5) → 50% (pos 6).
             fun blurFor(absOffset: Float): Float = when {
-                absOffset < 3.0f -> 0f                                              // sharp (positions 1-3)
-                absOffset < 4.0f -> lerp(0f, maxBlurDp * 0.10f, (absOffset - 3.0f))  // position 4: 10%
+                absOffset < 2.0f -> 0f                                                       // positions 1-2: sharp
+                absOffset < 3.0f -> lerp(0f, maxBlurDp * 0.03f, (absOffset - 2.0f))          // position 3: tiny blur (3% of max)
+                absOffset < 4.0f -> lerp(maxBlurDp * 0.03f, maxBlurDp * 0.10f, (absOffset - 3.0f))  // position 4: 10% (gradient to clear)
                 absOffset < 5.0f -> lerp(maxBlurDp * 0.10f, maxBlurDp * 0.35f, (absOffset - 4.0f))  // position 5: 35%
                 absOffset < 5.5f -> lerp(maxBlurDp * 0.35f, maxBlurDp * 0.50f, (absOffset - 5.0f))  // position 6: 50%
                 else -> maxBlurDp * 0.50f
             }
+
+            val pivotX = w * -0.20f
+            val pivotY = h * 0.50f
+            val outerRadius = w * 0.52f
+            val ballRadiusPx = with(density) { 4.dp.toPx() }
+            val gapAfterBallPx = with(density) { 6.dp.toPx() }
+            val maxTextWidthPx = with(density) { 173.dp.toPx() }
 
             for (offset in -visibleSpan..visibleSpan) {
                 val rawIdx = (rotationItems.roundToInt() - offset)
@@ -675,7 +584,7 @@ fun LuteaArc(
 
                 val isActive = absOffset < 0.5f
 
-                // Alpha (same curve as the Canvas-drawn labels — keep in sync).
+                // Alpha (same curve as before).
                 val alpha = when {
                     absOffset < 0.5f -> 1f
                     absOffset < 1.5f -> lerp(1.00f, 0.85f, (absOffset - 0.5f))
@@ -698,26 +607,12 @@ fun LuteaArc(
                     if (ch.isLowerCase()) ch.uppercaseChar().toString() else ch.toString()
                 }
                 val textColor = if (isActive) accentColor else Color.White
-                val baseFontSp = lerp(activeFontSp, inactiveFontSp, (1f - scale).coerceIn(0f, 1f))
+                var baseFontSp = lerp(activeFontSp, inactiveFontSp, (1f - scale).coerceIn(0f, 1f))
                 val fontFamily = if (isActive) CalSansFamily else NyghtSerifFamily
                 val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Light
                 val fontStyle = if (isActive) FontStyle.Normal else FontStyle.Italic
 
-                // Skip blur overlay for items where blur = 0 (positions 1-3) — already drawn in Canvas.
-                val blurRadiusDp = blurFor(absOffset)
-                if (blurRadiusDp <= 0.1f) continue
-
-                val blurEffect = getBlurEffect(blurRadiusDp)
-
-                // Position: same as the Canvas-drawn label (textCenterX/Y in pixels).
-                // We need to convert back to Dp for the offset.
-                val pivotX = w * -0.20f
-                val pivotY = h * 0.50f
-                val outerRadius = w * 0.52f
-                val textRadius = outerRadius + with(density) { 14.dp.toPx() }
-                val ballRadiusPx = with(density) { 4.dp.toPx() }
-                val gapAfterBallPx = with(density) { 6.dp.toPx() }
-                // Use the same text width approximation — measure once for the offset.
+                // ★ Auto-fit: measure text, shrink font if wider than 173dp budget.
                 val textLayout = textMeasurer.measure(
                     text = AnnotatedString(displayText),
                     style = TextStyle(
@@ -731,10 +626,16 @@ fun LuteaArc(
                     maxLines = 1,
                     softWrap = false,
                     constraints = Constraints(
-                        maxWidth = with(density) { 173.dp.toPx().toInt() },
+                        maxWidth = Int.MAX_VALUE,
                         maxHeight = Int.MAX_VALUE,
                     ),
                 )
+                val measuredWidth = textLayout.size.width.toFloat()
+                if (measuredWidth > maxTextWidthPx && measuredWidth > 0f) {
+                    val shrinkRatio = maxTextWidthPx / measuredWidth
+                    baseFontSp = (baseFontSp * shrinkRatio).coerceAtLeast(8f)
+                }
+
                 val textW = textLayout.size.width.toFloat()
                 val textH = textLayout.size.height.toFloat()
                 val textOffsetPx = ballRadiusPx + gapAfterBallPx + textW / 2f
@@ -743,16 +644,52 @@ fun LuteaArc(
                 val textCenterX = ballX + textOffsetPx * cos(itemAngleRad)
                 val textCenterY = ballY + textOffsetPx * sin(itemAngleRad)
 
+                // ★ Gradient brush for adjacent items (position 2) — white → accent.
+                val isAdjacent = absOffset >= 0.5f && absOffset < 1.5f
+                val textBrush: Brush? = if (isAdjacent) {
+                    if (fractionalOffset < 0) {
+                        Brush.verticalGradient(
+                            colors = listOf(Color.White, accentColor),
+                            startY = 0f,
+                            endY = textH
+                        )
+                    } else {
+                        Brush.verticalGradient(
+                            colors = listOf(accentColor, Color.White),
+                            startY = 0f,
+                            endY = textH
+                        )
+                    }
+                } else null
+
+                val blurRadiusDp = blurFor(absOffset)
+                val blurEffect = getBlurEffect(blurRadiusDp)
+
                 val offsetXDp = with(density) { (textCenterX - textW / 2f).toDp() }
                 val offsetYDp = with(density) { (textCenterY - textH / 2f).toDp() }
 
+                // ★ Use TextStyle with brush for gradient text, or color for solid.
+                val style = if (textBrush != null) {
+                    TextStyle(
+                        brush = textBrush,
+                        fontSize = baseFontSp.sp,
+                        fontWeight = fontWeight,
+                        fontStyle = fontStyle,
+                        fontFamily = fontFamily,
+                    )
+                } else {
+                    TextStyle(
+                        color = textColor,
+                        fontSize = baseFontSp.sp,
+                        fontWeight = fontWeight,
+                        fontStyle = fontStyle,
+                        fontFamily = fontFamily,
+                    )
+                }
+
                 Text(
                     text = displayText,
-                    color = textColor,
-                    fontSize = baseFontSp.sp,
-                    fontWeight = fontWeight,
-                    fontStyle = fontStyle,
-                    fontFamily = fontFamily,
+                    style = style,
                     modifier = Modifier
                         .offset(x = offsetXDp, y = offsetYDp)
                         .graphicsLayer {
