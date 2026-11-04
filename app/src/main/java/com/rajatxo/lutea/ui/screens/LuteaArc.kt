@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,10 +36,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -46,6 +49,7 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -585,44 +589,6 @@ fun LuteaArc(
                             drawContext.canvas.translate(textCenterX, textCenterY)
                             drawContext.canvas.rotate(radialDeg)
 
-                            // ★ Progressive blur — per user spec.
-                            //    Position 1 (absOffset 0): sharp (0dp)
-                            //    Position 2 (absOffset 1): barely noticeable (1dp)
-                            //    Position 3 (absOffset 2): slight (2dp)
-                            //    Position 4 (absOffset 3): medium (4dp)
-                            //    Position 5 (absOffset 4): heavier (7dp)
-                            //    Position 6 (absOffset 5): heaviest, dissolving (11dp)
-                            //    Smooth lerp between integer positions for buttery transitions.
-                            //    Only applies on Android 12+ (API 31+); older Android renders sharp.
-                            val blurRadiusDp = when {
-                                absOffset < 0.5f -> 0f
-                                absOffset < 1.5f -> lerp(0f, 1f, (absOffset - 0.5f))
-                                absOffset < 2.5f -> lerp(1f, 2f, (absOffset - 1.5f))
-                                absOffset < 3.5f -> lerp(2f, 4f, (absOffset - 2.5f))
-                                absOffset < 4.5f -> lerp(4f, 7f, (absOffset - 3.5f))
-                                absOffset < 5.5f -> lerp(7f, 11f, (absOffset - 4.5f))
-                                else -> 11f
-                            }
-                            if (blurRadiusDp > 0.1f &&
-                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                                val blurRadiusPx = with(density) { blurRadiusDp.dp.toPx() }
-                                val renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                                    blurRadiusPx, blurRadiusPx,
-                                    android.graphics.Shader.TileMode.DECAL
-                                )
-                                drawIntoCanvas { canvas ->
-                                    val nc = canvas.nativeCanvas
-                                    // Use reflection — Kotlin compiler can't resolve setRenderEffect
-                                    // directly on the native Canvas (Compose SDK version issue).
-                                    // The method exists at runtime on API 31+.
-                                    try {
-                                        val method = android.graphics.Canvas::class.java
-                                            .getMethod("setRenderEffect", android.graphics.RenderEffect::class.java)
-                                        method.invoke(nc, renderEffect)
-                                    } catch (_: Exception) { }
-                                }
-                            }
-
                             if (textBrush != null) {
                                 drawText(
                                     textLayoutResult = textLayout,
@@ -638,23 +604,164 @@ fun LuteaArc(
                                 )
                             }
 
-                            // Clear the RenderEffect so it doesn't affect subsequent draws.
-                            if (blurRadiusDp > 0.1f &&
-                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                                drawIntoCanvas { canvas ->
-                                    val nc = canvas.nativeCanvas
-                                    try {
-                                        val method = android.graphics.Canvas::class.java
-                                            .getMethod("setRenderEffect", android.graphics.RenderEffect::class.java)
-                                        method.invoke(nc, null as Any?)
-                                    } catch (_: Exception) { }
-                                }
-                            }
-
                             drawContext.canvas.restore()
                         }
                     }
                 }
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // ★ PROGRESSIVE BLUR OVERLAY — text labels rendered as separate Composables
+        //    so each can have its own `graphicsLayer { renderEffect = blur }`.
+        //    Drawing blur inside the Canvas via nativeCanvas.setRenderEffect() compiles
+        //    but doesn't render (single display-list pass). The Mochy-Music pattern
+        //    (graphicsLayer + asComposeRenderEffect) is the correct Compose way.
+        //
+        // User spec (new):
+        //    Position 4 (absOffset 3): blur 10% with gradient to clear
+        //    Position 5 (absOffset 4): blur 35%
+        //    Position 6 (absOffset 5): blur 50%
+        // ──────────────────────────────────────────────────────────────
+        if (playlists.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val configuration = LocalConfiguration.current
+            val w = with(density) { configuration.screenWidthDp.dp.toPx() }
+            val h = with(density) { configuration.screenHeightDp.dp.toPx() }
+            val rotationItems = scrollOffset.value / pxPerItem
+            val angleStepDeg = 14f
+            val visibleSpan = 5
+            val activeFontSp = 42f
+            val inactiveFontSp = 16f
+
+            // Cache RenderEffects (Mochy pattern) — quantize to avoid thousands of allocations.
+            val blurCache = remember { mutableMapOf<Int, androidx.compose.ui.graphics.RenderEffect>() }
+            fun getBlurEffect(radiusDp: Float): androidx.compose.ui.graphics.RenderEffect? {
+                if (radiusDp <= 0.1f) return null
+                val key = (radiusDp * 10).toInt()  // quantize to 0.1dp steps
+                return blurCache.getOrPut(key) {
+                    val radiusPx = with(density) { radiusDp.dp.toPx() }
+                    android.graphics.RenderEffect.createBlurEffect(
+                        radiusPx, radiusPx,
+                        android.graphics.Shader.TileMode.DECAL
+                    ).asComposeRenderEffect()
+                }
+            }
+
+            // Blur radii per user spec (in dp):
+            //   absOffset 3 → 10% of max → ~3dp (gradient to clear)
+            //   absOffset 4 → 35% of max → ~10dp
+            //   absOffset 5 → 50% of max → ~15dp
+            // Max blur = 30dp (tunable). Smooth lerp between integer positions.
+            val maxBlurDp = 30f
+            fun blurFor(absOffset: Float): Float = when {
+                absOffset < 3.0f -> 0f                                              // sharp (positions 1-3)
+                absOffset < 4.0f -> lerp(0f, maxBlurDp * 0.10f, (absOffset - 3.0f))  // position 4: 10%
+                absOffset < 5.0f -> lerp(maxBlurDp * 0.10f, maxBlurDp * 0.35f, (absOffset - 4.0f))  // position 5: 35%
+                absOffset < 5.5f -> lerp(maxBlurDp * 0.35f, maxBlurDp * 0.50f, (absOffset - 5.0f))  // position 6: 50%
+                else -> maxBlurDp * 0.50f
+            }
+
+            for (offset in -visibleSpan..visibleSpan) {
+                val rawIdx = (rotationItems.roundToInt() - offset)
+                val modIdx = ((rawIdx % playlists.size) + playlists.size) % playlists.size
+                val playlist = playlists[modIdx]
+
+                val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
+                val absOffset = abs(fractionalOffset)
+                if (absOffset > visibleSpan + 0.5f) continue
+
+                val itemAngleDeg = fractionalOffset * angleStepDeg
+                val itemAngleRad = (itemAngleDeg * PI / 180f).toFloat()
+
+                val isActive = absOffset < 0.5f
+
+                // Alpha (same curve as the Canvas-drawn labels — keep in sync).
+                val alpha = when {
+                    absOffset < 0.5f -> 1f
+                    absOffset < 1.5f -> lerp(1.00f, 0.85f, (absOffset - 0.5f))
+                    absOffset < 2.5f -> lerp(0.85f, 0.90f, (absOffset - 1.5f))
+                    absOffset < 3.5f -> lerp(0.90f, 0.70f, (absOffset - 2.5f))
+                    absOffset < 4.5f -> lerp(0.70f, 0.45f, (absOffset - 3.5f))
+                    absOffset < 5.5f -> lerp(0.45f, 0.25f, (absOffset - 4.5f))
+                    else -> lerp(0.25f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
+                }.coerceIn(0f, 1f)
+                if (alpha < 0.02f) continue
+
+                val scale = when {
+                    absOffset < 0.5f -> 1f
+                    absOffset < 1.5f -> lerp(1f, 0.70f, (absOffset - 0.5f))
+                    absOffset < 2.5f -> lerp(0.70f, 0.55f, (absOffset - 1.5f))
+                    else -> lerp(0.55f, 0.45f, (absOffset - 2.5f).coerceIn(0f, 1f))
+                }
+
+                val displayText = playlist.name.replaceFirstChar { ch ->
+                    if (ch.isLowerCase()) ch.uppercaseChar().toString() else ch.toString()
+                }
+                val textColor = if (isActive) accentColor else Color.White
+                val baseFontSp = lerp(activeFontSp, inactiveFontSp, (1f - scale).coerceIn(0f, 1f))
+                val fontFamily = if (isActive) CalSansFamily else NyghtSerifFamily
+                val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Light
+                val fontStyle = if (isActive) FontStyle.Normal else FontStyle.Italic
+
+                // Skip blur overlay for items where blur = 0 (positions 1-3) — already drawn in Canvas.
+                val blurRadiusDp = blurFor(absOffset)
+                if (blurRadiusDp <= 0.1f) continue
+
+                val blurEffect = getBlurEffect(blurRadiusDp)
+
+                // Position: same as the Canvas-drawn label (textCenterX/Y in pixels).
+                // We need to convert back to Dp for the offset.
+                val pivotX = w * -0.20f
+                val pivotY = h * 0.50f
+                val outerRadius = w * 0.52f
+                val textRadius = outerRadius + with(density) { 14.dp.toPx() }
+                val ballRadiusPx = with(density) { 4.dp.toPx() }
+                val gapAfterBallPx = with(density) { 6.dp.toPx() }
+                // Use the same text width approximation — measure once for the offset.
+                val textLayout = textMeasurer.measure(
+                    text = AnnotatedString(displayText),
+                    style = TextStyle(
+                        color = textColor,
+                        fontSize = baseFontSp.sp,
+                        fontWeight = fontWeight,
+                        fontStyle = fontStyle,
+                        fontFamily = fontFamily,
+                    ),
+                    overflow = TextOverflow.Visible,
+                    maxLines = 1,
+                    softWrap = false,
+                    constraints = Constraints(
+                        maxWidth = with(density) { 173.dp.toPx().toInt() },
+                        maxHeight = Int.MAX_VALUE,
+                    ),
+                )
+                val textW = textLayout.size.width.toFloat()
+                val textH = textLayout.size.height.toFloat()
+                val textOffsetPx = ballRadiusPx + gapAfterBallPx + textW / 2f
+                val ballX = pivotX + outerRadius * cos(itemAngleRad)
+                val ballY = pivotY + outerRadius * sin(itemAngleRad)
+                val textCenterX = ballX + textOffsetPx * cos(itemAngleRad)
+                val textCenterY = ballY + textOffsetPx * sin(itemAngleRad)
+
+                val offsetXDp = with(density) { (textCenterX - textW / 2f).toDp() }
+                val offsetYDp = with(density) { (textCenterY - textH / 2f).toDp() }
+
+                Text(
+                    text = displayText,
+                    color = textColor,
+                    fontSize = baseFontSp.sp,
+                    fontWeight = fontWeight,
+                    fontStyle = fontStyle,
+                    fontFamily = fontFamily,
+                    modifier = Modifier
+                        .offset(x = offsetXDp, y = offsetYDp)
+                        .graphicsLayer {
+                            this.alpha = alpha
+                            this.rotationZ = itemAngleDeg
+                            this.renderEffect = blurEffect
+                            this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                        },
+                )
             }
         }
 
