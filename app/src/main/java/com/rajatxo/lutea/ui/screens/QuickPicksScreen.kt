@@ -62,6 +62,14 @@ fun QuickPicksScreen(
     var activeTab by remember { mutableStateOf(LuteaTab.Playlists) }
     // When non-null, the playlist detail screen overlays the wheel.
     var selectedPlaylist by remember { mutableStateOf<com.rajatxo.lutea.data.model.Playlist?>(null) }
+    // When true, the settings screen overlays everything.
+    var showSettings by remember { mutableStateOf(false) }
+
+    // Settings screen overlays everything when toggled.
+    if (showSettings) {
+        SettingsScreen(onBackClick = { showSettings = false })
+        return
+    }
 
     // Playlist detail screen overlays everything when a playlist is selected.
     selectedPlaylist?.let { playlist ->
@@ -80,6 +88,7 @@ fun QuickPicksScreen(
         },
         activeTab = activeTab,
         onTabSelected = { activeTab = it },
+        onSettingsClick = { showSettings = true },
     ) {
         // Content changes based on the active tab
         when (activeTab) {
