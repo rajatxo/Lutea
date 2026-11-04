@@ -582,6 +582,35 @@ fun LuteaArc(
                             drawContext.canvas.save()
                             drawContext.canvas.translate(textCenterX, textCenterY)
                             drawContext.canvas.rotate(radialDeg)
+
+                            // ★ Progressive blur — per user spec.
+                            //    Position 1 (absOffset 0): sharp (0dp)
+                            //    Position 2 (absOffset 1): barely noticeable (1dp)
+                            //    Position 3 (absOffset 2): slight (2dp)
+                            //    Position 4 (absOffset 3): medium (4dp)
+                            //    Position 5 (absOffset 4): heavier (7dp)
+                            //    Position 6 (absOffset 5): heaviest, dissolving (11dp)
+                            //    Smooth lerp between integer positions for buttery transitions.
+                            //    Only applies on Android 12+ (API 31+); older Android renders sharp.
+                            val blurRadiusDp = when {
+                                absOffset < 0.5f -> 0f
+                                absOffset < 1.5f -> lerp(0f, 1f, (absOffset - 0.5f))
+                                absOffset < 2.5f -> lerp(1f, 2f, (absOffset - 1.5f))
+                                absOffset < 3.5f -> lerp(2f, 4f, (absOffset - 2.5f))
+                                absOffset < 4.5f -> lerp(4f, 7f, (absOffset - 3.5f))
+                                absOffset < 5.5f -> lerp(7f, 11f, (absOffset - 4.5f))
+                                else -> 11f
+                            }
+                            if (blurRadiusDp > 0.1f &&
+                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                val blurRadiusPx = with(density) { blurRadiusDp.dp.toPx() }
+                                val renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                                    blurRadiusPx, blurRadiusPx,
+                                    android.graphics.Shader.TileMode.DECAL
+                                )
+                                drawContext.canvas.nativeCanvas.renderEffect = renderEffect
+                            }
+
                             if (textBrush != null) {
                                 drawText(
                                     textLayoutResult = textLayout,
@@ -596,6 +625,13 @@ fun LuteaArc(
                                     alpha = alpha
                                 )
                             }
+
+                            // Clear the RenderEffect so it doesn't affect subsequent draws.
+                            if (blurRadiusDp > 0.1f &&
+                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                drawContext.canvas.nativeCanvas.renderEffect = null
+                            }
+
                             drawContext.canvas.restore()
                         }
                     }
