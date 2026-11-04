@@ -657,11 +657,8 @@ fun LuteaArc(
 
                 val textW = textLayout.size.width.toFloat()
                 val textH = textLayout.size.height.toFloat()
-                val textOffsetPx = ballRadiusPx + gapAfterBallPx + textW / 2f
                 val ballX = pivotX + outerRadius * cos(itemAngleRad)
                 val ballY = pivotY + outerRadius * sin(itemAngleRad)
-                val textCenterX = ballX + textOffsetPx * cos(itemAngleRad)
-                val textCenterY = ballY + textOffsetPx * sin(itemAngleRad)
 
                 // ★ Gradient brush for adjacent items (position 2) — white → accent.
                 val isAdjacent = absOffset >= 0.5f && absOffset < 1.5f
