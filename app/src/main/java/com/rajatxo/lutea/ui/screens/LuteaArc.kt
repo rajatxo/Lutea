@@ -404,16 +404,15 @@ fun LuteaArc(
                 // === 4. TEXT ITEMS + BALLS on the wheel ===
                 if (playlists.isNotEmpty()) {
                     val rotationItems = scrollOffset.value / pxPerItem
-                    // ★ 14° spacing = breathable gap between labels (was 8°, too tight).
-                    //    Vertical gap between adjacent items at this radius:
-                    //    0.52w × sin(14°) ≈ 0.126w ≈ 136px on 1080px screen.
-                    //    With 42sp active text (~56px), gap ≈ 80px — plenty of room.
-                    val angleStepDeg = 14f
+                    // ★ 12° spacing — fits all 11 items (5+1+5) on-screen comfortably.
+                    //    At 12° × 5 = 60°, cos(60°) = 0.5, so the outermost ball is at
+                    //    ballX = -0.20w + 0.52w × 0.5 = 0.06w (6% from left edge — on screen).
+                    //    Vertical gap = 0.52w × sin(12°) ≈ 0.108w ≈ 117px on 1080px screen.
+                    val angleStepDeg = 12f
                     val activeFontSp = 42f
                     val inactiveFontSp = 16f
-                    // ±4 = 9 items total (4+1+4). At 14° × 4 = 56°, items stay on-screen
-                    // (cos(56°) = 0.559, ballX = -0.20w + 0.52w×0.559 = 0.091w > 0 ✓).
-                    val visibleSpan = 4
+                    // ±5 = 11 items total (5+1+5). The outermost 2 are very faded but visible.
+                    val visibleSpan = 5
 
                     for (offset in -visibleSpan..visibleSpan) {
                         val rawIdx = (rotationItems.roundToInt() - offset)
@@ -422,7 +421,11 @@ fun LuteaArc(
 
                         val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
                         val absOffset = abs(fractionalOffset)
-                        if (absOffset > visibleSpan) continue
+                        // ★ Anti-blink: allow items slightly past visibleSpan to keep rendering
+                        //    so they smoothly fade to alpha 0 (instead of being abruptly cut off
+                        //    when absOffset crosses the integer boundary). Items with alpha < 0.005
+                        //    are effectively invisible anyway, so no visible cost.
+                        if (absOffset > visibleSpan + 0.5f) continue
 
                         val itemAngleDeg = fractionalOffset * angleStepDeg
                         val itemAngleRad = (itemAngleDeg * PI / 180f).toFloat()
