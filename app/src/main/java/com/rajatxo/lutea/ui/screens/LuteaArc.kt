@@ -195,6 +195,15 @@ fun LuteaArc(
     // ── Create Playlist dialog ──
     if (showCreateDialog) {
         var playlistName by remember { mutableStateOf("") }
+        // ★ 10-letter limit — only a-z/A-Z count. Spaces are allowed and don't
+        //    consume a letter slot. Numbers and special chars are filtered out.
+        //    Example: "My Mix" = 5 letters (M-y-M-i-x), 1 space = OK.
+        //             "Chase Atlantic" = 13 letters = blocked at 10.
+        val MAX_LETTERS = 10
+        fun letterCount(s: String): Int = s.count { it.isLetter() }
+        val remainingLetters = MAX_LETTERS - letterCount(playlistName)
+        val isOverLimit = remainingLetters < 0
+
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
             title = {
@@ -208,18 +217,38 @@ fun LuteaArc(
             text = {
                 OutlinedTextField(
                     value = playlistName,
-                    onValueChange = { playlistName = it },
-                    placeholder = { Text("Playlist name") },
+                    onValueChange = { newValue ->
+                        // Filter: only allow letters and spaces (no numbers/symbols).
+                        val filtered = newValue.filter { it.isLetter() || it.isWhitespace() }
+                        // Block if adding another letter would exceed the 10-letter limit.
+                        // Spaces are always allowed (don't count toward the limit).
+                        val filteredLetters = letterCount(filtered)
+                        if (filteredLetters <= MAX_LETTERS) {
+                            playlistName = filtered
+                        }
+                    },
+                    placeholder = { Text("Playlist name (max 10 letters)") },
                     singleLine = true,
+                    isError = isOverLimit,
+                    supportingText = {
+                        Text(
+                            text = "$remainingLetters letters left",
+                            color = if (remainingLetters <= 2) Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.5f),
+                            fontSize = 12.sp,
+                        )
+                    },
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    if (playlistName.isNotBlank()) {
-                        PlaylistStore.createPlaylist(playlistName)
-                    }
-                    showCreateDialog = false
-                }) { Text("Create") }
+                TextButton(
+                    onClick = {
+                        if (playlistName.isNotBlank() && !isOverLimit) {
+                            PlaylistStore.createPlaylist(playlistName.trim())
+                        }
+                        showCreateDialog = false
+                    },
+                    enabled = playlistName.isNotBlank() && !isOverLimit,
+                ) { Text("Create") }
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
