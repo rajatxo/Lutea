@@ -559,7 +559,19 @@ fun LuteaArc(
                         // Anchor: just past the OUTER ball, extending radially outward.
                         val textCenterX = ballX + textOffsetPx * cos(itemAngleRad)
                         val textCenterY = ballY + textOffsetPx * sin(itemAngleRad)
-                        val radialDeg = itemAngleDeg
+
+                        // ★ Text rotation — smooth transition from arc-tangent (inner items)
+                        //    to HORIZONTAL (outermost items). The outermost 2 items (absOffset 4–5)
+                        //    render at 0° (vertical on screen, reading normally) instead of being
+                        //    tilted 50–70° like the arc tangent. Inner items (absOffset 0–3) keep
+                        //    their radial rotation so the wheel still feels curved.
+                        //    Transition window: absOffset 3.0 → 4.0 (smooth lerp from arc angle to 0°).
+                        val rotationFactor = when {
+                            absOffset < 3.0f -> 1.0f                                   // full arc rotation
+                            absOffset < 4.0f -> lerp(1.0f, 0.0f, (absOffset - 3.0f))     // smooth transition
+                            else -> 0.0f                                                // horizontal (vertical on screen)
+                        }
+                        val radialDeg = itemAngleDeg * rotationFactor
 
                         // Adjacent items get a vertical gradient (white → accentColor).
                         val isAdjacent = absOffset >= 0.5f && absOffset < 1.5f
