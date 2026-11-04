@@ -607,11 +607,18 @@ fun LuteaArc(
                 }.coerceIn(0f, 1f)
                 if (alpha < 0.02f) continue
 
+                // ★ Scale — gentler shrink for a more uniform circular arrangement.
+                //    Was: 1.0 → 0.70 → 0.55 → 0.45 (too aggressive, made outer text
+                //    much smaller and broke the circular shape).
+                //    Now: 1.0 → 0.92 → 0.85 → 0.80 (text stays closer in size,
+                //    so all 11 labels form a clean arc — 95% perfect circle).
                 val scale = when {
                     absOffset < 0.5f -> 1f
-                    absOffset < 1.5f -> lerp(1f, 0.70f, (absOffset - 0.5f))
-                    absOffset < 2.5f -> lerp(0.70f, 0.55f, (absOffset - 1.5f))
-                    else -> lerp(0.55f, 0.45f, (absOffset - 2.5f).coerceIn(0f, 1f))
+                    absOffset < 1.5f -> lerp(1f, 0.92f, (absOffset - 0.5f))
+                    absOffset < 2.5f -> lerp(0.92f, 0.85f, (absOffset - 1.5f))
+                    absOffset < 3.5f -> lerp(0.85f, 0.82f, (absOffset - 2.5f))
+                    absOffset < 4.5f -> lerp(0.82f, 0.80f, (absOffset - 3.5f))
+                    else -> lerp(0.80f, 0.78f, (absOffset - 4.5f).coerceIn(0f, 1f))
                 }
 
                 val displayText = playlist.name.replaceFirstChar { ch ->

@@ -199,11 +199,6 @@ fun SettingsScreen(
                             color = Color(0xFF229ED9),
                             onClick = { openUrl("https://t.me/rajat_xo") },
                         )
-                        SocialButton(
-                            label = "GitHub",
-                            color = Color.White,
-                            onClick = { openUrl("https://github.com/rajatxo") },
-                        )
                     }
                 }
             }
