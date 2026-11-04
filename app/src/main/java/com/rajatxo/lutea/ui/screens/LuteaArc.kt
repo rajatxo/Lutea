@@ -38,6 +38,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -608,7 +609,9 @@ fun LuteaArc(
                                     blurRadiusPx, blurRadiusPx,
                                     android.graphics.Shader.TileMode.DECAL
                                 )
-                                drawContext.canvas.nativeCanvas.renderEffect = renderEffect
+                                drawIntoCanvas { canvas ->
+                                    canvas.nativeCanvas.renderEffect = renderEffect
+                                }
                             }
 
                             if (textBrush != null) {
@@ -629,7 +632,9 @@ fun LuteaArc(
                             // Clear the RenderEffect so it doesn't affect subsequent draws.
                             if (blurRadiusDp > 0.1f &&
                                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                                drawContext.canvas.nativeCanvas.renderEffect = null
+                                drawIntoCanvas { canvas ->
+                                    canvas.nativeCanvas.renderEffect = null
+                                }
                             }
 
                             drawContext.canvas.restore()
