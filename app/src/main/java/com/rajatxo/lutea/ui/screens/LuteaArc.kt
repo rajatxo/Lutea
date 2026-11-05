@@ -818,13 +818,13 @@ fun LuteaArc(
                 val thumbCenterPadding = trackPaddingEnd - (thumbWidth - trackWidth) / 2f
 
                 // Track (long gray capsule) — DRAG HERE to rotate the wheel
+                // Thumb is INSIDE this Box so it's constrained by track bounds.
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = trackPaddingEnd)
-                        .width(trackWidth + 20.dp)  // wider hit area for easier dragging
+                        .width(trackWidth + 20.dp)  // wider hit area
                         .height(sliderHeight)
-                        // ★ Drag the slider to rotate the wheel (Advanced only — no screen drag)
                         .pointerInput(playlists.size) {
                             var velocityTracker = VelocityTracker()
                             detectVerticalDragGestures(
@@ -847,7 +847,7 @@ fun LuteaArc(
                             )
                         }
                 ) {
-                    // Actual visible track (narrower than hit area)
+                    // Visible track (narrow, centered in hit area)
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -856,44 +856,42 @@ fun LuteaArc(
                             .clip(RoundedCornerShape(trackCorner))
                             .background(trackColor)
                     )
-                }
 
-                // ★ Thumb — 3D button with layered depth
-                // Layer 1: dark drop shadow (below the button, offset down)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = thumbCenterPadding)
-                        .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f + 3.dp)  // shadow offset down
-                        .width(thumbWidth)
-                        .height(thumbHeight)
-                        .shadow(8.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbDropShadow, spotColor = thumbDropShadow)
-                        .clip(RoundedCornerShape(thumbCorner))
-                )
-                // Layer 2: the actual button (gradient + border)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = thumbCenterPadding)
-                        .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
-                        .width(thumbWidth)
-                        .height(thumbHeight)
-                        .shadow(2.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbTopGlow, spotColor = thumbTopGlow)
-                        .clip(RoundedCornerShape(thumbCorner))
-                        .background(thumbGradient)
-                        .border(thumbBorderWidth, thumbBorderTop, RoundedCornerShape(thumbCorner))
-                )
-                // Layer 3: inner top highlight (bright line at the top = 3D glossy edge)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = thumbCenterPadding)
-                        .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
-                        .width(thumbWidth)
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
-                        .background(Color.White.copy(alpha = 0.3f))
-                )
+                    // ★ Thumb — INSIDE track Box, constrained to track bounds.
+                    // Offset is from TOP of track. Clamped so it never leaves.
+                    // Layer 1: drop shadow
+                    Box(
+                        modifier = Modifier
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + 3.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .width(thumbWidth)
+                            .height(thumbHeight)
+                            .shadow(8.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbDropShadow, spotColor = thumbDropShadow)
+                            .clip(RoundedCornerShape(thumbCorner))
+                    )
+                    // Layer 2: button body
+                    Box(
+                        modifier = Modifier
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
+                            .align(Alignment.CenterHorizontally)
+                            .width(thumbWidth)
+                            .height(thumbHeight)
+                            .shadow(2.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbTopGlow, spotColor = thumbTopGlow)
+                            .clip(RoundedCornerShape(thumbCorner))
+                            .background(thumbGradient)
+                            .border(thumbBorderWidth, thumbBorderTop, RoundedCornerShape(thumbCorner))
+                    )
+                    // Layer 3: top highlight
+                    Box(
+                        modifier = Modifier
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
+                            .align(Alignment.CenterHorizontally)
+                            .width(thumbWidth)
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                            .background(Color.White.copy(alpha = 0.3f))
+                    )
+                }
 
                 // ═══ TEXT LABELS (main + 4 above + 4 below) ═══
                 // ★ Texts follow the EXACT arc curve — same method as Simpler.
@@ -940,6 +938,7 @@ fun LuteaArc(
                     if (alpha > 0.01f) {
                         val itemAngleDeg = fractionalOffset * angleStepDeg
                         val itemAngleRad = (itemAngleDeg * PI / 180f).toFloat()
+                        // ★ Text position on arc (in pixels from top-left of screen)
                         val textX = arcPivotXpx + textRadiusPx * cos(itemAngleRad)
                         val textY = arcPivotYpx + textRadiusPx * sin(itemAngleRad)
 
@@ -958,13 +957,26 @@ fun LuteaArc(
                             constraints = Constraints(maxWidth = Int.MAX_VALUE, maxHeight = Int.MAX_VALUE),
                         )
                         val measuredWidth = textLayoutResult.size.width.toFloat()
-                        // ★ Available width = from textX to slider zone
                         val availableWidth = maxTextWidthPx - textX
                         if (measuredWidth > availableWidth && availableWidth > 0f) {
                             val shrinkRatio = availableWidth / measuredWidth
                             actualFontSize = (actualFontSize * shrinkRatio).coerceAtLeast(12f)
                         }
-                        val textH = textLayoutResult.size.height.toFloat()
+                        // Re-measure with final font size to get correct height
+                        val finalLayout = textMeasurer.measure(
+                            text = AnnotatedString(displayText),
+                            style = TextStyle(
+                                color = Color.White,
+                                fontSize = actualFontSize.sp,
+                                fontFamily = BillieEilishFamily,
+                                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                            ),
+                            maxLines = 1,
+                            softWrap = false,
+                            constraints = Constraints(maxWidth = Int.MAX_VALUE, maxHeight = Int.MAX_VALUE),
+                        )
+                        val textH = finalLayout.size.height.toFloat()
+                        val textW = finalLayout.size.width.toFloat()
 
                         Text(
                             text = displayText,
@@ -977,7 +989,10 @@ fun LuteaArc(
                             modifier = Modifier
                                 .graphicsLayer {
                                     this.alpha = alpha
-                                    // ★ Center text vertically on the arc point (not hardcoded offset)
+                                    // ★ Position: textX is from left edge. translationX moves from
+                                    //    the Composable's default position (0,0 = top-left of parent).
+                                    //    So translationX = textX, translationY = textY - textH/2
+                                    //    centers the text exactly on the arc point.
                                     this.translationX = textX
                                     this.translationY = textY - textH / 2f
                                     this.rotationZ = itemAngleDeg
