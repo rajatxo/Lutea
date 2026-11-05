@@ -849,8 +849,15 @@ fun LuteaArc(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier
                             .align(Alignment.Center)
-                            // ★ Gap: push text right by 40% of screen width so it clears the arc (at 28%) + gap
-                            .padding(start = maxWidth * 0.40f, end = maxWidth * 0.16f)
+                            // ★ Text gap from arc — currently 35% of screen width start padding.
+                            //    Arc is at 28%. So gap = 35% - 28% = 7%.
+                            //    Change this number to adjust the gap:
+                            //    30 = gap of 2% (very close to arc)
+                            //    33 = gap of 5% (small gap)
+                            //    35 = gap of 7% (current — reduced from 40%)
+                            //    38 = gap of 10% (medium gap)
+                            //    42 = gap of 14% (large gap)
+                            .padding(start = maxWidth * 0.35f, end = maxWidth * 0.16f)
                     )
                 }
             }
