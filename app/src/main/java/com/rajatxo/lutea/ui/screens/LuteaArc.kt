@@ -790,17 +790,26 @@ fun LuteaArc(
                 val trackColor = Color.White.copy(alpha = 0.15f)
                 val trackCorner = 3.dp
                 val trackPaddingEnd = maxWidth * 0.08f
-                // ★ Thumb — matte capsule with WHITISH glow shadow (no symbols inside)
-                val thumbWidth = 18.dp
-                val thumbHeight = 56.dp
-                val thumbCorner = 9.dp
-                // ★ Matte gradient: lighter top → darker bottom
+                // ★ Thumb — 3D button: layered shadows + gradient + inner highlight
+                val thumbWidth = 20.dp
+                val thumbHeight = 60.dp
+                val thumbCorner = 10.dp
+                // ★ 3D gradient: bright top edge → mid dark → darker bottom (creates dome illusion)
                 val thumbGradient = Brush.verticalGradient(
-                    colors = listOf(Color(0xFF3A3A3A), Color(0xFF1E1E1E))
+                    colorStops = arrayOf(
+                        0.0f to Color(0xFF4A4A4A),   // bright top edge (catches light)
+                        0.15f to Color(0xFF3A3A3A),  // upper highlight
+                        0.5f to Color(0xFF2A2A2A),   // mid body
+                        0.85f to Color(0xFF1A1A1A),  // lower shadow
+                        1.0f to Color(0xFF121212),   // dark bottom edge
+                    )
                 )
-                // ★ WHITISH glow shadow around the button (not dark black shadow)
-                val thumbGlowColor = Color.White.copy(alpha = 0.25f)
-                val thumbBorderColor = Color.White.copy(alpha = 0.2f)
+                // ★ 3D shadows: dark drop shadow below + whitish glow on top edge
+                val thumbDropShadow = Color.Black.copy(alpha = 0.5f)
+                val thumbTopGlow = Color.White.copy(alpha = 0.15f)
+                // ★ Glossy border (top half brighter, bottom darker = 3D edge)
+                val thumbBorderTop = Color.White.copy(alpha = 0.25f)
+                val thumbBorderBottom = Color.Black.copy(alpha = 0.3f)
                 val thumbBorderWidth = 1.dp
                 // Thumb Y: snapped position (no jitter)
                 val thumbY = (sliderHeight - thumbHeight) * (1f - snappedFraction)
@@ -816,7 +825,19 @@ fun LuteaArc(
                         .background(trackColor)
                 )
 
-                // ★ Thumb — premium matte capsule, no symbols, whitish glow
+                // ★ Thumb — 3D button with layered depth
+                // Layer 1: dark drop shadow (below the button, offset down)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = trackPaddingEnd - (thumbWidth - trackWidth) / 2f)
+                        .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f + 3.dp)  // shadow offset down
+                        .width(thumbWidth)
+                        .height(thumbHeight)
+                        .shadow(8.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbDropShadow, spotColor = thumbDropShadow)
+                        .clip(RoundedCornerShape(thumbCorner))
+                )
+                // Layer 2: the actual button (gradient + border)
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
@@ -824,41 +845,68 @@ fun LuteaArc(
                         .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
                         .width(thumbWidth)
                         .height(thumbHeight)
-                        .shadow(6.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbGlowColor, spotColor = thumbGlowColor)
+                        .shadow(2.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbTopGlow, spotColor = thumbTopGlow)
                         .clip(RoundedCornerShape(thumbCorner))
                         .background(thumbGradient)
-                        .border(thumbBorderWidth, thumbBorderColor, RoundedCornerShape(thumbCorner))
+                        .border(thumbBorderWidth, thumbBorderTop, RoundedCornerShape(thumbCorner))
+                )
+                // Layer 3: inner top highlight (bright line at the top = 3D glossy edge)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = trackPaddingEnd - (thumbWidth - trackWidth) / 2f)
+                        .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
+                        .width(thumbWidth)
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                        .background(Color.White.copy(alpha = 0.3f))
                 )
 
-                // ═══ MAIN TEXT (60sp, pure white, with gap from arc) ═══
-                // Arc is at 0.28w from left edge. Text starts AFTER a gap.
-                // Gap = same as Simpler's arc-to-arc distance (0.52w - 0.42w = 0.10w).
-                // So text left edge = 0.28w + 0.10w + small padding = ~0.40w from left.
-                // We use start padding to push text right, past the arc + gap.
+                // ═══ TEXT LABELS (main + 4 above + 4 below) ═══
+                // Main = 60sp, secondary = 35sp. All at 5% gap from arc (start padding = 33%).
+                val rotationItems = scrollOffset.value / pxPerItem
                 val centerIdx = indexAtOffset(scrollOffset.value)
-                val centerPlaylist = playlists.getOrNull(centerIdx)
-                if (centerPlaylist != null) {
-                    val displayText = centerPlaylist.name.uppercase()
-                    Text(
-                        text = displayText,
-                        color = Color.White,           // ★ pure white (was gold #F4B400)
-                        fontSize = 60.sp,             // ★ 60sp (was 50sp)
-                        fontFamily = BillieEilishFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            // ★ Text gap from arc — currently 35% of screen width start padding.
-                            //    Arc is at 28%. So gap = 35% - 28% = 7%.
-                            //    Change this number to adjust the gap:
-                            //    30 = gap of 2% (very close to arc)
-                            //    33 = gap of 5% (small gap)
-                            //    35 = gap of 7% (current — reduced from 40%)
-                            //    38 = gap of 10% (medium gap)
-                            //    42 = gap of 14% (large gap)
-                            .padding(start = maxWidth * 0.35f, end = maxWidth * 0.16f)
-                    )
+                val textStartPadding = maxWidth * 0.33f
+                val textEndPadding = maxWidth * 0.16f
+                val secondaryFontSize = 35.sp
+
+                // Opacity for secondary texts (smooth falloff)
+                fun alphaFor(absOffset: Float): Float = when {
+                    absOffset < 0.5f -> 1f
+                    absOffset < 1.5f -> 0.65f
+                    absOffset < 2.5f -> 0.40f
+                    absOffset < 3.5f -> 0.22f
+                    absOffset < 4.5f -> 0.12f
+                    else -> 0.06f
+                }
+
+                for (offset in -4..4) {
+                    val rawIdx = (rotationItems.roundToInt() - offset)
+                    val modIdx = ((rawIdx % playlists.size) + playlists.size) % playlists.size
+                    val playlist = playlists[modIdx]
+                    val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
+                    val absOffset = abs(fractionalOffset)
+                    if (absOffset > 4.5f) continue
+                    val isActive = absOffset < 0.5f
+                    val displayText = if (isActive) playlist.name.uppercase() else playlist.name.lowercase()
+                    val alpha = alphaFor(absOffset)
+
+                    if (alpha > 0.01f) {
+                        Text(
+                            text = displayText,
+                            color = if (isActive) Color.White else Color.White.copy(alpha = alpha),
+                            fontSize = if (isActive) 60.sp else secondaryFontSize,
+                            fontFamily = BillieEilishFamily,
+                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset(y = with(density) { (fractionalOffset * 60.dp.toPx()).toDp() })  // ★ vertical spacing between texts
+                                .padding(start = textStartPadding, end = textEndPadding)
+                                .graphicsLayer { this.alpha = alpha }
+                        )
+                    }
                 }
             }
         }
