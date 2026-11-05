@@ -780,9 +780,9 @@ fun LuteaArc(
         //    Thumb position reflects which playlist is currently selected.
         // ──────────────────────────────────────────────────────────────
         if (playlistStyle == PlaylistStyle.WHEEL_ADVANCED && playlists.isNotEmpty()) {
-            val continuousIdx = ((scrollOffset.value % playlists.size) + playlists.size) % playlists.size
-            // ★ Thumb follows RAW scroll position (smooth) — snaps only on release via spring.
-            val knobFraction = (continuousIdx / playlists.size).coerceIn(0f, 1f)
+            // ★ Thumb is STATIC — not connected to wheel rotation.
+            //    It stays at the center of the track. Will be used for another purpose later.
+            val staticThumbFraction = 0.5f  // always centered
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // ═══ SLIDER VALUES ═══
@@ -813,7 +813,7 @@ fun LuteaArc(
                 val thumbBorderBottom = Color.Black.copy(alpha = 0.3f)
                 val thumbBorderWidth = 1.dp
                 // Thumb Y: clamped within track bounds so it NEVER leaves the track
-                val thumbY = (sliderHeight - thumbHeight) * (1f - knobFraction).coerceIn(0f, 1f)
+                val thumbY = (sliderHeight - thumbHeight) * (1f - staticThumbFraction)
                 // ★ Thumb X: exactly centered on the track (not offset by padding math)
                 val thumbCenterPadding = trackPaddingEnd - (thumbWidth - trackWidth) / 2f
 
@@ -914,14 +914,31 @@ fun LuteaArc(
                 // ★ Max text width = screen width minus slider zone (8% + 20dp buffer)
                 val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbWidth + 10.dp).toPx() }
 
-                // Opacity falloff
+                // Opacity: ALL texts at 80% white, main at 100% white. NO fade.
+                // Blur: progressive blur on outer 2 items (like Simpler).
                 fun alphaFor(absOffset: Float): Float = when {
                     absOffset < 0.5f -> 1f
-                    absOffset < 1.5f -> 0.65f
-                    absOffset < 2.5f -> 0.40f
-                    absOffset < 3.5f -> 0.22f
-                    absOffset < 4.5f -> 0.12f
-                    else -> 0.06f
+                    else -> 0.8f  // all secondary at 80%
+                }
+
+                // Progressive blur (like Simpler): items 3-4 get blurred, items 1-2 stay sharp.
+                val blurCache = remember { mutableMapOf<Int, androidx.compose.ui.graphics.RenderEffect>() }
+                fun getBlurEffect(radiusDp: Float): androidx.compose.ui.graphics.RenderEffect? {
+                    if (radiusDp <= 0.1f) return null
+                    val key = (radiusDp * 10).toInt()
+                    return blurCache.getOrPut(key) {
+                        val radiusPx = with(density) { radiusDp.dp.toPx() }
+                        android.graphics.RenderEffect.createBlurEffect(
+                            radiusPx, radiusPx,
+                            android.graphics.Shader.TileMode.DECAL
+                        ).asComposeRenderEffect()
+                    }
+                }
+                fun blurFor(absOffset: Float): Float = when {
+                    absOffset < 2.5f -> 0f                                              // positions 1-2: sharp
+                    absOffset < 3.5f -> lerp(0f, 5f, (absOffset - 2.5f))                  // position 3: light blur
+                    absOffset < 4.5f -> lerp(5f, 12f, (absOffset - 3.5f))                 // position 4: heavy blur
+                    else -> 12f
                 }
 
                 for (offset in -4..4) {
@@ -934,6 +951,8 @@ fun LuteaArc(
                     val isActive = absOffset < 0.5f
                     val displayText = if (isActive) playlist.name.uppercase() else playlist.name.lowercase()
                     val alpha = alphaFor(absOffset)
+                    val blurRadius = blurFor(absOffset)
+                    val blurEffect = getBlurEffect(blurRadius)
 
                     if (alpha > 0.01f) {
                         val itemAngleDeg = fractionalOffset * angleStepDeg
@@ -989,14 +1008,13 @@ fun LuteaArc(
                             modifier = Modifier
                                 .graphicsLayer {
                                     this.alpha = alpha
-                                    // ★ Position: textX is from left edge. translationX moves from
-                                    //    the Composable's default position (0,0 = top-left of parent).
-                                    //    So translationX = textX, translationY = textY - textH/2
-                                    //    centers the text exactly on the arc point.
                                     this.translationX = textX
                                     this.translationY = textY - textH / 2f
                                     this.rotationZ = itemAngleDeg
                                     this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                                    // ★ Progressive blur on outer texts (like Simpler)
+                                    this.renderEffect = blurEffect
+                                    this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
                                 }
                         )
                     }
