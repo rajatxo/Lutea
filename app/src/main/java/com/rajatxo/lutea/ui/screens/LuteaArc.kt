@@ -781,11 +781,16 @@ fun LuteaArc(
         //    Thumb position reflects which playlist is currently selected.
         // ──────────────────────────────────────────────────────────────
         if (playlistStyle == PlaylistStyle.WHEEL_ADVANCED && playlists.isNotEmpty()) {
-            // ★ CLAMPED rotation — no infinite loop. Range = 0 to (playlists.size - 1) * pxPerItem.
-            val maxScroll = (playlists.size - 1) * pxPerItem
-            val clampedValue = scrollOffset.value.coerceIn(0f, maxScroll)
-            // ★ Thumb follows clamped scroll position — stays on track, never moves fast.
-            val knobFraction = if (maxScroll > 0f) (clampedValue / maxScroll).coerceIn(0f, 1f) else 0.5f
+            // ★ MATH: Slider covers 3 full wheel cycles.
+            //    One cycle = N * pxPerItem. Total scroll = 3 * N * pxPerItem.
+            //    Thumb maps to the full 3-cycle range (traverses whole track).
+            //    Text indices wrap modulo N (so every playlist appears 3 times).
+            //    For 100 playlists: total scroll = 3 * 100 * 64dp = 19200dp — fine.
+            val cycleLength = playlists.size * pxPerItem  // one full wheel rotation
+            val totalCycles = 3f  // user wants 3 rotations per full slider sweep
+            val maxScroll = (cycleLength * totalCycles)
+            // Thumb fraction = scroll / maxScroll (0 → 1 over the full track)
+            val knobFraction = if (maxScroll > 0f) (scrollOffset.value / maxScroll).coerceIn(0f, 1f) else 0.5f
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // ═══ SLIDER VALUES ═══
@@ -834,24 +839,25 @@ fun LuteaArc(
                                 onDragEnd = {
                                     val velocity = velocityTracker.calculateVelocity().y
                                     coroutineScope.launch {
-                                        // ★ CLAMPED — no infinite rotation. Stops at first/last playlist.
-                                        val maxScroll = (playlists.size - 1) * pxPerItem
+                                        val cycleLen = playlists.size * pxPerItem
+                                        val maxSc = cycleLen * 3f
                                         scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
-                                        // Clamp after decay
-                                        val clamped = scrollOffset.value.coerceIn(0f, maxScroll)
+                                        val clamped = scrollOffset.value.coerceIn(0f, maxSc)
                                         scrollOffset.snapTo(clamped)
-                                        val nearest = (clamped / pxPerItem).roundToInt().coerceIn(0, playlists.size - 1)
+                                        // Snap to nearest item (modulo cycle for display)
+                                        val nearest = (clamped / pxPerItem).roundToInt()
                                         scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
                                     }
                                 },
                                 onVerticalDrag = { change, dragAmount ->
                                     coroutineScope.launch {
-                                        val maxScroll = (playlists.size - 1) * pxPerItem
-                                        val newValue = (scrollOffset.value + dragAmount).coerceIn(0f, maxScroll)
+                                        val cycleLen = playlists.size * pxPerItem
+                                        val maxSc = cycleLen * 3f
+                                        val newValue = (scrollOffset.value + dragAmount).coerceIn(0f, maxSc)
                                         scrollOffset.snapTo(newValue)
                                     }
                                     velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                    val currentIdx = indexAtOffset(scrollOffset.value)
+                                    val currentIdx = ((scrollOffset.value / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
                                     if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
                                     change.consume()
                                 }
@@ -957,10 +963,10 @@ fun LuteaArc(
                 }
 
                 for (offset in -4..4) {
-                    // ★ CLAMPED — no modulo wrap. Index stays within [0, playlists.size-1].
+                    // ★ Modulo wrap — every playlist appears 3 times across the full slider range.
                     val rawIdx = (rotationItems.roundToInt() - offset)
-                    val clampedIdx = rawIdx.coerceIn(0, playlists.size - 1)
-                    val playlist = playlists[clampedIdx]
+                    val modIdx = ((rawIdx % playlists.size) + playlists.size) % playlists.size
+                    val playlist = playlists[modIdx]
                     val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
                     val absOffset = abs(fractionalOffset)
                     if (absOffset > 4.5f) continue
