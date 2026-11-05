@@ -260,7 +260,14 @@ fun LuteaArc(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF05050A)),
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF3A3A3A),  // charcoal gray at top
+                        Color(0xFF000000),  // pure black at bottom
+                    )
+                )
+            ),
     ) {
         // ──────────────────────────────────────────────────────────────
         // Wheel Canvas — full-screen drag handlers + drawing
@@ -774,19 +781,19 @@ fun LuteaArc(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 24.dp, top = 16.dp, end = 80.dp)  // end=80 to avoid the 3-dot menu
+                .padding(start = 24.dp, top = 16.dp, end = 80.dp)
         ) {
             Text(
                 text = "Choose your",
-                color = Color.White.copy(alpha = 0.5f),
-                fontSize = 14.sp,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 28.sp,
                 fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Bold,
             )
             Text(
                 text = "playlist",
                 color = Color.White,
-                fontSize = 32.sp,
+                fontSize = 28.sp,
                 fontFamily = CalSansFamily,
                 fontWeight = FontWeight.Bold,
             )
