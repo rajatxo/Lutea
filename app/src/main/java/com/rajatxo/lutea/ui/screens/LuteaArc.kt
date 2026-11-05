@@ -863,7 +863,7 @@ fun LuteaArc(
                     Box(
                         modifier = Modifier
                             .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + 3.dp)
-                            .align(Alignment.CenterHorizontally)
+                            .align(Alignment.Center)
                             .width(thumbWidth)
                             .height(thumbHeight)
                             .shadow(8.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbDropShadow, spotColor = thumbDropShadow)
@@ -873,7 +873,7 @@ fun LuteaArc(
                     Box(
                         modifier = Modifier
                             .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
-                            .align(Alignment.CenterHorizontally)
+                            .align(Alignment.Center)
                             .width(thumbWidth)
                             .height(thumbHeight)
                             .shadow(2.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbTopGlow, spotColor = thumbTopGlow)
@@ -885,7 +885,7 @@ fun LuteaArc(
                     Box(
                         modifier = Modifier
                             .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
-                            .align(Alignment.CenterHorizontally)
+                            .align(Alignment.Center)
                             .width(thumbWidth)
                             .height(2.dp)
                             .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
