@@ -863,24 +863,21 @@ fun LuteaArc(
                 )
 
                 // ═══ TEXT LABELS (main + 4 above + 4 below) ═══
-                // Texts follow the ARC CURVE — not a straight line.
-                // Each text's X position is computed from its angle on the semicircle,
-                // so top/bottom texts shift LEFT (toward the arc) and center stays RIGHT.
+                // ★ Texts follow the EXACT arc curve — same method as Simpler.
+                //    Each text is positioned at (pivotX + textRadius * cos(angle),
+                //    pivotY + textRadius * sin(angle)) — just like Simpler's overlay.
                 val rotationItems = scrollOffset.value / pxPerItem
                 val centerIdx = indexAtOffset(scrollOffset.value)
-                // Arc geometry (same as Canvas above)
-                val arcPivotX = 0f  // pivot at left edge
-                val arcRadius = with(density) { maxWidth.toPx() } * 0.28f  // same as innerRadius in Canvas
-                val arcGap = with(density) { maxWidth.toPx() } * 0.05f  // 5% gap from arc
-                val textRadius = arcRadius + arcGap  // text sits this far from pivot
-                // Text horizontal padding (same gap from arc for all items)
-                val textStartPadding = maxWidth * 0.33f
-                val textEndPadding = maxWidth * 0.16f
-                // Vertical spacing between adjacent items
-                val verticalSpacing = 50.dp
+                // Arc geometry (same as Canvas)
+                val arcPivotXpx = 0f  // pivot at left edge
+                val arcPivotYpx = with(density) { maxHeight.toPx() } * 0.50f  // vertically centered
+                val arcRadiusPx = with(density) { maxWidth.toPx() } * 0.28f
+                val arcGapPx = with(density) { maxWidth.toPx() } * 0.05f
+                val textRadiusPx = arcRadiusPx + arcGapPx
+                val angleStepDeg = 14f
                 val secondaryFontSize = 35.sp
 
-                // Opacity for secondary texts (smooth falloff)
+                // Opacity falloff
                 fun alphaFor(absOffset: Float): Float = when {
                     absOffset < 0.5f -> 1f
                     absOffset < 1.5f -> 0.65f
@@ -902,23 +899,11 @@ fun LuteaArc(
                     val alpha = alphaFor(absOffset)
 
                     if (alpha > 0.01f) {
-                        // ★ Compute X position from arc angle — texts follow the curve.
-                        //    Angle = fractionalOffset * anglePerItem (degrees).
-                        //    X = pivotX + textRadius * cos(angle) — but since pivot is at left edge,
-                        //    we use the HORIZONTAL distance from the arc to position text.
-                        //    At angle 0 (center): X offset = textRadius (max right).
-                        //    At angle ±90 (top/bottom): X offset = 0 (at the arc).
-                        val angleDeg = fractionalOffset * 14f  // 14° per item (same as Simpler)
-                        val angleRad = (angleDeg * PI / 180f).toFloat()
-                        // ★ Horizontal offset from center: items further from center shift LEFT
-                        //    (closer to the arc). Center stays at max right.
-                        //    cos(0) = 1 → full right. cos(90) = 0 → at the arc.
-                        val horizontalFactor = cos(angleRad)  // 1.0 at center, → 0 at edges
-                        // Base X position (where center text sits)
-                        val baseX = arcPivotX + textRadius  // textRadius from left edge
-                        // Actual X = baseX * horizontalFactor (curves left at top/bottom)
-                        // But we also need the vertical offset for the arc curve
-                        val verticalFromArc = textRadius * sin(angleRad)
+                        // ★ Compute EXACT position on the arc — same as Simpler overlay.
+                        val itemAngleDeg = fractionalOffset * angleStepDeg
+                        val itemAngleRad = (itemAngleDeg * PI / 180f).toFloat()
+                        val textX = arcPivotXpx + textRadiusPx * cos(itemAngleRad)
+                        val textY = arcPivotYpx + textRadiusPx * sin(itemAngleRad)
 
                         Text(
                             text = displayText,
@@ -929,14 +914,14 @@ fun LuteaArc(
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier
-                                .align(Alignment.Center)
-                                // ★ X offset: shifts LEFT for items far from center (follows arc curve)
-                                .offset(
-                                    x = with(density) { ((1f - horizontalFactor) * -80.dp.toPx()).toDp() },
-                                    y = with(density) { (fractionalOffset * verticalSpacing.toPx()).toDp() }
-                                )
-                                .padding(start = textStartPadding, end = textEndPadding)
-                                .graphicsLayer { this.alpha = alpha }
+                                .graphicsLayer {
+                                    this.alpha = alpha
+                                    // ★ Position text at exact arc coordinates (like Simpler)
+                                    this.translationX = textX
+                                    this.translationY = textY - with(density) { 30.dp.toPx() }  // center vertically on the point
+                                    this.rotationZ = itemAngleDeg  // rotate to follow arc tangent
+                                    this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                                }
                         )
                     }
                 }
