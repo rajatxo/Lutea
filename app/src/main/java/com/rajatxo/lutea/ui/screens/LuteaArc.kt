@@ -39,7 +39,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.border
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asComposeRenderEffect
@@ -788,11 +790,20 @@ fun LuteaArc(
                 val trackColor = Color.White.copy(alpha = 0.15f)
                 val trackCorner = 3.dp
                 val trackPaddingEnd = maxWidth * 0.08f
-                // ★ Thumb — dark capsule with ∧, =, ∨ symbols (like the mockup)
-                val thumbWidth = 16.dp
-                val thumbHeight = 52.dp
-                val thumbColor = Color(0xFF2A2A2A)  // dark charcoal
-                val thumbCorner = 8.dp
+                // ★ Thumb — matte 3D capsule with glossy edge + drop shadow
+                val thumbWidth = 18.dp
+                val thumbHeight = 56.dp
+                val thumbCorner = 9.dp
+                // ★ Matte gradient: lighter top (#3A3A3A) → darker bottom (#1E1E1E)
+                //    + thin glossy top edge via border
+                val thumbGradient = Brush.verticalGradient(
+                    colors = listOf(Color(0xFF3A3A3A), Color(0xFF1E1E1E))
+                )
+                val thumbBorderColor = Color.White.copy(alpha = 0.15f)  // thin glossy edge
+                val thumbBorderWidth = 1.dp
+                val thumbShadowColor = Color.Black.copy(alpha = 0.4f)
+                // ★ Symbol style — brighter white for better visibility
+                val symbolColor = Color.White.copy(alpha = 0.9f)
                 // Thumb Y: snapped position (no jitter)
                 val thumbY = (sliderHeight - thumbHeight) * (1f - snappedFraction)
 
@@ -807,7 +818,8 @@ fun LuteaArc(
                         .background(trackColor)
                 )
 
-                // Thumb (dark capsule with symbols — sits ON the track)
+                // ★ Thumb — premium matte capsule with 3D depth
+                // Drop shadow behind (via shadow modifier), then matte gradient + glossy border
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
@@ -815,8 +827,10 @@ fun LuteaArc(
                         .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
                         .width(thumbWidth)
                         .height(thumbHeight)
+                        .shadow(4.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbShadowColor, spotColor = thumbShadowColor)
                         .clip(RoundedCornerShape(thumbCorner))
-                        .background(thumbColor),
+                        .background(thumbGradient)
+                        .border(thumbBorderWidth, thumbBorderColor, RoundedCornerShape(thumbCorner)),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -824,29 +838,31 @@ fun LuteaArc(
                         verticalArrangement = Arrangement.SpaceEvenly,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        Text("∧", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontFamily = CalSansFamily)
-                        Text("=", color = Color.White.copy(alpha = 0.8f), fontSize = 8.sp, fontFamily = CalSansFamily)
-                        Text("∨", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontFamily = CalSansFamily)
+                        Text("∧", color = symbolColor, fontSize = 11.sp, fontFamily = CalSansFamily)
+                        Text("=", color = symbolColor, fontSize = 9.sp, fontFamily = CalSansFamily)
+                        Text("∨", color = symbolColor, fontSize = 11.sp, fontFamily = CalSansFamily)
                     }
                 }
 
                 // ═══ MAIN TEXT ONLY (center playlist name) ═══
-                // Positioned to NOT overlap with the slider bar.
+                // ★ Text sits at the SAME radius as the big arc in Simpler (0.52w).
+                //    Arc in Advanced is at 0.28w. Gap = 0.52w - 0.28w = 0.24w.
+                //    So text is at arcRadius + 0.24w from pivot.
                 val centerIdx = indexAtOffset(scrollOffset.value)
                 val centerPlaylist = playlists.getOrNull(centerIdx)
                 if (centerPlaylist != null) {
                     val displayText = centerPlaylist.name.uppercase()
                     Text(
                         text = displayText,
-                        color = Color(0xFFF4B400),  // accent gold
-                        fontSize = 42.sp,
+                        color = Color(0xFFF4B400),
+                        fontSize = 50.sp,
                         fontFamily = BillieEilishFamily,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .padding(end = maxWidth * 0.16f)  // ★ shift left to avoid overlap with slider
+                            .padding(end = maxWidth * 0.16f)
                     )
                 }
             }
