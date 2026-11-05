@@ -109,6 +109,9 @@ dependencies {
     // ★ Coil3 — image loading (album art)
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
 
+    // ★ Palette — extract dominant color from album art for the playlist background
+    implementation("androidx.palette:palette-ktx:1.0.0")
+
     // ★ Kotlinx Serialization — playlist persistence
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 }
