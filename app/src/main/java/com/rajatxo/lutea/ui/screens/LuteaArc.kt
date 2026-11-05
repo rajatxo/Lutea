@@ -384,21 +384,18 @@ fun LuteaArc(
                 val h = size.height
 
                 // === 1. PIVOT (off-screen, left) ===
-                // Lutea's pivot at -20% width (smaller offset than Coral's -50%
-                // because Lutea's radii are 0.42w/0.52w, not Coral's 0.65w).
-                // With outerRadius = 0.52w, the arc's right edge lands at
-                // -0.20w + 0.52w = 0.32w — covers the left third of the screen.
-                val pivotX = w * -0.20f
+                // ★ Simpler: pivot at -0.20w (original).
+                //    Advanced: pivot at -0.30w — bigger arc, reads as a smooth half-circle
+                //    like the mockup. Right edge at -0.30w + 0.48w = 0.18w.
+                val isAdvanced = playlistStyle == PlaylistStyle.WHEEL_ADVANCED
+                val pivotX = if (isAdvanced) w * -0.30f else w * -0.20f
                 val pivotY = h * 0.50f
 
                 // === 2. RADII SYSTEM ===
                 // Simpler: two arcs (inner 0.42w + outer 0.52w), text past outer arc.
-                // Advanced: ONE arc only (inner 0.42w), text sits ON the arc.
-                val isAdvanced = playlistStyle == PlaylistStyle.WHEEL_ADVANCED
-                val innerRadius = w * 0.42f
+                // Advanced: ONE arc only at 0.48w — bigger, reads as a half-circle.
+                val innerRadius = if (isAdvanced) w * 0.48f else w * 0.42f
                 val outerRadius = if (isAdvanced) innerRadius else w * 0.52f
-                // ★ Advanced: text sits ON the arc (innerRadius + small gap).
-                //    Simpler: text sits past the outer arc (outerRadius + 14dp).
                 val textRadius = if (isAdvanced) {
                     innerRadius + with(density) { 10.dp.toPx() }
                 } else {
@@ -568,16 +565,10 @@ fun LuteaArc(
         //    Text is NO LONGER drawn in the Canvas — this prevents the "shadow"
         //    double-rendering (sharp underneath + blurred on top).
         //
-        //    Blur is a SMOOTH GRADIENT from clear (center) to blurred (edges):
-        //       Position 1 (absOffset 0): 0dp — sharp, accent colour
-        //       Position 2 (absOffset 1): 0dp — sharp, gradient white→accent
-        //       Position 3 (absOffset 2): 0.5dp — barely visible blur starts
-        //       Position 4 (absOffset 3): 3dp — light blur (gradient to clear)
-        //       Position 5 (absOffset 4): 10dp — medium blur (35%)
-        //       Position 6 (absOffset 5): 15dp — heavy blur (50%)
-        //    Smooth lerp between each position — no sudden jumps.
+        //    ★ Advanced mode: text overlay is DISABLED for now — we're reworking
+        //      the arc shape first. Only the arc + balls are drawn.
         // ──────────────────────────────────────────────────────────────
-        if (playlists.isNotEmpty()) {
+        if (playlists.isNotEmpty() && playlistStyle == PlaylistStyle.WHEEL_SIMPLER) {
             // ★ Use BoxWithConstraints to get the ACTUAL measured width/height (not
             //    configuration.screenWidthDp which includes system bars and is wrong
             //    for the wheel's coordinate system). The Canvas uses size.width which
