@@ -1,5 +1,8 @@
 package com.rajatxo.lutea.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -19,7 +22,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,19 +53,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * PlaylistDetailScreen — Mochy-inspired seamless cover background.
+ * PlaylistDetailScreen — Mochy-inspired seamless cover background + Coral-style
+ * 3-dot menu with rename / cover photo / delete options.
  *
  * Layers (back to front):
- *  1. PlaylistCoverBackground — blurred album art + color blend into black
- *  2. Top bar with back button (status-bar padded)
- *  3. Playlist title (large, white)
- *  4. Song count subtitle
- *  5. Song list (LazyColumn, scroll-fades the backdrop)
+ *  1. PlaylistCoverBackground — blurred album art (or custom cover) + color blend
+ *  2. Top bar: back button + 3-dot menu (rename / change cover / delete)
+ *  3. Playlist title + song count
+ *  4. Song list (LazyColumn, scroll-fades the backdrop)
  *
  * Universal Layout Laws:
- *  - Law 1: statusBarsPadding() on top bar
- *  - Law 2/3: edge-to-edge (already set in MainActivity + theme)
- *  - Law 7: fillMaxSize + BoxWithConstraints-free (LazyColumn handles scrolling)
+ *  - Law 1: statusBarsPadding()
+ *  - Law 7: fillMaxSize + LazyColumn (scrolls on every phone)
  */
 @Composable
 fun PlaylistDetailScreen(
@@ -85,7 +90,10 @@ fun PlaylistDetailScreen(
     }
 
     val playlistSongs = allSongs.filter { it.id in livePlaylist.songIds }
-    val firstSongArt = playlistSongs.firstOrNull()?.albumArtUri
+
+    // ★ Cover URI: custom cover if set, otherwise first song's album art.
+    val coverUri: Uri? = livePlaylist.coverUri?.let { Uri.parse(it) }
+        ?: playlistSongs.firstOrNull()?.albumArtUri
 
     // Scroll state — drives the backdrop parallax + fade.
     val listState = rememberLazyListState()
@@ -96,27 +104,48 @@ fun PlaylistDetailScreen(
         }
     }
 
+    // ── Menu + dialog state ──
+    var showMenu by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    // ── Cover photo picker ──
+    val coverPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            // Take persistable permission so the URI survives app restarts.
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (_: Exception) { }
+            PlaylistStore.setPlaylistCover(livePlaylist.id, uri.toString())
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
         // ── Layer 1: seamless blurred cover background ──
-        if (firstSongArt != null) {
+        if (coverUri != null) {
             PlaylistCoverBackground(
-                albumArtUri = firstSongArt,
+                albumArtUri = coverUri,
                 bandHeight = 360.dp,
                 scrollProgress = { scrollProgress },
             )
         }
 
-        // ── Layer 2: content (top bar + scrollable song list) ──
+        // ── Layer 2: content ──
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // Top bar: back button
+            // Top bar: back + 3-dot menu
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -141,9 +170,27 @@ fun PlaylistDetailScreen(
                         fontSize = 20.sp,
                     )
                 }
+                Spacer(Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { showMenu = true },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "⋮",
+                        color = Color.White,
+                        fontSize = 22.sp,
+                    )
+                }
             }
 
-            // Header: playlist name + song count (sits over the cover background)
             if (!loaded) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -164,7 +211,6 @@ fun PlaylistDetailScreen(
                 contentPadding = PaddingValues(bottom = 120.dp),
             ) {
                 item {
-                    // Playlist title header
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -246,5 +292,158 @@ fun PlaylistDetailScreen(
                 }
             }
         }
+
+        // ── 3-dot menu overlay ──
+        if (showMenu) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { showMenu = false },
+                    ),
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 60.dp, end = 16.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF1A1A1A).copy(alpha = 0.95f)),
+            ) {
+                MenuOption("Rename") {
+                    showMenu = false
+                    showRenameDialog = true
+                }
+                MenuOption("Change cover photo") {
+                    showMenu = false
+                    coverPickerLauncher.launch(arrayOf("image/*"))
+                }
+                MenuOption("Remove cover photo", enabled = livePlaylist.coverUri != null) {
+                    showMenu = false
+                    PlaylistStore.setPlaylistCover(livePlaylist.id, null)
+                }
+                MenuOption("Delete playlist", isDanger = true) {
+                    showMenu = false
+                    showDeleteConfirm = true
+                }
+            }
+        }
+
+        // ── Rename dialog ──
+        if (showRenameDialog) {
+            var renameText by remember { mutableStateOf(livePlaylist.name) }
+            val MAX_LETTERS = 10
+            val letterCount = renameText.count { it.isLetter() }
+            val isOverLimit = letterCount > MAX_LETTERS
+            AlertDialog(
+                onDismissRequest = { showRenameDialog = false },
+                title = {
+                    Text(
+                        "Rename playlist",
+                        color = Color.White,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                },
+                text = {
+                    OutlinedTextField(
+                        value = renameText,
+                        onValueChange = { newValue ->
+                            val filtered = newValue.filter { it.isLetter() || it.isWhitespace() }
+                            if (filtered.count { it.isLetter() } <= MAX_LETTERS) {
+                                renameText = filtered
+                            }
+                        },
+                        placeholder = { Text("Playlist name (max 10 letters)") },
+                        singleLine = true,
+                        isError = isOverLimit,
+                        supportingText = {
+                            Text(
+                                text = "${MAX_LETTERS - letterCount} letters left",
+                                color = if (letterCount >= MAX_LETTERS - 2) Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.5f),
+                                fontSize = 12.sp,
+                            )
+                        },
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (renameText.isNotBlank() && !isOverLimit) {
+                                PlaylistStore.renamePlaylist(livePlaylist.id, renameText.trim())
+                            }
+                            showRenameDialog = false
+                        },
+                        enabled = renameText.isNotBlank() && !isOverLimit,
+                    ) { Text("Save") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") }
+                },
+            )
+        }
+
+        // ── Delete confirmation ──
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = {
+                    Text(
+                        "Delete playlist?",
+                        color = Color.White,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                },
+                text = {
+                    Text(
+                        "\"${livePlaylist.name}\" will be permanently deleted. This cannot be undone.",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 14.sp,
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        PlaylistStore.deletePlaylist(livePlaylist.id)
+                        showDeleteConfirm = false
+                        onBackClick()
+                    }) { Text("Delete", color = Color(0xFFFF6B6B)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun MenuOption(
+    label: String,
+    isDanger: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val color = when {
+        !enabled -> Color.White.copy(alpha = 0.3f)
+        isDanger -> Color(0xFFFF6B6B)
+        else -> Color.White
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        Text(
+            text = label,
+            color = color,
+            fontSize = 15.sp,
+            fontFamily = CalSansFamily,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }

@@ -70,4 +70,27 @@ object PlaylistStore {
         }
         persistPlaylists()
     }
+
+    fun setPlaylistCover(playlistId: Long, coverUri: String?) {
+        _playlists.value = _playlists.value.map { p ->
+            if (p.id == playlistId) p.copy(coverUri = coverUri) else p
+        }
+        persistPlaylists()
+    }
+
+    fun addSongToPlaylist(playlistId: Long, songId: Long) {
+        _playlists.value = _playlists.value.map { p ->
+            if (p.id == playlistId && songId !in p.songIds) {
+                p.copy(songIds = p.songIds + songId)
+            } else p
+        }
+        persistPlaylists()
+    }
+
+    fun removeSongFromPlaylist(playlistId: Long, songId: Long) {
+        _playlists.value = _playlists.value.map { p ->
+            if (p.id == playlistId) p.copy(songIds = p.songIds - songId) else p
+        }
+        persistPlaylists()
+    }
 }
