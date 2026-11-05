@@ -790,20 +790,18 @@ fun LuteaArc(
                 val trackColor = Color.White.copy(alpha = 0.15f)
                 val trackCorner = 3.dp
                 val trackPaddingEnd = maxWidth * 0.08f
-                // ★ Thumb — matte 3D capsule with glossy edge + drop shadow
+                // ★ Thumb — matte capsule with WHITISH glow shadow (no symbols inside)
                 val thumbWidth = 18.dp
                 val thumbHeight = 56.dp
                 val thumbCorner = 9.dp
-                // ★ Matte gradient: lighter top (#3A3A3A) → darker bottom (#1E1E1E)
-                //    + thin glossy top edge via border
+                // ★ Matte gradient: lighter top → darker bottom
                 val thumbGradient = Brush.verticalGradient(
                     colors = listOf(Color(0xFF3A3A3A), Color(0xFF1E1E1E))
                 )
-                val thumbBorderColor = Color.White.copy(alpha = 0.15f)  // thin glossy edge
+                // ★ WHITISH glow shadow around the button (not dark black shadow)
+                val thumbGlowColor = Color.White.copy(alpha = 0.25f)
+                val thumbBorderColor = Color.White.copy(alpha = 0.2f)
                 val thumbBorderWidth = 1.dp
-                val thumbShadowColor = Color.Black.copy(alpha = 0.4f)
-                // ★ Symbol style — brighter white for better visibility
-                val symbolColor = Color.White.copy(alpha = 0.9f)
                 // Thumb Y: snapped position (no jitter)
                 val thumbY = (sliderHeight - thumbHeight) * (1f - snappedFraction)
 
@@ -818,8 +816,7 @@ fun LuteaArc(
                         .background(trackColor)
                 )
 
-                // ★ Thumb — premium matte capsule with 3D depth
-                // Drop shadow behind (via shadow modifier), then matte gradient + glossy border
+                // ★ Thumb — premium matte capsule, no symbols, whitish glow
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
@@ -827,42 +824,33 @@ fun LuteaArc(
                         .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
                         .width(thumbWidth)
                         .height(thumbHeight)
-                        .shadow(4.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbShadowColor, spotColor = thumbShadowColor)
+                        .shadow(6.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbGlowColor, spotColor = thumbGlowColor)
                         .clip(RoundedCornerShape(thumbCorner))
                         .background(thumbGradient)
-                        .border(thumbBorderWidth, thumbBorderColor, RoundedCornerShape(thumbCorner)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceEvenly,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Text("∧", color = symbolColor, fontSize = 11.sp, fontFamily = CalSansFamily)
-                        Text("=", color = symbolColor, fontSize = 9.sp, fontFamily = CalSansFamily)
-                        Text("∨", color = symbolColor, fontSize = 11.sp, fontFamily = CalSansFamily)
-                    }
-                }
+                        .border(thumbBorderWidth, thumbBorderColor, RoundedCornerShape(thumbCorner))
+                )
 
-                // ═══ MAIN TEXT ONLY (center playlist name) ═══
-                // ★ Text sits at the SAME radius as the big arc in Simpler (0.52w).
-                //    Arc in Advanced is at 0.28w. Gap = 0.52w - 0.28w = 0.24w.
-                //    So text is at arcRadius + 0.24w from pivot.
+                // ═══ MAIN TEXT (60sp, pure white, with gap from arc) ═══
+                // Arc is at 0.28w from left edge. Text starts AFTER a gap.
+                // Gap = same as Simpler's arc-to-arc distance (0.52w - 0.42w = 0.10w).
+                // So text left edge = 0.28w + 0.10w + small padding = ~0.40w from left.
+                // We use start padding to push text right, past the arc + gap.
                 val centerIdx = indexAtOffset(scrollOffset.value)
                 val centerPlaylist = playlists.getOrNull(centerIdx)
                 if (centerPlaylist != null) {
                     val displayText = centerPlaylist.name.uppercase()
                     Text(
                         text = displayText,
-                        color = Color(0xFFF4B400),
-                        fontSize = 50.sp,
+                        color = Color.White,           // ★ pure white (was gold #F4B400)
+                        fontSize = 60.sp,             // ★ 60sp (was 50sp)
                         fontFamily = BillieEilishFamily,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .padding(end = maxWidth * 0.16f)
+                            // ★ Gap: push text right by 40% of screen width so it clears the arc (at 28%) + gap
+                            .padding(start = maxWidth * 0.40f, end = maxWidth * 0.16f)
                     )
                 }
             }
