@@ -18,83 +18,71 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
-import coil3.size.Scale
 import coil3.toBitmap
-import coil3.transform.Transformation
-import coil3.size.Precision
 import com.rajatxo.lutea.ui.util.LuteaColorExtractor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Light box blur baked into the bitmap at load time (Mochy technique).
- * Applied to a 48×48 bitmap, then stretched full-screen — the pixelation +
- * light blur = soft dreamy backdrop. No RenderEffect needed (works on ALL
- * Android versions, not just 12+).
+ * Light box blur on a bitmap (Mochy technique — 3 passes of H+V box blur).
+ * Applied to a tiny bitmap (48×48), then stretched full-screen.
  */
-class BoxBlurTransformation(private val radiusPx: Int) : Transformation() {
-    override val cacheKey: String = "boxblur-$radiusPx"
-    override suspend fun transform(input: Bitmap, size: coil3.size.Size): Bitmap {
-        if (radiusPx <= 0) return input
-        val w = input.width; val h = input.height
-        if (w == 0 || h == 0) return input
-        val pixels = IntArray(w * h)
-        input.getPixels(pixels, 0, w, 0, 0, w, h)
-        repeat(3) {
-            boxBlurH(pixels, w, h, radiusPx)
-            boxBlurV(pixels, w, h, radiusPx)
-        }
-        val out = Bitmap.createBitmap(w, h, input.config ?: Bitmap.Config.ARGB_8888)
-        out.setPixels(pixels, 0, w, 0, 0, w, h)
-        return out
-    }
-    private fun boxBlurH(p: IntArray, w: Int, h: Int, r: Int) {
+private fun boxBlur(input: Bitmap, radius: Int): Bitmap {
+    if (radius <= 0) return input
+    val w = input.width; val h = input.height
+    if (w == 0 || h == 0) return input
+    val pixels = IntArray(w * h)
+    input.getPixels(pixels, 0, w, 0, 0, w, h)
+    repeat(3) {
+        // Horizontal
         val row = IntArray(w)
         for (y in 0 until h) {
-            val s = y * w; for (x in 0 until w) row[x] = p[s + x]
+            val s = y * w; for (x in 0 until w) row[x] = pixels[s + x]
             for (x in 0 until w) {
-                var a=0;var rd=0;var g=0;var b=0;var c=0
-                for (i in (x-r).coerceAtLeast(0)..(x+r).coerceAtMost(w-1)) {
-                    val v=row[i];a+=v ushr 24;rd+=v ushr 16 and 0xFF;g+=v ushr 8 and 0xFF;b+=v and 0xFF;c++
+                var a=0;var r=0;var g=0;var b=0;var c=0
+                for (i in (x-radius).coerceAtLeast(0)..(x+radius).coerceAtMost(w-1)) {
+                    val v=row[i];a+=v ushr 24;r+=v ushr 16 and 0xFF;g+=v ushr 8 and 0xFF;b+=v and 0xFF;c++
                 }
-                p[s+x]=((a/c)shl 24)or((rd/c)shl 16)or((g/c)shl 8)or(b/c)
+                pixels[s+x]=((a/c)shl 24)or((r/c)shl 16)or((g/c)shl 8)or(b/c)
             }
         }
-    }
-    private fun boxBlurV(p: IntArray, w: Int, h: Int, r: Int) {
+        // Vertical
         val col = IntArray(h)
         for (x in 0 until w) {
-            for (y in 0 until h) col[y] = p[y*w+x]
+            for (y in 0 until h) col[y] = pixels[y*w+x]
             for (y in 0 until h) {
-                var a=0;var rd=0;var g=0;var b=0;var c=0
-                for (i in (y-r).coerceAtLeast(0)..(y+r).coerceAtMost(h-1)) {
-                    val v=col[i];a+=v ushr 24;rd+=v ushr 16 and 0xFF;g+=v ushr 8 and 0xFF;b+=v and 0xFF;c++
+                var a=0;var r=0;var g=0;var b=0;var c=0
+                for (i in (y-radius).coerceAtLeast(0)..(y+radius).coerceAtMost(h-1)) {
+                    val v=col[i];a+=v ushr 24;r+=v ushr 16 and 0xFF;g+=v ushr 8 and 0xFF;b+=v and 0xFF;c++
                 }
-                p[y*w+x]=((a/c)shl 24)or((rd/c)shl 16)or((g/c)shl 8)or(b/c)
+                pixels[y*w+x]=((a/c)shl 24)or((r/c)shl 16)or((g/c)shl 8)or(b/c)
             }
         }
     }
+    val out = Bitmap.createBitmap(w, h, input.config ?: Bitmap.Config.ARGB_8888)
+    out.setPixels(pixels, 0, w, 0, 0, w, h)
+    return out
 }
 
 /**
  * PlaylistCoverBackground — Mochy-inspired FULL-SCREEN seamless background.
  *
  * Technique (exactly like Mochy):
- *  1. Load cover at TINY size (48×48) with BoxBlurTransformation(radius=6) baked in
- *  2. Stretch the tiny blurred bitmap full-screen via ContentScale.Crop
- *     → the pixelation + light blur = soft dreamy backdrop (NOT heavy RenderEffect)
- *  3. Extract dominant color via Palette for the gradient tint
- *  4. Full-screen gradient: extracted color → black (seamless blend)
- *  5. Subtle dark shadow at very top for status bar contrast
+ *  1. Load cover at TINY size (48×48)
+ *  2. Apply box blur (radius 6, 3 passes) to the bitmap manually
+ *  3. Extract dominant color via Palette
+ *  4. Display the pre-blurred tiny bitmap stretched full-screen
+ *     → pixelation + light blur = soft dreamy backdrop (NOT heavy RenderEffect)
+ *  5. Full-screen gradient: extracted color → black (seamless blend)
  *
- * NO RenderEffect — works on ALL Android versions, not just 12+.
+ * NO RenderEffect — works on ALL Android versions.
  */
 @Composable
 fun PlaylistCoverBackground(
@@ -103,6 +91,7 @@ fun PlaylistCoverBackground(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    var blurredBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var extractedColor by remember { mutableStateOf<Color?>(null) }
 
     LaunchedEffect(albumArtUri) {
@@ -113,11 +102,11 @@ fun PlaylistCoverBackground(
                     .data(albumArtUri)
                     .size(48)
                     .allowHardware(false)
-                    .transformations(BoxBlurTransformation(radiusPx = 6))
                     .build()
-                val bitmap = context.imageLoader.execute(request).image?.toBitmap()
-                if (bitmap != null) {
-                    extractedColor = LuteaColorExtractor.extractDominant(bitmap)
+                val raw = context.imageLoader.execute(request).image?.toBitmap()
+                if (raw != null) {
+                    blurredBitmap = boxBlur(raw, 6)
+                    extractedColor = LuteaColorExtractor.extractDominant(raw)
                 }
             } catch (_: Exception) { }
         }
@@ -131,16 +120,10 @@ fun PlaylistCoverBackground(
     )
 
     Box(modifier = modifier.fillMaxSize()) {
-        // ── Layer 1: blurred tiny cover stretched full-screen ──
-        // (Only the upper portion is visible — the gradient below covers the rest)
-        if (albumArtUri != null) {
-            coil3.compose.AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(albumArtUri)
-                    .size(48)
-                    .transformations(BoxBlurTransformation(radiusPx = 6))
-                    .allowHardware(false)
-                    .build(),
+        // ── Layer 1: pre-blurred tiny bitmap stretched full-screen ──
+        blurredBitmap?.let { bmp ->
+            androidx.compose.foundation.Image(
+                bitmap = bmp.asImageBitmap(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -157,7 +140,7 @@ fun PlaylistCoverBackground(
             )
         }
 
-        // ── Layer 2: FULL-SCREEN gradient — color → black (seamless blend) ──
+        // ── Layer 2: FULL-SCREEN gradient — color → black ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -173,7 +156,7 @@ fun PlaylistCoverBackground(
                 }
         )
 
-        // ── Layer 3: subtle top shadow for status bar contrast ──
+        // ── Layer 3: subtle top shadow ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
