@@ -112,4 +112,43 @@ object LuteaIcons {
         curveTo(16.105f, 17f, 17f, 17.895f, 17f, 19f)
         lineTo(17f, 20.662f)
     }
+
+    /** Lucide layout-grid-circles icon (MIT) — 4 circles in a 2x2 grid. */
+    val GridCircles: ImageVector = ImageVector.Builder(
+        name = "GridCircles",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        path(
+            fill = null,
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            strokeLineMiter = 4f,
+        ) {
+            // Top-left circle: cx=6.5, cy=6.5, r=3.5
+            moveTo(10f, 6.5f)
+            arcTo(3.5f, 3.5f, 0f, true, true, 3f, 6.5f)
+            arcTo(3.5f, 3.5f, 0f, true, true, 10f, 6.5f)
+            close()
+            // Top-right circle: cx=17.5, cy=6.5, r=3.5
+            moveTo(21f, 6.5f)
+            arcTo(3.5f, 3.5f, 0f, true, true, 14f, 6.5f)
+            arcTo(3.5f, 3.5f, 0f, true, true, 21f, 6.5f)
+            close()
+            // Bottom-left circle: cx=6.5, cy=17.5, r=3.5
+            moveTo(10f, 17.5f)
+            arcTo(3.5f, 3.5f, 0f, true, true, 3f, 17.5f)
+            arcTo(3.5f, 3.5f, 0f, true, true, 10f, 17.5f)
+            close()
+            // Bottom-right circle: cx=17.5, cy=17.5, r=3.5
+            moveTo(21f, 17.5f)
+            arcTo(3.5f, 3.5f, 0f, true, true, 14f, 17.5f)
+            arcTo(3.5f, 3.5f, 0f, true, true, 21f, 17.5f)
+            close()
+        }
+    }.build()
 }

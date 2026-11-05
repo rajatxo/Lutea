@@ -136,10 +136,11 @@ fun LuteaScaffold(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "⋮",
-                        color = Color.White,
-                        fontSize = 22.sp,
+                    Icon(
+                        imageVector = LuteaIcons.GridCircles,
+                        contentDescription = "Menu",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 
