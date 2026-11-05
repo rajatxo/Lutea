@@ -385,16 +385,18 @@ fun LuteaArc(
 
                 // === 1. PIVOT (off-screen, left) ===
                 // ★ Simpler: pivot at -0.20w (original).
-                //    Advanced: pivot at -0.30w — bigger arc, reads as a smooth half-circle
-                //    like the mockup. Right edge at -0.30w + 0.48w = 0.18w.
+                //    Advanced: pivot at the LEFT EDGE of the screen (x=0), radius = 0.28w.
+                //    This gives a proper semicircle — the right half of a circle
+                //    centered on the left edge, like the mockup. Arc touches the
+                //    left edge at top and bottom, bulges right to 28% of screen width.
                 val isAdvanced = playlistStyle == PlaylistStyle.WHEEL_ADVANCED
-                val pivotX = if (isAdvanced) w * -0.30f else w * -0.20f
+                val pivotX = if (isAdvanced) 0f else w * -0.20f
                 val pivotY = h * 0.50f
 
                 // === 2. RADII SYSTEM ===
                 // Simpler: two arcs (inner 0.42w + outer 0.52w), text past outer arc.
-                // Advanced: ONE arc only at 0.48w — bigger, reads as a half-circle.
-                val innerRadius = if (isAdvanced) w * 0.48f else w * 0.42f
+                // Advanced: ONE arc at 0.28w — small circle centered at left edge.
+                val innerRadius = if (isAdvanced) w * 0.28f else w * 0.42f
                 val outerRadius = if (isAdvanced) innerRadius else w * 0.52f
                 val textRadius = if (isAdvanced) {
                     innerRadius + with(density) { 10.dp.toPx() }
