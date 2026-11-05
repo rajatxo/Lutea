@@ -9,6 +9,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -131,9 +132,11 @@ fun LuteaArc(
 
     // ── Wheel rotation state (Animatable for physics fling + spring snap) ──
     val wheelPrefs = remember { context.getSharedPreferences("lutea_wheel", android.content.Context.MODE_PRIVATE) }
+    // ★ Save RAW scroll value (float) — remembers exact thumb position on restart.
+    val savedScroll = remember { wheelPrefs.getFloat("wheel_scroll_offset", 0f) }
     val savedIndex = remember { wheelPrefs.getInt("wheel_center_index", 0) }
     val pxPerItem = with(density) { 64.dp.toPx() }
-    val scrollOffset = remember { Animatable(savedIndex * pxPerItem) }
+    val scrollOffset = remember { Animatable(savedScroll) }
     var lastSnappedIndex by remember { mutableStateOf(savedIndex) }
 
     // ── Sound + Haptic (Coral pattern) ──
@@ -201,8 +204,11 @@ fun LuteaArc(
     val centerIndex = remember(scrollOffset.value) { indexAtOffset(scrollOffset.value) }
 
     // Persist the wheel position whenever it changes.
-    LaunchedEffect(centerIndex) {
-        wheelPrefs.edit().putInt("wheel_center_index", centerIndex).apply()
+    LaunchedEffect(centerIndex, scrollOffset.value) {
+        wheelPrefs.edit()
+            .putInt("wheel_center_index", centerIndex)
+            .putFloat("wheel_scroll_offset", scrollOffset.value)
+            .apply()
     }
 
     // ── Create Playlist dialog ──
@@ -833,35 +839,47 @@ fun LuteaArc(
                         .width(trackWidth + 20.dp)
                         .height(sliderHeight)
                         .pointerInput(playlists.size) {
-                            var velocityTracker = VelocityTracker()
-                            detectVerticalDragGestures(
-                                onDragStart = { velocityTracker = VelocityTracker() },
-                                onDragEnd = {
-                                    val velocity = velocityTracker.calculateVelocity().y
+                            // ★ Tap-to-jump: touch anywhere on slider → thumb instantly jumps there.
+                            // ★ Real-time drag: thumb follows finger position.
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val down = awaitFirstDown()
+                                    down.consume()
+                                    val cycleLen = playlists.size * pxPerItem
+                                    val maxSc = cycleLen * 3f
+                                    val trackHeightPx = size.height.toFloat()
+
+                                    // ★ Instant jump on touch: map Y position to scroll value.
+                                    fun jumpToPosition(y: Float) {
+                                        val fraction = (y / trackHeightPx).coerceIn(0f, 1f)
+                                        val targetScroll = fraction * maxSc
+                                        coroutineScope.launch { scrollOffset.snapTo(targetScroll) }
+                                        val currentIdx = ((targetScroll / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
+                                        if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                                    }
+
+                                    // Jump to initial touch position
+                                    jumpToPosition(down.position.y)
+
+                                    // Track finger movement in real-time
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull() ?: break
+                                        if (!change.pressed) break
+                                        change.consume()
+                                        // ★ Real-time: thumb follows finger Y position directly.
+                                        jumpToPosition(change.position.y)
+                                    }
+
+                                    // On release: snap to nearest item
                                     coroutineScope.launch {
-                                        val cycleLen = playlists.size * pxPerItem
-                                        val maxSc = cycleLen * 3f
-                                        scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
                                         val clamped = scrollOffset.value.coerceIn(0f, maxSc)
                                         scrollOffset.snapTo(clamped)
-                                        // Snap to nearest item (modulo cycle for display)
                                         val nearest = (clamped / pxPerItem).roundToInt()
                                         scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
                                     }
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    coroutineScope.launch {
-                                        val cycleLen = playlists.size * pxPerItem
-                                        val maxSc = cycleLen * 3f
-                                        val newValue = (scrollOffset.value + dragAmount).coerceIn(0f, maxSc)
-                                        scrollOffset.snapTo(newValue)
-                                    }
-                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                    val currentIdx = ((scrollOffset.value / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
-                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
-                                    change.consume()
                                 }
-                            )
+                            }
                         }
                 ) {
                     // Visible track (narrow, centered in hit area)
@@ -898,14 +916,14 @@ fun LuteaArc(
                             .background(thumbGradient)
                             .border(thumbBorderWidth, thumbBorderTop, RoundedCornerShape(thumbCorner))
                     )
-                    // Layer 3: top highlight
+                    // Layer 3: center highlight line (was at top — moved to CENTER of thumb)
                     Box(
                         modifier = Modifier
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + (thumbHeight / 2) - 1.dp)
                             .align(Alignment.TopCenter)
                             .width(thumbWidth)
                             .height(2.dp)
-                            .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                            .clip(RoundedCornerShape(1.dp))
                             .background(Color.White.copy(alpha = 0.3f))
                     )
                 }
