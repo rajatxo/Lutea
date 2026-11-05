@@ -840,39 +840,53 @@ fun LuteaArc(
                         .width(trackWidth + 20.dp)
                         .height(sliderHeight)
                         .pointerInput(playlists.size) {
-                            // ★ Tap-to-jump: touch anywhere on slider → thumb instantly jumps there.
-                            // ★ Real-time drag: thumb follows finger position.
+                            // ★ Fixed: use detectTapGestures for taps + detectVerticalDragGestures for drags.
+                            //    detectTapGestures handles single taps reliably (no double-touch needed).
+                            detectTapGestures(
+                                onTap = { offset ->
+                                    val cycleLen = playlists.size * pxPerItem
+                                    val maxSc = cycleLen * 3f
+                                    val trackHeightPx = size.height.toFloat()
+                                    val fraction = (offset.y / trackHeightPx).coerceIn(0f, 1f)
+                                    val targetScroll = fraction * maxSc
+                                    coroutineScope.launch {
+                                        scrollOffset.animateTo(targetScroll, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMedium))
+                                        val nearest = (targetScroll / pxPerItem).roundToInt()
+                                        scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
+                                    }
+                                    val currentIdx = ((targetScroll / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
+                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                                }
+                            )
+                        }
+                        .pointerInput(playlists.size) {
+                            // ★ Real-time drag: thumb follows finger directly.
+                            val cycleLen = playlists.size * pxPerItem
+                            val maxSc = cycleLen * 3f
+                            val trackHeightPx = size.height.toFloat()
+
+                            fun jumpToPosition(y: Float) {
+                                val fraction = (y / trackHeightPx).coerceIn(0f, 1f)
+                                val targetScroll = fraction * maxSc
+                                coroutineScope.launch { scrollOffset.snapTo(targetScroll) }
+                                val currentIdx = ((targetScroll / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
+                                if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                            }
+
                             awaitPointerEventScope {
                                 while (true) {
                                     val down = awaitFirstDown()
                                     down.consume()
-                                    val cycleLen = playlists.size * pxPerItem
-                                    val maxSc = cycleLen * 3f
-                                    val trackHeightPx = size.height.toFloat()
-
-                                    // ★ Instant jump on touch: map Y position to scroll value.
-                                    fun jumpToPosition(y: Float) {
-                                        val fraction = (y / trackHeightPx).coerceIn(0f, 1f)
-                                        val targetScroll = fraction * maxSc
-                                        coroutineScope.launch { scrollOffset.snapTo(targetScroll) }
-                                        val currentIdx = ((targetScroll / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
-                                        if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
-                                    }
-
-                                    // Jump to initial touch position
                                     jumpToPosition(down.position.y)
 
-                                    // Track finger movement in real-time
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         val change = event.changes.firstOrNull() ?: break
                                         if (!change.pressed) break
                                         change.consume()
-                                        // ★ Real-time: thumb follows finger Y position directly.
                                         jumpToPosition(change.position.y)
                                     }
 
-                                    // On release: snap to nearest item
                                     coroutineScope.launch {
                                         val clamped = scrollOffset.value.coerceIn(0f, maxSc)
                                         scrollOffset.snapTo(clamped)
@@ -895,7 +909,35 @@ fun LuteaArc(
 
                     // ★ Thumb — INSIDE track Box, constrained to track bounds.
                     // Offset is from TOP of track. Clamped so it never leaves.
-                    // Layer 1: drop shadow
+                    // Layer 1: ★ GLOW — light emitting outward from the thumb on both sides.
+                    //    Uses a wider, blurred Box with a radial gradient that fades to transparent.
+                    //    Positioned behind the thumb, extends beyond the track width.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) - 8.dp)
+                            .width(thumbWidth + 24.dp)  // wider than thumb = light spreads outward
+                            .height(thumbHeight + 16.dp)  // taller = light spreads vertically too
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.15f),  // center glow
+                                        Color.White.copy(alpha = 0.05f),  // mid fade
+                                        Color.Transparent,                  // edges fade to nothing
+                                    )
+                                )
+                            )
+                            .graphicsLayer {
+                                // Soft blur on the glow for a diffused light effect
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                    this.renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                                        12f, 12f, android.graphics.Shader.TileMode.DECAL
+                                    ).asComposeRenderEffect()
+                                }
+                                this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                            }
+                    )
+                    // Layer 2: drop shadow
                     Box(
                         modifier = Modifier
                             .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + 3.dp)
