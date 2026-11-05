@@ -291,30 +291,7 @@ fun LuteaArc(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (isAdvanced) Modifier
-                        // ★ Advanced: rotate wheel by SWIPING THE SCREEN (like Simpler).
-                        //    No left-zone counter-rotation, just normal vertical drag.
-                        .pointerInput(playlists.size) {
-                            var velocityTracker = VelocityTracker()
-                            detectVerticalDragGestures(
-                                onDragStart = { velocityTracker = VelocityTracker() },
-                                onDragEnd = {
-                                    val velocity = velocityTracker.calculateVelocity().y
-                                    coroutineScope.launch {
-                                        scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
-                                        val nearest = (scrollOffset.value / pxPerItem).roundToInt()
-                                        scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
-                                    }
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    coroutineScope.launch { scrollOffset.snapTo(scrollOffset.value + dragAmount) }
-                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                    val currentIdx = indexAtOffset(scrollOffset.value)
-                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
-                                    change.consume()
-                                }
-                            )
-                        }
+                    if (isAdvanced) Modifier  // ★ No screen drag in Advanced — slider only
                     else Modifier
                         .pointerInput(playlists.size) {
                             val halfScreen = size.width / 2
@@ -804,9 +781,11 @@ fun LuteaArc(
         //    Thumb position reflects which playlist is currently selected.
         // ──────────────────────────────────────────────────────────────
         if (playlistStyle == PlaylistStyle.WHEEL_ADVANCED && playlists.isNotEmpty()) {
-            // ★ Thumb is STATIC — not connected to wheel rotation.
-            //    It stays at the center of the track. Will be used for another purpose later.
-            val staticThumbFraction = 0.5f  // always centered
+            // ★ CLAMPED rotation — no infinite loop. Range = 0 to (playlists.size - 1) * pxPerItem.
+            val maxScroll = (playlists.size - 1) * pxPerItem
+            val clampedValue = scrollOffset.value.coerceIn(0f, maxScroll)
+            // ★ Thumb follows clamped scroll position — stays on track, never moves fast.
+            val knobFraction = if (maxScroll > 0f) (clampedValue / maxScroll).coerceIn(0f, 1f) else 0.5f
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // ═══ SLIDER VALUES ═══
@@ -837,18 +816,47 @@ fun LuteaArc(
                 val thumbBorderBottom = Color.Black.copy(alpha = 0.3f)
                 val thumbBorderWidth = 1.dp
                 // Thumb Y: clamped within track bounds so it NEVER leaves the track
-                val thumbY = (sliderHeight - thumbHeight) * (1f - staticThumbFraction)
+                val thumbY = (sliderHeight - thumbHeight) * (1f - knobFraction)
                 // ★ Thumb X: exactly centered on the track (not offset by padding math)
                 val thumbCenterPadding = trackPaddingEnd - (thumbWidth - trackWidth) / 2f
 
-                // Track (long gray capsule) — display only, NOT draggable.
-                // Wheel rotation is via screen swipe (like Simpler).
+                // Track (long gray capsule) — DRAG to rotate wheel (clamped, no infinite loop).
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = trackPaddingEnd)
                         .width(trackWidth + 20.dp)
                         .height(sliderHeight)
+                        .pointerInput(playlists.size) {
+                            var velocityTracker = VelocityTracker()
+                            detectVerticalDragGestures(
+                                onDragStart = { velocityTracker = VelocityTracker() },
+                                onDragEnd = {
+                                    val velocity = velocityTracker.calculateVelocity().y
+                                    coroutineScope.launch {
+                                        // ★ CLAMPED — no infinite rotation. Stops at first/last playlist.
+                                        val maxScroll = (playlists.size - 1) * pxPerItem
+                                        scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
+                                        // Clamp after decay
+                                        val clamped = scrollOffset.value.coerceIn(0f, maxScroll)
+                                        scrollOffset.snapTo(clamped)
+                                        val nearest = (clamped / pxPerItem).roundToInt().coerceIn(0, playlists.size - 1)
+                                        scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    coroutineScope.launch {
+                                        val maxScroll = (playlists.size - 1) * pxPerItem
+                                        val newValue = (scrollOffset.value + dragAmount).coerceIn(0f, maxScroll)
+                                        scrollOffset.snapTo(newValue)
+                                    }
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                    val currentIdx = indexAtOffset(scrollOffset.value)
+                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                                    change.consume()
+                                }
+                            )
+                        }
                 ) {
                     // Visible track (narrow, centered in hit area)
                     Box(
@@ -949,9 +957,10 @@ fun LuteaArc(
                 }
 
                 for (offset in -4..4) {
+                    // ★ CLAMPED — no modulo wrap. Index stays within [0, playlists.size-1].
                     val rawIdx = (rotationItems.roundToInt() - offset)
-                    val modIdx = ((rawIdx % playlists.size) + playlists.size) % playlists.size
-                    val playlist = playlists[modIdx]
+                    val clampedIdx = rawIdx.coerceIn(0, playlists.size - 1)
+                    val playlist = playlists[clampedIdx]
                     val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
                     val absOffset = abs(fractionalOffset)
                     if (absOffset > 4.5f) continue
@@ -1036,18 +1045,8 @@ fun LuteaArc(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 24.dp, top = 32.dp, end = 80.dp)  // moved down (was 16dp)
+                .padding(start = 24.dp, top = 16.dp, end = 80.dp)
         ) {
-            // Small subtitle
-            Text(
-                text = "Rotate the wheel and",
-                color = Color.White.copy(alpha = 0.4f),
-                fontSize = 14.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Medium,
-            )
-            Spacer(Modifier.height(4.dp))
-            // Big title
             Text(
                 text = "Choose your",
                 color = Color.White.copy(alpha = 0.7f),
