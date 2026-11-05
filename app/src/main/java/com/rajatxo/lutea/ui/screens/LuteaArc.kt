@@ -419,9 +419,9 @@ fun LuteaArc(
                     minStrokePx: Float,
                     maxAlpha: Float
                 ) {
-                    // ★ Advanced: fade only the last 15% of each end (was 50% — too early).
+                    // ★ Advanced: smooth fade over last 25% of each end (was 15% — too sudden).
                     //    Simpler: keep 50% fade (original).
-                    val fadeRange = if (isAdvanced) 0.15f else 0.50f
+                    val fadeRange = if (isAdvanced) 0.25f else 0.50f
                     for (i in 0 until segments) {
                         val segStart = i / segments.toFloat()
                         val segEnd = (i + 1) / segments.toFloat()
@@ -807,27 +807,36 @@ fun LuteaArc(
             val knobFraction = (continuousIdx / playlists.size).coerceIn(0f, 1f)
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val sliderHeight = maxHeight * 0.5f  // 50% of screen height
-                val knobOffset = sliderHeight * (1f - knobFraction)  // knob Y offset from top of slider
+                // ═══ SLIDER VALUES (change these to adjust) ═══
+                val sliderHeight = maxHeight * 0.50f      // ★ Track height = 50% of screen height
+                val trackWidth = 6.dp                     // ★ Track thickness = 6dp
+                val trackColor = Color.White.copy(alpha = 0.15f)  // ★ Track color
+                val trackPaddingEnd = 36.dp               // ★ Gap from right edge of screen
+                val thumbWidth = 12.dp                    // ★ Thumb thickness = 12dp (wider than track)
+                val thumbHeight = 28.dp                   // ★ Thumb height = 28dp (short)
+                val thumbColor = Color.White.copy(alpha = 0.85f)  // ★ Thumb color
+                val thumbOffset = sliderHeight * (1f - knobFraction) - thumbHeight / 2f  // center thumb on track position
 
                 // Track — long gray capsule, vertically centered on right edge
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 20.dp)
-                        .width(4.dp)
+                        .padding(end = trackPaddingEnd)
+                        .width(trackWidth)
                         .height(sliderHeight)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.15f))
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(trackColor)
                 ) {
-                    // Thumb — small narrow capsule on top of track
+                    // Thumb — wider capsule sitting ON the track (like a button)
+                    // Uses offset to move up/down. Aligned to the center of the track.
                     Box(
                         modifier = Modifier
-                            .offset(y = knobOffset)
-                            .fillMaxWidth()
-                            .height(32.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White.copy(alpha = 0.8f))
+                            .align(Alignment.Center)
+                            .offset(x = 0.dp, y = thumbOffset)
+                            .width(thumbWidth)
+                            .height(thumbHeight)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(thumbColor)
                     )
                 }
             }
