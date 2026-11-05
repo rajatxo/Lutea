@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -805,35 +807,24 @@ fun LuteaArc(
             val knobFraction = (continuousIdx / playlists.size).coerceIn(0f, 1f)
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val sliderTop = with(density) { maxHeight * 0.25f }
-                val sliderBottom = with(density) { maxHeight * 0.75f }
-                val sliderHeight = sliderBottom - sliderTop
-                val knobY = sliderBottom - knobFraction * sliderHeight
+                val sliderHeight = maxHeight * 0.5f  // 50% of screen height
+                val knobOffset = sliderHeight * (1f - knobFraction)  // knob Y offset from top of slider
 
-                // Track — long gray capsule
+                // Track — long gray capsule, vertically centered on right edge
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 20.dp)
-                        .graphicsLayer {
-                            translationY = (sliderTop - sliderBottom) / 2f + sliderHeight / 2f
-                        }
+                        .width(4.dp)
+                        .height(sliderHeight)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.15f))
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .width(4.dp)
-                            .height(with(density) { sliderHeight.toDp() })
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White.copy(alpha = 0.15f))
-                    )
-
                     // Thumb — small narrow capsule on top of track
                     Box(
                         modifier = Modifier
-                            .graphicsLayer {
-                                translationY = knobY - sliderBottom + sliderHeight / 2f
-                            }
-                            .width(4.dp)
+                            .offset(y = knobOffset)
+                            .fillMaxWidth()
                             .height(32.dp)
                             .clip(RoundedCornerShape(2.dp))
                             .background(Color.White.copy(alpha = 0.8f))
