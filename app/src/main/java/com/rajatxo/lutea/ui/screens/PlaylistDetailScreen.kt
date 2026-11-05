@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,22 +50,19 @@ import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.domain.model.Song
 import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * PlaylistDetailScreen — Mochy-inspired seamless cover background + Coral-style
- * 3-dot menu with rename / cover photo / delete options.
+ * PlaylistDetailScreen — Mochy-inspired full-screen seamless background +
+ * Coral-style 3-dot menu + Play/Shuffle buttons.
  *
  * Layers (back to front):
- *  1. PlaylistCoverBackground — blurred album art (or custom cover) + color blend
- *  2. Top bar: back button + 3-dot menu (rename / change cover / delete)
- *  3. Playlist title + song count
- *  4. Song list (LazyColumn, scroll-fades the backdrop)
- *
- * Universal Layout Laws:
- *  - Law 1: statusBarsPadding()
- *  - Law 7: fillMaxSize + LazyColumn (scrolls on every phone)
+ *  1. PlaylistCoverBackground — FULL SCREEN color gradient + blurred cover
+ *  2. Top bar: back + 3-dot menu
+ *  3. Playlist title + song count + Play/Shuffle buttons
+ *  4. Song list (LazyColumn scrolls over the tinted background)
  */
 @Composable
 fun PlaylistDetailScreen(
@@ -74,14 +72,12 @@ fun PlaylistDetailScreen(
     val context = LocalContext.current
     val playlists by PlaylistStore.playlists.collectAsState()
 
-    // Crash protection: if playlist was deleted, dismiss immediately.
     val livePlaylist = playlists.firstOrNull { it.id == playlist.id }
     if (livePlaylist == null) {
         LaunchedEffect(Unit) { onBackClick() }
         return
     }
 
-    // Load songs once
     var allSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -90,12 +86,9 @@ fun PlaylistDetailScreen(
     }
 
     val playlistSongs = allSongs.filter { it.id in livePlaylist.songIds }
-
-    // ★ Cover URI: custom cover if set, otherwise first song's album art.
     val coverUri: Uri? = livePlaylist.coverUri?.let { Uri.parse(it) }
         ?: playlistSongs.firstOrNull()?.albumArtUri
 
-    // Scroll state — drives the backdrop parallax + fade.
     val listState = rememberLazyListState()
     val scrollProgress by remember {
         derivedStateOf {
@@ -104,21 +97,18 @@ fun PlaylistDetailScreen(
         }
     }
 
-    // ── Menu + dialog state ──
+    // Menu + dialog state
     var showMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    // ── Cover photo picker ──
     val coverPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Take persistable permission so the URI survives app restarts.
             try {
                 context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
                 )
             } catch (_: Exception) { }
             PlaylistStore.setPlaylistCover(livePlaylist.id, uri.toString())
@@ -130,14 +120,11 @@ fun PlaylistDetailScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // ── Layer 1: seamless blurred cover background ──
-        if (coverUri != null) {
-            PlaylistCoverBackground(
-                albumArtUri = coverUri,
-                bandHeight = 360.dp,
-                scrollProgress = { scrollProgress },
-            )
-        }
+        // ── Layer 1: FULL-SCREEN seamless background ──
+        PlaylistCoverBackground(
+            albumArtUri = coverUri,
+            scrollProgress = { scrollProgress },
+        )
 
         // ── Layer 2: content ──
         Column(
@@ -164,11 +151,7 @@ fun PlaylistDetailScreen(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "←",
-                        color = Color.White,
-                        fontSize = 20.sp,
-                    )
+                    Text("←", color = Color.White, fontSize = 20.sp)
                 }
                 Spacer(Modifier.weight(1f))
                 Box(
@@ -183,11 +166,7 @@ fun PlaylistDetailScreen(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "⋮",
-                        color = Color.White,
-                        fontSize = 22.sp,
-                    )
+                    Text("⋮", color = Color.White, fontSize = 22.sp)
                 }
             }
 
@@ -196,11 +175,7 @@ fun PlaylistDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = "Loading...",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 14.sp,
-                    )
+                    Text("Loading...", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
                 }
                 return@Column
             }
@@ -210,6 +185,7 @@ fun PlaylistDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 120.dp),
             ) {
+                // ── Header: title + stats + play/shuffle ──
                 item {
                     Column(
                         modifier = Modifier
@@ -221,7 +197,7 @@ fun PlaylistDetailScreen(
                             color = Color.White,
                             fontSize = 36.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = CalSansFamily,
+                            fontFamily = BillieEilishFamily,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -230,8 +206,73 @@ fun PlaylistDetailScreen(
                             text = "Playlist · ${playlistSongs.size} songs",
                             color = Color.White.copy(alpha = 0.7f),
                             fontSize = 13.sp,
+                            fontFamily = CalSansFamily,
                         )
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(20.dp))
+
+                        // ── Play + Shuffle buttons (Mochy style) ──
+                        if (playlistSongs.isNotEmpty()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                // Play pill
+                                Box(
+                                    modifier = Modifier
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(Color.White)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = {
+                                                PlaybackConnection.playSong(
+                                                    playlistSongs.first(),
+                                                    playlistSongs,
+                                                )
+                                            },
+                                        )
+                                        .padding(horizontal = 28.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "Play",
+                                        color = Color.Black,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = CalSansFamily,
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                // Shuffle circle
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.15f))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = {
+                                                if (playlistSongs.isNotEmpty()) {
+                                                    val shuffled = playlistSongs.shuffled()
+                                                    PlaybackConnection.playSong(
+                                                        shuffled.first(),
+                                                        shuffled,
+                                                    )
+                                                }
+                                            },
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "⇄",
+                                        color = Color.White,
+                                        fontSize = 18.sp,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(24.dp))
+                        }
                     }
                 }
 
@@ -245,14 +286,14 @@ fun PlaylistDetailScreen(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "No songs yet",
+                                    "No songs yet",
                                     color = Color.White,
                                     fontSize = 16.sp,
                                     fontFamily = CalSansFamily,
                                 )
                                 Spacer(Modifier.size(8.dp))
                                 Text(
-                                    text = "Add songs from the Songs tab",
+                                    "Add songs from the Songs tab",
                                     color = Color.White.copy(alpha = 0.5f),
                                     fontSize = 13.sp,
                                 )
@@ -293,7 +334,7 @@ fun PlaylistDetailScreen(
             }
         }
 
-        // ── 3-dot menu overlay ──
+        // ── 3-dot menu ──
         if (showMenu) {
             Box(
                 modifier = Modifier
@@ -340,14 +381,7 @@ fun PlaylistDetailScreen(
             val isOverLimit = letterCount > MAX_LETTERS
             AlertDialog(
                 onDismissRequest = { showRenameDialog = false },
-                title = {
-                    Text(
-                        "Rename playlist",
-                        color = Color.White,
-                        fontFamily = CalSansFamily,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                },
+                title = { Text("Rename playlist", color = Color.White, fontFamily = CalSansFamily, fontWeight = FontWeight.SemiBold) },
                 text = {
                     OutlinedTextField(
                         value = renameText,
@@ -362,7 +396,7 @@ fun PlaylistDetailScreen(
                         isError = isOverLimit,
                         supportingText = {
                             Text(
-                                text = "${MAX_LETTERS - letterCount} letters left",
+                                "${MAX_LETTERS - letterCount} letters left",
                                 color = if (letterCount >= MAX_LETTERS - 2) Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.5f),
                                 fontSize = 12.sp,
                             )
@@ -380,9 +414,7 @@ fun PlaylistDetailScreen(
                         enabled = renameText.isNotBlank() && !isOverLimit,
                     ) { Text("Save") }
                 },
-                dismissButton = {
-                    TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") }
-                },
+                dismissButton = { TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") } },
             )
         }
 
@@ -390,21 +422,8 @@ fun PlaylistDetailScreen(
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
-                title = {
-                    Text(
-                        "Delete playlist?",
-                        color = Color.White,
-                        fontFamily = CalSansFamily,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                },
-                text = {
-                    Text(
-                        "\"${livePlaylist.name}\" will be permanently deleted. This cannot be undone.",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 14.sp,
-                    )
-                },
+                title = { Text("Delete playlist?", color = Color.White, fontFamily = CalSansFamily, fontWeight = FontWeight.SemiBold) },
+                text = { Text("\"${livePlaylist.name}\" will be permanently deleted.", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp) },
                 confirmButton = {
                     TextButton(onClick = {
                         PlaylistStore.deletePlaylist(livePlaylist.id)
@@ -412,21 +431,14 @@ fun PlaylistDetailScreen(
                         onBackClick()
                     }) { Text("Delete", color = Color(0xFFFF6B6B)) }
                 },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
-                },
+                dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
             )
         }
     }
 }
 
 @Composable
-private fun MenuOption(
-    label: String,
-    isDanger: Boolean = false,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
+private fun MenuOption(label: String, isDanger: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val color = when {
         !enabled -> Color.White.copy(alpha = 0.3f)
         isDanger -> Color(0xFFFF6B6B)
@@ -438,12 +450,6 @@ private fun MenuOption(
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 14.dp),
     ) {
-        Text(
-            text = label,
-            color = color,
-            fontSize = 15.sp,
-            fontFamily = CalSansFamily,
-            fontWeight = FontWeight.Medium,
-        )
+        Text(label, color = color, fontSize = 15.sp, fontFamily = CalSansFamily, fontWeight = FontWeight.Medium)
     }
 }
