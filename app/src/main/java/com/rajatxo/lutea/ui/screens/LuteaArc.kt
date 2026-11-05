@@ -870,8 +870,8 @@ fun LuteaArc(
                 val centerIdx = indexAtOffset(scrollOffset.value)
                 // Arc geometry (same as Canvas above)
                 val arcPivotX = 0f  // pivot at left edge
-                val arcRadius = w * 0.28f  // same as innerRadius in Canvas
-                val arcGap = w * 0.05f  // 5% gap from arc
+                val arcRadius = with(density) { maxWidth.toPx() } * 0.28f  // same as innerRadius in Canvas
+                val arcGap = with(density) { maxWidth.toPx() } * 0.05f  // 5% gap from arc
                 val textRadius = arcRadius + arcGap  // text sits this far from pivot
                 // Text horizontal padding (same gap from arc for all items)
                 val textStartPadding = maxWidth * 0.33f
