@@ -909,33 +909,40 @@ fun LuteaArc(
 
                     // ★ Thumb — INSIDE track Box, constrained to track bounds.
                     // Offset is from TOP of track. Clamped so it never leaves.
-                    // Layer 1: ★ GLOW — light emitting outward from the thumb on both sides.
-                    //    Uses a wider, blurred Box with a radial gradient that fades to transparent.
-                    //    Positioned behind the thumb, extends beyond the track width.
+                    // Layer 1: ★ GLOW — strong light emitting outward from thumb on both sides.
+                    //    No RenderEffect (unreliable) — uses multiple stacked translucent boxes
+                    //    that get progressively wider = layered glow effect.
+                    val glowColor = Color.White.copy(alpha = 0.35f)
+                    val glowOffset = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + thumbHeight / 2
+                    // Glow layer 1 (widest, faintest)
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) - 8.dp)
-                            .width(thumbWidth + 24.dp)  // wider than thumb = light spreads outward
-                            .height(thumbHeight + 16.dp)  // taller = light spreads vertically too
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.15f),  // center glow
-                                        Color.White.copy(alpha = 0.05f),  // mid fade
-                                        Color.Transparent,                  // edges fade to nothing
-                                    )
-                                )
-                            )
-                            .graphicsLayer {
-                                // Soft blur on the glow for a diffused light effect
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                                    this.renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                                        12f, 12f, android.graphics.Shader.TileMode.DECAL
-                                    ).asComposeRenderEffect()
-                                }
-                                this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-                            }
+                            .offset(y = glowOffset - (thumbHeight + 40.dp) / 2)
+                            .width(thumbWidth + 40.dp)
+                            .height(thumbHeight + 40.dp)
+                            .clip(RoundedCornerShape((thumbHeight + 40.dp) / 2))
+                            .background(glowColor.copy(alpha = 0.05f))
+                    )
+                    // Glow layer 2 (medium)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .offset(y = glowOffset - (thumbHeight + 24.dp) / 2)
+                            .width(thumbWidth + 24.dp)
+                            .height(thumbHeight + 24.dp)
+                            .clip(RoundedCornerShape((thumbHeight + 24.dp) / 2))
+                            .background(glowColor.copy(alpha = 0.10f))
+                    )
+                    // Glow layer 3 (tight, brightest)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .offset(y = glowOffset - (thumbHeight + 12.dp) / 2)
+                            .width(thumbWidth + 12.dp)
+                            .height(thumbHeight + 12.dp)
+                            .clip(RoundedCornerShape((thumbHeight + 12.dp) / 2))
+                            .background(glowColor.copy(alpha = 0.20f))
                     )
                     // Layer 2: drop shadow
                     Box(
