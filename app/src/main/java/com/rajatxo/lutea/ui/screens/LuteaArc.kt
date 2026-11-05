@@ -916,15 +916,15 @@ fun LuteaArc(
                 // ★ Max text width = screen width minus slider zone (8% + 20dp buffer)
                 val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbWidth + 10.dp).toPx() }
 
-                // Opacity: fade is BACK. Main = 100%, secondary fades toward edges.
-                // Blur: light blur on ±3 (2dp) and ±4 (5dp), rest sharp.
+                // Opacity: 100% → 90% → 70% → 50% → 30%
+                // Blur: 2dp on ±3, 5dp on ±4
                 fun alphaFor(absOffset: Float): Float = when {
                     absOffset < 0.5f -> 1f
-                    absOffset < 1.5f -> 0.80f
-                    absOffset < 2.5f -> 0.60f
-                    absOffset < 3.5f -> 0.40f
-                    absOffset < 4.5f -> 0.20f
-                    else -> 0.08f
+                    absOffset < 1.5f -> 0.90f
+                    absOffset < 2.5f -> 0.70f
+                    absOffset < 3.5f -> 0.50f
+                    absOffset < 4.5f -> 0.30f
+                    else -> 0.10f
                 }
 
                 // Progressive blur — light on ±3, heavier on ±4. Combined with fade.
@@ -1029,15 +1029,24 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ "Choose your playlist" — big title in CalSans (like the mockup's
-        //    "Choose your destination"). Top-left, below status bar.
+        // ★ Title: small "Rotate the wheel and" + big "Choose your playlist"
         // ──────────────────────────────────────────────────────────────
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 24.dp, top = 16.dp, end = 80.dp)
+                .padding(start = 24.dp, top = 32.dp, end = 80.dp)  // moved down (was 16dp)
         ) {
+            // Small subtitle
+            Text(
+                text = "Rotate the wheel and",
+                color = Color.White.copy(alpha = 0.4f),
+                fontSize = 14.sp,
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.height(4.dp))
+            // Big title
             Text(
                 text = "Choose your",
                 color = Color.White.copy(alpha = 0.7f),
