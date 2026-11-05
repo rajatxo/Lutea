@@ -18,7 +18,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.rajatxo.lutea.data.scanner.MusicScanner
+import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.domain.model.Song
 import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.components.CalSansFamily
@@ -58,20 +62,16 @@ import kotlinx.coroutines.withContext
 fun QuickPicksScreen(
     modifier: Modifier = Modifier,
 ) {
-    // Default tab is Playlists (per user request: 'make the playlist page default')
     var activeTab by remember { mutableStateOf(LuteaTab.Playlists) }
-    // When non-null, the playlist detail screen overlays the wheel.
     var selectedPlaylist by remember { mutableStateOf<com.rajatxo.lutea.data.model.Playlist?>(null) }
-    // When true, the settings screen overlays everything.
     var showSettings by remember { mutableStateOf(false) }
+    var showCreateDialog by remember { mutableStateOf(false) }
 
-    // Settings screen overlays everything when toggled.
     if (showSettings) {
         SettingsScreen(onBackClick = { showSettings = false })
         return
     }
 
-    // Playlist detail screen overlays everything when a playlist is selected.
     selectedPlaylist?.let { playlist ->
         PlaylistDetailScreen(
             playlist = playlist,
@@ -80,17 +80,66 @@ fun QuickPicksScreen(
         return
     }
 
+    // ★ Create Playlist dialog (triggered from the 3-dot menu)
+    if (showCreateDialog) {
+        var playlistName by remember { mutableStateOf("") }
+        val MAX_LETTERS = 10
+        fun letterCount(s: String): Int = s.count { it.isLetter() }
+        val remainingLetters = MAX_LETTERS - letterCount(playlistName)
+        val isOverLimit = remainingLetters < 0
+
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            title = {
+                Text("New Playlist", color = Color.White, fontFamily = CalSansFamily, fontWeight = FontWeight.SemiBold)
+            },
+            text = {
+                OutlinedTextField(
+                    value = playlistName,
+                    onValueChange = { newValue ->
+                        val filtered = newValue.filter { it.isLetter() || it.isWhitespace() }
+                        if (filtered.count { it.isLetter() } <= MAX_LETTERS) {
+                            playlistName = filtered
+                        }
+                    },
+                    placeholder = { Text("Playlist name (max 10 letters)") },
+                    singleLine = true,
+                    isError = isOverLimit,
+                    supportingText = {
+                        Text(
+                            "$remainingLetters letters left",
+                            color = if (remainingLetters <= 2) Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.5f),
+                            fontSize = 12.sp,
+                        )
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (playlistName.isNotBlank() && !isOverLimit) {
+                            PlaylistStore.createPlaylist(playlistName.trim())
+                        }
+                        showCreateDialog = false
+                    },
+                    enabled = playlistName.isNotBlank() && !isOverLimit,
+                ) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") } },
+        )
+    }
+
     LuteaScaffold(
         title = when (activeTab) {
             LuteaTab.QuickPicks -> "Quick Picks"
             LuteaTab.Songs -> "Songs"
-            LuteaTab.Playlists -> ""  // empty — LuteaArc has its own "New Playlist" button
+            LuteaTab.Playlists -> ""
         },
         activeTab = activeTab,
         onTabSelected = { activeTab = it },
         onSettingsClick = { showSettings = true },
+        onNewPlaylistClick = { showCreateDialog = true },
     ) {
-        // Content changes based on the active tab
         when (activeTab) {
             LuteaTab.QuickPicks -> QuickPicksContent()
             LuteaTab.Songs -> SongsContent()

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,7 +21,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +78,7 @@ fun LuteaScaffold(
     onTabSelected: (LuteaTab) -> Unit,
     onProfileClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
+    onNewPlaylistClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     content: @Composable () -> Unit
 ) {
@@ -110,27 +115,97 @@ fun LuteaScaffold(
                 content()
             }
 
-            // Settings icon only — top-right corner (no header blur, no profile)
+            // ★ 3-dot menu — top-right corner. Opens a floating box with options.
+            var showMenu by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
                     .padding(end = 16.dp, top = 8.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onSettingsClick
-                    ),
-                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = LuteaIcons.Cog,
-                    contentDescription = "Settings",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
+                // 3-dot button
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { showMenu = !showMenu }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "⋮",
+                        color = Color.White,
+                        fontSize = 22.sp,
+                    )
+                }
+
+                // ★ Floating box — appears when menu is toggled
+                if (showMenu) {
+                    // Scrim to close on outside tap
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { showMenu = false },
+                            )
+                    )
+                    // Floating dropdown
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 44.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF1A1A1A).copy(alpha = 0.95f))
+                    ) {
+                        // New Playlist option
+                        Box(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        showMenu = false
+                                        onNewPlaylistClick()
+                                    },
+                                )
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                text = "New Playlist",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = CalSansFamily,
+                            )
+                        }
+                        // Settings option
+                        Box(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        showMenu = false
+                                        onSettingsClick()
+                                    },
+                                )
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                text = "Settings",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = CalSansFamily,
+                            )
+                        }
+                    }
+                }
             }
 
             // Bottom: TabCapsule ONLY — search FAB removed per user request.

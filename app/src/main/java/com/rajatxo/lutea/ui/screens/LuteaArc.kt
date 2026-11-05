@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -766,28 +767,28 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // 2) "+ NEW PLAYLIST" CAPSULE — TOP CENTER, beside the settings button.
-        //    statusBarsPadding() lines it up with the settings cog (Law #1).
+        // ★ "Choose your playlist" — big title in CalSans (like the mockup's
+        //    "Choose your destination"). Top-left, below status bar.
         // ──────────────────────────────────────────────────────────────
-        Box(
+        Column(
             modifier = Modifier
-                .align(Alignment.TopCenter)
+                .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 8.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color.White.copy(alpha = 0.08f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { showCreateDialog = true }
-                .padding(horizontal = 24.dp, vertical = 12.dp),
+                .padding(start = 24.dp, top = 16.dp, end = 80.dp)  // end=80 to avoid the 3-dot menu
         ) {
             Text(
-                text = "+ New Playlist",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
+                text = "Choose your",
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 14.sp,
                 fontFamily = CalSansFamily,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "playlist",
+                color = Color.White,
+                fontSize = 32.sp,
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
