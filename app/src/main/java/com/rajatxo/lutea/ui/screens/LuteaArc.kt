@@ -863,11 +863,21 @@ fun LuteaArc(
                 )
 
                 // ═══ TEXT LABELS (main + 4 above + 4 below) ═══
-                // Main = 60sp, secondary = 35sp. All at 5% gap from arc (start padding = 33%).
+                // Texts follow the ARC CURVE — not a straight line.
+                // Each text's X position is computed from its angle on the semicircle,
+                // so top/bottom texts shift LEFT (toward the arc) and center stays RIGHT.
                 val rotationItems = scrollOffset.value / pxPerItem
                 val centerIdx = indexAtOffset(scrollOffset.value)
+                // Arc geometry (same as Canvas above)
+                val arcPivotX = 0f  // pivot at left edge
+                val arcRadius = w * 0.28f  // same as innerRadius in Canvas
+                val arcGap = w * 0.05f  // 5% gap from arc
+                val textRadius = arcRadius + arcGap  // text sits this far from pivot
+                // Text horizontal padding (same gap from arc for all items)
                 val textStartPadding = maxWidth * 0.33f
                 val textEndPadding = maxWidth * 0.16f
+                // Vertical spacing between adjacent items
+                val verticalSpacing = 50.dp
                 val secondaryFontSize = 35.sp
 
                 // Opacity for secondary texts (smooth falloff)
@@ -892,6 +902,24 @@ fun LuteaArc(
                     val alpha = alphaFor(absOffset)
 
                     if (alpha > 0.01f) {
+                        // ★ Compute X position from arc angle — texts follow the curve.
+                        //    Angle = fractionalOffset * anglePerItem (degrees).
+                        //    X = pivotX + textRadius * cos(angle) — but since pivot is at left edge,
+                        //    we use the HORIZONTAL distance from the arc to position text.
+                        //    At angle 0 (center): X offset = textRadius (max right).
+                        //    At angle ±90 (top/bottom): X offset = 0 (at the arc).
+                        val angleDeg = fractionalOffset * 14f  // 14° per item (same as Simpler)
+                        val angleRad = (angleDeg * PI / 180f).toFloat()
+                        // ★ Horizontal offset from center: items further from center shift LEFT
+                        //    (closer to the arc). Center stays at max right.
+                        //    cos(0) = 1 → full right. cos(90) = 0 → at the arc.
+                        val horizontalFactor = cos(angleRad)  // 1.0 at center, → 0 at edges
+                        // Base X position (where center text sits)
+                        val baseX = arcPivotX + textRadius  // textRadius from left edge
+                        // Actual X = baseX * horizontalFactor (curves left at top/bottom)
+                        // But we also need the vertical offset for the arc curve
+                        val verticalFromArc = textRadius * sin(angleRad)
+
                         Text(
                             text = displayText,
                             color = if (isActive) Color.White else Color.White.copy(alpha = alpha),
@@ -902,7 +930,11 @@ fun LuteaArc(
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .align(Alignment.Center)
-                                .offset(y = with(density) { (fractionalOffset * 60.dp.toPx()).toDp() })  // ★ vertical spacing between texts
+                                // ★ X offset: shifts LEFT for items far from center (follows arc curve)
+                                .offset(
+                                    x = with(density) { ((1f - horizontalFactor) * -80.dp.toPx()).toDp() },
+                                    y = with(density) { (fractionalOffset * verticalSpacing.toPx()).toDp() }
+                                )
                                 .padding(start = textStartPadding, end = textEndPadding)
                                 .graphicsLayer { this.alpha = alpha }
                         )
