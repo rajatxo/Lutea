@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -278,110 +279,83 @@ fun LuteaArc(
     ) {
         // ──────────────────────────────────────────────────────────────
         // Wheel Canvas — full-screen drag handlers + drawing
-        // (1:1 port of Coral's PlaylistWheel)
+        // ★ Advanced mode: NO drag, NO tap, NO haptics — wheel is static.
+        //    Simpler mode: full interaction (drag, fling, tap-to-open).
         // ──────────────────────────────────────────────────────────────
+        val isAdvanced = playlistStyle == PlaylistStyle.WHEEL_ADVANCED
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // LEFT ZONE drag handler (counter-rotating first arc)
-                .pointerInput(playlists.size) {
-                    val halfScreen = size.width / 2
-                    var velocityTracker = VelocityTracker()
-                    var isLeftZoneDrag = false
-                    detectVerticalDragGestures(
-                        onDragStart = { offset ->
-                            isLeftZoneDrag = offset.x < halfScreen
-                            if (isLeftZoneDrag) {
-                                velocityTracker = VelocityTracker()
-                            }
-                        },
-                        onDragEnd = {
-                            if (isLeftZoneDrag) {
-                                val velocity = velocityTracker.calculateVelocity().y
-                                coroutineScope.launch {
-                                    scrollOffset.animateDecay(
-                                        initialVelocity = -velocity * 0.45f,
-                                        animationSpec = exponentialDecay(frictionMultiplier = 2.5f)
-                                    )
-                                    val nearest = (scrollOffset.value / pxPerItem).roundToInt()
-                                    scrollOffset.animateTo(
-                                        targetValue = nearest * pxPerItem,
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessLow
-                                        )
-                                    )
+                .then(
+                    if (isAdvanced) Modifier
+                    else Modifier
+                        .pointerInput(playlists.size) {
+                            val halfScreen = size.width / 2
+                            var velocityTracker = VelocityTracker()
+                            var isLeftZoneDrag = false
+                            detectVerticalDragGestures(
+                                onDragStart = { offset ->
+                                    isLeftZoneDrag = offset.x < halfScreen
+                                    if (isLeftZoneDrag) { velocityTracker = VelocityTracker() }
+                                },
+                                onDragEnd = {
+                                    if (isLeftZoneDrag) {
+                                        val velocity = velocityTracker.calculateVelocity().y
+                                        coroutineScope.launch {
+                                            scrollOffset.animateDecay(
+                                                initialVelocity = -velocity * 0.45f,
+                                                animationSpec = exponentialDecay(frictionMultiplier = 2.5f)
+                                            )
+                                            val nearest = (scrollOffset.value / pxPerItem).roundToInt()
+                                            scrollOffset.animateTo(nearest * pxPerItem, spring(DampingRatioNoBouncy, StiffnessLow))
+                                        }
+                                    }
+                                    isLeftZoneDrag = false
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    if (isLeftZoneDrag) {
+                                        coroutineScope.launch { scrollOffset.snapTo(scrollOffset.value - dragAmount) }
+                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                        val currentIdx = indexAtOffset(scrollOffset.value)
+                                        if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                                        change.consume()
+                                    }
                                 }
-                            }
-                            isLeftZoneDrag = false
-                        },
-                        onVerticalDrag = { change, dragAmount ->
-                            if (isLeftZoneDrag) {
-                                coroutineScope.launch {
-                                    scrollOffset.snapTo(scrollOffset.value - dragAmount)
+                            )
+                        }
+                        .pointerInput(playlists.size) {
+                            var velocityTracker = VelocityTracker()
+                            detectVerticalDragGestures(
+                                onDragStart = { velocityTracker = VelocityTracker() },
+                                onDragEnd = {
+                                    val velocity = velocityTracker.calculateVelocity().y
+                                    coroutineScope.launch {
+                                        scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
+                                        val nearest = (scrollOffset.value / pxPerItem).roundToInt()
+                                        scrollOffset.animateTo(nearest * pxPerItem, spring(DampingRatioNoBouncy, StiffnessLow))
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    coroutineScope.launch { scrollOffset.snapTo(scrollOffset.value + dragAmount) }
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                    val currentIdx = indexAtOffset(scrollOffset.value)
+                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                                    change.consume()
                                 }
-                                velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                val currentIdx = indexAtOffset(scrollOffset.value)
-                                if (currentIdx != lastSnappedIndex) {
-                                    lastSnappedIndex = currentIdx
-                                    tickHaptic()
+                            )
+                        }
+                        .pointerInput(playlists.size) {
+                            detectTapGestures(
+                                onTap = { offset ->
+                                    val centerY = size.height / 2f
+                                    if (abs(offset.y - centerY) < with(density) { 80.dp.toPx() } && playlists.isNotEmpty()) {
+                                        val centerIdx = indexAtOffset(scrollOffset.value)
+                                        playlists.getOrNull(centerIdx)?.let { onOpenPlaylist(it) }
+                                    }
                                 }
-                                change.consume()
-                            }
+                            )
                         }
-                    )
-                }
-                // FULL SCREEN drag handler (normal rotation)
-                .pointerInput(playlists.size) {
-                    var velocityTracker = VelocityTracker()
-                    detectVerticalDragGestures(
-                        onDragStart = { velocityTracker = VelocityTracker() },
-                        onDragEnd = {
-                            val velocity = velocityTracker.calculateVelocity().y
-                            coroutineScope.launch {
-                                scrollOffset.animateDecay(
-                                    initialVelocity = velocity * 0.30f,
-                                    animationSpec = exponentialDecay(frictionMultiplier = 2.5f)
-                                )
-                                val nearest = (scrollOffset.value / pxPerItem).roundToInt()
-                                scrollOffset.animateTo(
-                                    targetValue = nearest * pxPerItem,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessLow
-                                    )
-                                )
-                            }
-                        },
-                        onVerticalDrag = { change, dragAmount ->
-                            coroutineScope.launch {
-                                scrollOffset.snapTo(scrollOffset.value + dragAmount)
-                            }
-                            velocityTracker.addPosition(change.uptimeMillis, change.position)
-                            val currentIdx = indexAtOffset(scrollOffset.value)
-                            if (currentIdx != lastSnappedIndex) {
-                                lastSnappedIndex = currentIdx
-                                tickHaptic()
-                            }
-                            change.consume()
-                        }
-                    )
-                }
-                // TAP near center opens the playlist
-                .pointerInput(playlists.size) {
-                    detectTapGestures(
-                        onTap = { offset ->
-                            val canvasHeight = size.height
-                            val centerY = canvasHeight / 2f
-                            val distFromCenter = abs(offset.y - centerY)
-                            val maxDist = with(density) { 80.dp.toPx() }
-                            if (distFromCenter < maxDist && playlists.isNotEmpty()) {
-                                val centerIdx = indexAtOffset(scrollOffset.value)
-                                playlists.getOrNull(centerIdx)?.let { onOpenPlaylist(it) }
-                            }
-                        }
-                    )
-                }
+                )
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
@@ -804,28 +778,25 @@ fun LuteaArc(
         // ──────────────────────────────────────────────────────────────
         if (playlistStyle == PlaylistStyle.WHEEL_ADVANCED && playlists.isNotEmpty()) {
             val continuousIdx = ((scrollOffset.value % playlists.size) + playlists.size) % playlists.size
-            val knobFraction = (continuousIdx / playlists.size).coerceIn(0f, 1f)
+            // ★ Snap knobFraction to nearest item so the thumb doesn't jitter.
+            val snappedFraction = (continuousIdx.roundToInt().toFloat() / playlists.size).coerceIn(0f, 1f)
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // ═══ SLIDER VALUES ═══
-                val sliderHeight = maxHeight * 0.55f      // Track height = 55% of screen height (longer)
-                val trackWidth = 7.dp                      // Track thickness = 7dp
+                val sliderHeight = maxHeight * 0.55f
+                val trackWidth = 7.dp
                 val trackColor = Color.White.copy(alpha = 0.15f)
                 val trackCorner = 3.dp
-                // ★ Universal fitting: gap = 8% of screen width (NOT hardcoded dp).
-                //    8% of 1080px = ~86px ≈ 29dp on a 1080p phone.
-                //    8% of 1440px = ~115px ≈ 38dp on a 1440p phone.
-                //    Scales perfectly on every phone.
                 val trackPaddingEnd = maxWidth * 0.08f
-                val thumbWidth = 14.dp                    // Thumb thickness (wider than track = looks like a button)
-                val thumbHeight = 32.dp                   // Thumb height (short capsule)
-                val thumbColor = Color.White.copy(alpha = 0.9f)
-                val thumbCorner = 7.dp
-                // Thumb Y position: moves from top (0) to bottom (sliderHeight - thumbHeight)
-                val thumbY = (sliderHeight - thumbHeight) * (1f - knobFraction)
+                // ★ Thumb — dark capsule with ∧, =, ∨ symbols (like the mockup)
+                val thumbWidth = 16.dp
+                val thumbHeight = 52.dp
+                val thumbColor = Color(0xFF2A2A2A)  // dark charcoal
+                val thumbCorner = 8.dp
+                // Thumb Y: snapped position (no jitter)
+                val thumbY = (sliderHeight - thumbHeight) * (1f - snappedFraction)
 
-                // ── Track (long gray capsule) ──
-                // Thumb is NOT inside this Box — it's a separate sibling so it won't get clipped.
+                // Track (long gray capsule)
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
@@ -836,19 +807,48 @@ fun LuteaArc(
                         .background(trackColor)
                 )
 
-                // ── Thumb (button sitting ON TOP of the track) ──
-                // Separate Box, same alignment + padding, positioned via offset.
-                // Thumb is wider than the track so it overflows — looks like a slider handle.
+                // Thumb (dark capsule with symbols — sits ON the track)
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = trackPaddingEnd - (thumbWidth - trackWidth) / 2f)  // center thumb on track
-                        .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)  // position along track
+                        .padding(end = trackPaddingEnd - (thumbWidth - trackWidth) / 2f)
+                        .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
                         .width(thumbWidth)
                         .height(thumbHeight)
                         .clip(RoundedCornerShape(thumbCorner))
-                        .background(thumbColor)
-                )
+                        .background(thumbColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceEvenly,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Text("∧", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontFamily = CalSansFamily)
+                        Text("=", color = Color.White.copy(alpha = 0.8f), fontSize = 8.sp, fontFamily = CalSansFamily)
+                        Text("∨", color = Color.White.copy(alpha = 0.8f), fontSize = 10.sp, fontFamily = CalSansFamily)
+                    }
+                }
+
+                // ═══ MAIN TEXT ONLY (center playlist name) ═══
+                // Positioned to NOT overlap with the slider bar.
+                val centerIdx = indexAtOffset(scrollOffset.value)
+                val centerPlaylist = playlists.getOrNull(centerIdx)
+                if (centerPlaylist != null) {
+                    val displayText = centerPlaylist.name.uppercase()
+                    Text(
+                        text = displayText,
+                        color = Color(0xFFF4B400),  // accent gold
+                        fontSize = 42.sp,
+                        fontFamily = BillieEilishFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(end = maxWidth * 0.16f)  // ★ shift left to avoid overlap with slider
+                    )
+                }
             }
         }
 
