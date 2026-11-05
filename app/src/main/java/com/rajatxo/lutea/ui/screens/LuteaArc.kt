@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
@@ -415,7 +417,9 @@ fun LuteaArc(
                     minStrokePx: Float,
                     maxAlpha: Float
                 ) {
-                    val fadeRange = 0.50f
+                    // ★ Advanced: fade only the last 15% of each end (was 50% — too early).
+                    //    Simpler: keep 50% fade (original).
+                    val fadeRange = if (isAdvanced) 0.15f else 0.50f
                     for (i in 0 until segments) {
                         val segStart = i / segments.toFloat()
                         val segEnd = (i + 1) / segments.toFloat()
@@ -520,20 +524,22 @@ fun LuteaArc(
                         }
 
                         // === INNER ARC BALL (counter-rotating, pully coupling) ===
-                        // Solid white balls (Lutea look — no accent gradient on balls).
-                        val firstArcFractionalOffset = -fractionalOffset
-                        val firstArcAngleDeg = firstArcFractionalOffset * angleStepDeg
-                        val firstArcAngleRad = (firstArcAngleDeg * PI / 180f).toFloat()
-                        val firstArcBallX = pivotX + innerRadius * cos(firstArcAngleRad)
-                        val firstArcBallY = pivotY + innerRadius * sin(firstArcAngleRad)
-                        val firstArcBallRadiusPx = with(density) { 3.dp.toPx() }
-                        if (alpha > 0.01f) {
-                            drawCircle(
-                                color = Color.White,
-                                radius = firstArcBallRadiusPx,
-                                center = Offset(firstArcBallX, firstArcBallY),
-                                alpha = alpha
-                            )
+                        // ★ Simpler: balls on inner arc. Advanced: NO balls at all.
+                        if (!isAdvanced) {
+                            val firstArcFractionalOffset = -fractionalOffset
+                            val firstArcAngleDeg = firstArcFractionalOffset * angleStepDeg
+                            val firstArcAngleRad = (firstArcAngleDeg * PI / 180f).toFloat()
+                            val firstArcBallX = pivotX + innerRadius * cos(firstArcAngleRad)
+                            val firstArcBallY = pivotY + innerRadius * sin(firstArcAngleRad)
+                            val firstArcBallRadiusPx = with(density) { 3.dp.toPx() }
+                            if (alpha > 0.01f) {
+                                drawCircle(
+                                    color = Color.White,
+                                    radius = firstArcBallRadiusPx,
+                                    center = Offset(firstArcBallX, firstArcBallY),
+                                    alpha = alpha
+                                )
+                            }
                         }
 
                         // === OUTER ARC BALL (text orbit) ===
@@ -787,6 +793,53 @@ fun LuteaArc(
                 )
             }
             }  // close BoxWithConstraints
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // ★ VERTICAL SLIDER (Advanced mode only) — right edge of screen.
+        //    Two layers: long gray capsule (track) + small narrow capsule (thumb).
+        //    Thumb position reflects which playlist is currently selected.
+        // ──────────────────────────────────────────────────────────────
+        if (playlistStyle == PlaylistStyle.WHEEL_ADVANCED && playlists.isNotEmpty()) {
+            val continuousIdx = ((scrollOffset.value % playlists.size) + playlists.size) % playlists.size
+            val knobFraction = (continuousIdx / playlists.size).coerceIn(0f, 1f)
+
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val sliderTop = with(density) { maxHeight * 0.25f }
+                val sliderBottom = with(density) { maxHeight * 0.75f }
+                val sliderHeight = sliderBottom - sliderTop
+                val knobY = sliderBottom - knobFraction * sliderHeight
+
+                // Track — long gray capsule
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 20.dp)
+                        .graphicsLayer {
+                            translationY = (sliderTop - sliderBottom) / 2f + sliderHeight / 2f
+                        }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .height(with(density) { sliderHeight.toDp() })
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.15f))
+                    )
+
+                    // Thumb — small narrow capsule on top of track
+                    Box(
+                        modifier = Modifier
+                            .graphicsLayer {
+                                translationY = knobY - sliderBottom + sliderHeight / 2f
+                            }
+                            .width(4.dp)
+                            .height(32.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.8f))
+                    )
+                }
+            }
         }
 
         // ──────────────────────────────────────────────────────────────
