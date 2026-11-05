@@ -826,8 +826,9 @@ fun LuteaArc(
                 val thumbBorderTop = Color.White.copy(alpha = 0.25f)
                 val thumbBorderBottom = Color.Black.copy(alpha = 0.3f)
                 val thumbBorderWidth = 1.dp
-                // Thumb Y: clamped within track bounds so it NEVER leaves the track
-                val thumbY = (sliderHeight - thumbHeight) * (1f - knobFraction)
+                // Thumb Y: thumb moves DOWN when scroll increases (finger down = thumb down).
+                // knobFraction = 0 → thumb at TOP. knobFraction = 1 → thumb at BOTTOM.
+                val thumbY = (sliderHeight - thumbHeight) * knobFraction
                 // ★ Thumb X: exactly centered on the track (not offset by padding math)
                 val thumbCenterPadding = trackPaddingEnd - (thumbWidth - trackWidth) / 2f
 
