@@ -812,8 +812,10 @@ fun LuteaArc(
                 val thumbBorderTop = Color.White.copy(alpha = 0.25f)
                 val thumbBorderBottom = Color.Black.copy(alpha = 0.3f)
                 val thumbBorderWidth = 1.dp
-                // Thumb Y: snapped position (no jitter)
-                val thumbY = (sliderHeight - thumbHeight) * (1f - knobFraction)
+                // Thumb Y: clamped within track bounds so it NEVER leaves the track
+                val thumbY = (sliderHeight - thumbHeight) * (1f - knobFraction).coerceIn(0f, 1f)
+                // ★ Thumb X: exactly centered on the track (not offset by padding math)
+                val thumbCenterPadding = trackPaddingEnd - (thumbWidth - trackWidth) / 2f
 
                 // Track (long gray capsule) — DRAG HERE to rotate the wheel
                 Box(
@@ -861,7 +863,7 @@ fun LuteaArc(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = trackPaddingEnd - (thumbWidth - trackWidth) / 2f)
+                        .padding(end = thumbCenterPadding)
                         .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f + 3.dp)  // shadow offset down
                         .width(thumbWidth)
                         .height(thumbHeight)
@@ -872,7 +874,7 @@ fun LuteaArc(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = trackPaddingEnd - (thumbWidth - trackWidth) / 2f)
+                        .padding(end = thumbCenterPadding)
                         .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
                         .width(thumbWidth)
                         .height(thumbHeight)
@@ -885,7 +887,7 @@ fun LuteaArc(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = trackPaddingEnd - (thumbWidth - trackWidth) / 2f)
+                        .padding(end = thumbCenterPadding)
                         .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)
                         .width(thumbWidth)
                         .height(2.dp)
@@ -910,7 +912,9 @@ fun LuteaArc(
                 //    Universal fitting: gap between texts = textRadius * sin(22°) ≈ 37% of radius.
                 //    On a 1080px screen with 0.33w radius = ~117px gap — plenty of room.
                 val angleStepDeg = 22f
-                val secondaryFontSize = 35.sp
+                val secondaryFontSize = 40.sp  // ★ was 35sp, now 40sp
+                // ★ Max text width = screen width minus slider zone (8% + 20dp buffer)
+                val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbWidth + 10.dp).toPx() }
 
                 // Opacity falloff
                 fun alphaFor(absOffset: Float): Float = when {
@@ -934,27 +938,49 @@ fun LuteaArc(
                     val alpha = alphaFor(absOffset)
 
                     if (alpha > 0.01f) {
-                        // ★ Compute EXACT position on the arc — same as Simpler overlay.
                         val itemAngleDeg = fractionalOffset * angleStepDeg
                         val itemAngleRad = (itemAngleDeg * PI / 180f).toFloat()
                         val textX = arcPivotXpx + textRadiusPx * cos(itemAngleRad)
                         val textY = arcPivotYpx + textRadiusPx * sin(itemAngleRad)
 
+                        // ★ Auto-fit: measure text, shrink if wider than available space
+                        var actualFontSize = if (isActive) 60f else 40f
+                        val textLayoutResult = textMeasurer.measure(
+                            text = AnnotatedString(displayText),
+                            style = TextStyle(
+                                color = Color.White,
+                                fontSize = actualFontSize.sp,
+                                fontFamily = BillieEilishFamily,
+                                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                            ),
+                            maxLines = 1,
+                            softWrap = false,
+                            constraints = Constraints(maxWidth = Int.MAX_VALUE, maxHeight = Int.MAX_VALUE),
+                        )
+                        val measuredWidth = textLayoutResult.size.width.toFloat()
+                        // ★ Available width = from textX to slider zone
+                        val availableWidth = maxTextWidthPx - textX
+                        if (measuredWidth > availableWidth && availableWidth > 0f) {
+                            val shrinkRatio = availableWidth / measuredWidth
+                            actualFontSize = (actualFontSize * shrinkRatio).coerceAtLeast(12f)
+                        }
+                        val textH = textLayoutResult.size.height.toFloat()
+
                         Text(
                             text = displayText,
                             color = if (isActive) Color.White else Color.White.copy(alpha = alpha),
-                            fontSize = if (isActive) 60.sp else secondaryFontSize,
+                            fontSize = actualFontSize.sp,
                             fontFamily = BillieEilishFamily,
                             fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
                             modifier = Modifier
                                 .graphicsLayer {
                                     this.alpha = alpha
-                                    // ★ Position text at exact arc coordinates (like Simpler)
+                                    // ★ Center text vertically on the arc point (not hardcoded offset)
                                     this.translationX = textX
-                                    this.translationY = textY - with(density) { 30.dp.toPx() }  // center vertically on the point
-                                    this.rotationZ = itemAngleDeg  // rotate to follow arc tangent
+                                    this.translationY = textY - textH / 2f
+                                    this.rotationZ = itemAngleDeg
                                     this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
                                 }
                         )
