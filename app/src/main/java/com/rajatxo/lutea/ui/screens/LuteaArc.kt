@@ -291,6 +291,29 @@ fun LuteaArc(
                 .fillMaxSize()
                 .then(
                     if (isAdvanced) Modifier
+                        // ★ Advanced: rotate wheel by SWIPING THE SCREEN (like Simpler).
+                        //    No left-zone counter-rotation, just normal vertical drag.
+                        .pointerInput(playlists.size) {
+                            var velocityTracker = VelocityTracker()
+                            detectVerticalDragGestures(
+                                onDragStart = { velocityTracker = VelocityTracker() },
+                                onDragEnd = {
+                                    val velocity = velocityTracker.calculateVelocity().y
+                                    coroutineScope.launch {
+                                        scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
+                                        val nearest = (scrollOffset.value / pxPerItem).roundToInt()
+                                        scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    coroutineScope.launch { scrollOffset.snapTo(scrollOffset.value + dragAmount) }
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                    val currentIdx = indexAtOffset(scrollOffset.value)
+                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                                    change.consume()
+                                }
+                            )
+                        }
                     else Modifier
                         .pointerInput(playlists.size) {
                             val halfScreen = size.width / 2
@@ -817,35 +840,14 @@ fun LuteaArc(
                 // ★ Thumb X: exactly centered on the track (not offset by padding math)
                 val thumbCenterPadding = trackPaddingEnd - (thumbWidth - trackWidth) / 2f
 
-                // Track (long gray capsule) — DRAG HERE to rotate the wheel
-                // Thumb is INSIDE this Box so it's constrained by track bounds.
+                // Track (long gray capsule) — display only, NOT draggable.
+                // Wheel rotation is via screen swipe (like Simpler).
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = trackPaddingEnd)
-                        .width(trackWidth + 20.dp)  // wider hit area
+                        .width(trackWidth + 20.dp)
                         .height(sliderHeight)
-                        .pointerInput(playlists.size) {
-                            var velocityTracker = VelocityTracker()
-                            detectVerticalDragGestures(
-                                onDragStart = { velocityTracker = VelocityTracker() },
-                                onDragEnd = {
-                                    val velocity = velocityTracker.calculateVelocity().y
-                                    coroutineScope.launch {
-                                        scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
-                                        val nearest = (scrollOffset.value / pxPerItem).roundToInt()
-                                        scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
-                                    }
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    coroutineScope.launch { scrollOffset.snapTo(scrollOffset.value + dragAmount) }
-                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                    val currentIdx = indexAtOffset(scrollOffset.value)
-                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
-                                    change.consume()
-                                }
-                            )
-                        }
                 ) {
                     // Visible track (narrow, centered in hit area)
                     Box(
@@ -914,14 +916,18 @@ fun LuteaArc(
                 // ★ Max text width = screen width minus slider zone (8% + 20dp buffer)
                 val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbWidth + 10.dp).toPx() }
 
-                // Opacity: ALL texts at 80% white, main at 100% white. NO fade.
-                // Blur: progressive blur on outer 2 items (like Simpler).
+                // Opacity: fade is BACK. Main = 100%, secondary fades toward edges.
+                // Blur: light blur on ±3 (2dp) and ±4 (5dp), rest sharp.
                 fun alphaFor(absOffset: Float): Float = when {
                     absOffset < 0.5f -> 1f
-                    else -> 0.8f  // all secondary at 80%
+                    absOffset < 1.5f -> 0.80f
+                    absOffset < 2.5f -> 0.60f
+                    absOffset < 3.5f -> 0.40f
+                    absOffset < 4.5f -> 0.20f
+                    else -> 0.08f
                 }
 
-                // Progressive blur (like Simpler): items 3-4 get blurred, items 1-2 stay sharp.
+                // Progressive blur — light on ±3, heavier on ±4. Combined with fade.
                 val blurCache = remember { mutableMapOf<Int, androidx.compose.ui.graphics.RenderEffect>() }
                 fun getBlurEffect(radiusDp: Float): androidx.compose.ui.graphics.RenderEffect? {
                     if (radiusDp <= 0.1f) return null
@@ -935,10 +941,10 @@ fun LuteaArc(
                     }
                 }
                 fun blurFor(absOffset: Float): Float = when {
-                    absOffset < 2.5f -> 0f                                              // positions 1-2: sharp
-                    absOffset < 3.5f -> lerp(0f, 5f, (absOffset - 2.5f))                  // position 3: light blur
-                    absOffset < 4.5f -> lerp(5f, 12f, (absOffset - 3.5f))                 // position 4: heavy blur
-                    else -> 12f
+                    absOffset < 2.5f -> 0f                                    // positions 1-2: sharp
+                    absOffset < 3.5f -> lerp(0f, 2f, (absOffset - 2.5f))      // position 3: 2dp blur
+                    absOffset < 4.5f -> lerp(2f, 5f, (absOffset - 3.5f))       // position 4: 5dp blur
+                    else -> 5f
                 }
 
                 for (offset in -4..4) {
