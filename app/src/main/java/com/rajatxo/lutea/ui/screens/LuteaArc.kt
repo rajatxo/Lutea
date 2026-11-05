@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -780,8 +781,8 @@ fun LuteaArc(
         // ──────────────────────────────────────────────────────────────
         if (playlistStyle == PlaylistStyle.WHEEL_ADVANCED && playlists.isNotEmpty()) {
             val continuousIdx = ((scrollOffset.value % playlists.size) + playlists.size) % playlists.size
-            // ★ Snap knobFraction to nearest item so the thumb doesn't jitter.
-            val snappedFraction = (continuousIdx.roundToInt().toFloat() / playlists.size).coerceIn(0f, 1f)
+            // ★ Thumb follows RAW scroll position (smooth) — snaps only on release via spring.
+            val knobFraction = (continuousIdx / playlists.size).coerceIn(0f, 1f)
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // ═══ SLIDER VALUES ═══
@@ -812,18 +813,48 @@ fun LuteaArc(
                 val thumbBorderBottom = Color.Black.copy(alpha = 0.3f)
                 val thumbBorderWidth = 1.dp
                 // Thumb Y: snapped position (no jitter)
-                val thumbY = (sliderHeight - thumbHeight) * (1f - snappedFraction)
+                val thumbY = (sliderHeight - thumbHeight) * (1f - knobFraction)
 
-                // Track (long gray capsule)
+                // Track (long gray capsule) — DRAG HERE to rotate the wheel
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = trackPaddingEnd)
-                        .width(trackWidth)
+                        .width(trackWidth + 20.dp)  // wider hit area for easier dragging
                         .height(sliderHeight)
-                        .clip(RoundedCornerShape(trackCorner))
-                        .background(trackColor)
-                )
+                        // ★ Drag the slider to rotate the wheel (Advanced only — no screen drag)
+                        .pointerInput(playlists.size) {
+                            var velocityTracker = VelocityTracker()
+                            detectVerticalDragGestures(
+                                onDragStart = { velocityTracker = VelocityTracker() },
+                                onDragEnd = {
+                                    val velocity = velocityTracker.calculateVelocity().y
+                                    coroutineScope.launch {
+                                        scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
+                                        val nearest = (scrollOffset.value / pxPerItem).roundToInt()
+                                        scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    coroutineScope.launch { scrollOffset.snapTo(scrollOffset.value + dragAmount) }
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                    val currentIdx = indexAtOffset(scrollOffset.value)
+                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                                    change.consume()
+                                }
+                            )
+                        }
+                ) {
+                    // Actual visible track (narrower than hit area)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .width(trackWidth)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(trackCorner))
+                            .background(trackColor)
+                    )
+                }
 
                 // ★ Thumb — 3D button with layered depth
                 // Layer 1: dark drop shadow (below the button, offset down)
@@ -874,7 +905,11 @@ fun LuteaArc(
                 val arcRadiusPx = with(density) { maxWidth.toPx() } * 0.28f
                 val arcGapPx = with(density) { maxWidth.toPx() } * 0.05f
                 val textRadiusPx = arcRadiusPx + arcGapPx
-                val angleStepDeg = 14f
+                // ★ Angle step — bigger = more gap between texts. 22° fits 9 items on a
+                //    semicircle without overlapping (22° × 4 = 88°, within ±90° half arc).
+                //    Universal fitting: gap between texts = textRadius * sin(22°) ≈ 37% of radius.
+                //    On a 1080px screen with 0.33w radius = ~117px gap — plenty of room.
+                val angleStepDeg = 22f
                 val secondaryFontSize = 35.sp
 
                 // Opacity falloff
