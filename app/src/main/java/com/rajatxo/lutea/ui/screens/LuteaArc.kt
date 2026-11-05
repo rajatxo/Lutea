@@ -807,38 +807,48 @@ fun LuteaArc(
             val knobFraction = (continuousIdx / playlists.size).coerceIn(0f, 1f)
 
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                // ═══ SLIDER VALUES (change these to adjust) ═══
-                val sliderHeight = maxHeight * 0.50f      // ★ Track height = 50% of screen height
-                val trackWidth = 6.dp                     // ★ Track thickness = 6dp
-                val trackColor = Color.White.copy(alpha = 0.15f)  // ★ Track color
-                val trackPaddingEnd = 36.dp               // ★ Gap from right edge of screen
-                val thumbWidth = 12.dp                    // ★ Thumb thickness = 12dp (wider than track)
-                val thumbHeight = 28.dp                   // ★ Thumb height = 28dp (short)
-                val thumbColor = Color.White.copy(alpha = 0.85f)  // ★ Thumb color
-                val thumbOffset = sliderHeight * (1f - knobFraction) - thumbHeight / 2f  // center thumb on track position
+                // ═══ SLIDER VALUES ═══
+                val sliderHeight = maxHeight * 0.55f      // Track height = 55% of screen height (longer)
+                val trackWidth = 7.dp                      // Track thickness = 7dp
+                val trackColor = Color.White.copy(alpha = 0.15f)
+                val trackCorner = 3.dp
+                // ★ Universal fitting: gap = 8% of screen width (NOT hardcoded dp).
+                //    8% of 1080px = ~86px ≈ 29dp on a 1080p phone.
+                //    8% of 1440px = ~115px ≈ 38dp on a 1440p phone.
+                //    Scales perfectly on every phone.
+                val trackPaddingEnd = maxWidth * 0.08f
+                val thumbWidth = 14.dp                    // Thumb thickness (wider than track = looks like a button)
+                val thumbHeight = 32.dp                   // Thumb height (short capsule)
+                val thumbColor = Color.White.copy(alpha = 0.9f)
+                val thumbCorner = 7.dp
+                // Thumb Y position: moves from top (0) to bottom (sliderHeight - thumbHeight)
+                val thumbY = (sliderHeight - thumbHeight) * (1f - knobFraction)
 
-                // Track — long gray capsule, vertically centered on right edge
+                // ── Track (long gray capsule) ──
+                // Thumb is NOT inside this Box — it's a separate sibling so it won't get clipped.
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = trackPaddingEnd)
                         .width(trackWidth)
                         .height(sliderHeight)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(RoundedCornerShape(trackCorner))
                         .background(trackColor)
-                ) {
-                    // Thumb — wider capsule sitting ON the track (like a button)
-                    // Uses offset to move up/down. Aligned to the center of the track.
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .offset(x = 0.dp, y = thumbOffset)
-                            .width(thumbWidth)
-                            .height(thumbHeight)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(thumbColor)
-                    )
-                }
+                )
+
+                // ── Thumb (button sitting ON TOP of the track) ──
+                // Separate Box, same alignment + padding, positioned via offset.
+                // Thumb is wider than the track so it overflows — looks like a slider handle.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = trackPaddingEnd - (thumbWidth - trackWidth) / 2f)  // center thumb on track
+                        .offset(y = thumbY - (sliderHeight - thumbHeight) / 2f)  // position along track
+                        .width(thumbWidth)
+                        .height(thumbHeight)
+                        .clip(RoundedCornerShape(thumbCorner))
+                        .background(thumbColor)
+                )
             }
         }
 
