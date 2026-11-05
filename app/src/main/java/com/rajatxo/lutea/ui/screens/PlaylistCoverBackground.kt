@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -19,9 +20,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.compositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
@@ -31,8 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Light box blur on a bitmap (Mochy technique — 3 passes of H+V box blur).
- * Applied to a tiny bitmap (48×48), then stretched full-screen.
+ * Light box blur on a bitmap (3 passes of H+V box blur) — used for the soft copy.
  */
 private fun boxBlur(input: Bitmap, radius: Int): Bitmap {
     if (radius <= 0) return input
@@ -41,7 +45,7 @@ private fun boxBlur(input: Bitmap, radius: Int): Bitmap {
     val pixels = IntArray(w * h)
     input.getPixels(pixels, 0, w, 0, 0, w, h)
     repeat(3) {
-        // Horizontal
+        // Horizontal pass
         val row = IntArray(w)
         for (y in 0 until h) {
             val s = y * w; for (x in 0 until w) row[x] = pixels[s + x]
@@ -53,7 +57,7 @@ private fun boxBlur(input: Bitmap, radius: Int): Bitmap {
                 pixels[s+x]=((a/c)shl 24)or((r/c)shl 16)or((g/c)shl 8)or(b/c)
             }
         }
-        // Vertical
+        // Vertical pass
         val col = IntArray(h)
         for (x in 0 until w) {
             for (y in 0 until h) col[y] = pixels[y*w+x]
@@ -71,42 +75,65 @@ private fun boxBlur(input: Bitmap, radius: Int): Bitmap {
     return out
 }
 
+private fun smoothstep(edge0: Float, edge1: Float, x: Float): Float {
+    val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
 /**
- * PlaylistCoverBackground — Mochy-inspired FULL-SCREEN seamless background.
+ * PlaylistCoverBackground — Mochy-inspired. SHARP cover on top, crossfades to
+ * a SOFT (blurred) copy as you scroll. Color gradient blends into the page.
  *
- * Technique (exactly like Mochy):
- *  1. Load cover at TINY size (48×48)
- *  2. Apply box blur (radius 6, 3 passes) to the bitmap manually
- *  3. Extract dominant color via Palette
- *  4. Display the pre-blurred tiny bitmap stretched full-screen
- *     → pixelation + light blur = soft dreamy backdrop (NOT heavy RenderEffect)
- *  5. Full-screen gradient: extracted color → black (seamless blend)
+ * Technique (exactly like Mochy's PlaylistCoverBackdrop):
+ *  1. SHARP cover (full size) — alpha = 1 - smoothstep(0, 0.55, scroll)
+ *     → fades out as you scroll
+ *  2. SOFT cover (192px + box blur) — alpha = 0 → 1 as you scroll
+ *     → fades in underneath
+ *  3. Color gradient: cover color → transparent (top) + transparent → bg (bottom)
+ *     so cover blends into the page
+ *  4. Parallax: cover slides up at 0.8× scroll rate
  *
- * NO RenderEffect — works on ALL Android versions.
+ * NO heavy blur on the stationary image — you see the SHARP cover at rest,
+ * and only when you scroll does it crossfade to the blurred version.
  */
 @Composable
 fun PlaylistCoverBackground(
     albumArtUri: android.net.Uri?,
     scrollProgress: () -> Float,
     modifier: Modifier = Modifier,
+    coverHeight: Dp = 320.dp,
 ) {
     val context = LocalContext.current
-    var blurredBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val density = LocalDensity.current
+    var sharpBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var softBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var extractedColor by remember { mutableStateOf<Color?>(null) }
 
     LaunchedEffect(albumArtUri) {
         if (albumArtUri == null) return@LaunchedEffect
         withContext(Dispatchers.IO) {
             try {
-                val request = ImageRequest.Builder(context)
+                // SHARP copy — load at larger size (192px) for crisp display
+                val sharpReq = ImageRequest.Builder(context)
                     .data(albumArtUri)
-                    .size(48)
+                    .size(192)
                     .allowHardware(false)
                     .build()
-                val raw = context.imageLoader.execute(request).image?.toBitmap()
-                if (raw != null) {
-                    blurredBitmap = boxBlur(raw, 6)
-                    extractedColor = LuteaColorExtractor.extractDominant(raw)
+                val sharp = context.imageLoader.execute(sharpReq).image?.toBitmap()
+
+                // SOFT copy — load at 192px and blur it (for the scroll crossfade)
+                val softReq = ImageRequest.Builder(context)
+                    .data(albumArtUri)
+                    .size(192)
+                    .allowHardware(false)
+                    .build()
+                val softRaw = context.imageLoader.execute(softReq).image?.toBitmap()
+                val soft = softRaw?.let { boxBlur(it, 8) }
+
+                sharpBitmap = sharp
+                softBitmap = soft
+                if (sharp != null) {
+                    extractedColor = LuteaColorExtractor.extractDominant(sharp)
                 }
             } catch (_: Exception) { }
         }
@@ -120,55 +147,88 @@ fun PlaylistCoverBackground(
     )
 
     Box(modifier = modifier.fillMaxSize()) {
-        // ── Layer 1: pre-blurred tiny bitmap stretched full-screen ──
-        blurredBitmap?.let { bmp ->
-            androidx.compose.foundation.Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
+        // ── Backdrop box — pinned behind the list, slides up on scroll (parallax) ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(coverHeight)
+                .graphicsLayer {
+                    val p = scrollProgress()
+                    // Parallax: cover follows scroll at 80% rate (slides up as you scroll)
+                    translationY = -p * size.height * 0.8f
+                }
+        ) {
+            // ── Layer 1: SOFT cover (fades IN as you scroll) ──
+            softBitmap?.let { bmp ->
+                androidx.compose.foundation.Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            // Alpha goes 0 → 1 as scroll progresses
+                            this.alpha = if (scrollProgress() > 0f) 1f else 0f
+                        }
+                )
+            }
+
+            // ── Layer 2: SHARP cover (fades OUT as you scroll) ──
+            sharpBitmap?.let { bmp ->
+                androidx.compose.foundation.Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            // Crossfade: sharp fades out as soft fades in
+                            this.alpha = 1f - smoothstep(0f, 0.55f, scrollProgress())
+                            this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                        }
+                )
+            }
+
+            // ── Layer 3: gradient overlay — blends cover into page color ──
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        val p = scrollProgress()
-                        translationY = -p * size.height * 0.2f
-                        val zoom = 1f + p * 0.12f
-                        scaleX = zoom
-                        scaleY = zoom
-                        transformOrigin = TransformOrigin(0.5f, 0.35f)
-                        this.alpha = (1f - p * 0.7f).coerceIn(0.2f, 1f)
+                    .drawWithCache {
+                        val bg = animatedColor
+                        // Top: subtle dark for status bar contrast
+                        val top = Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.34f),
+                            1f to Color.Transparent,
+                            endY = size.height * 0.24f,
+                        )
+                        // Bottom: transparent → color (seamless blend into page)
+                        val bottom = Brush.verticalGradient(
+                            0.56f to Color.Transparent,
+                            0.84f to bg.copy(alpha = 0.78f),
+                            1f to bg,
+                        )
+                        onDrawBehind {
+                            drawRect(top, size = Size(size.width, size.height * 0.24f))
+                            drawRect(bottom)
+                        }
                     }
             )
         }
 
-        // ── Layer 2: FULL-SCREEN gradient — color → black ──
+        // ── Full-screen color tint below the cover (page background) ──
+        // Fades from the extracted color at the cover's bottom edge to black.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithCache {
                     val gradient = Brush.verticalGradient(
-                        0f to animatedColor.copy(alpha = 0.75f),
-                        0.25f to animatedColor.copy(alpha = 0.55f),
-                        0.55f to animatedColor.copy(alpha = 0.25f),
-                        0.8f to animatedColor.copy(alpha = 0.08f),
-                        1f to Color.Black,
+                        0f to Color.Transparent,           // cover area is untouched
+                        0.30f to Color.Transparent,        // still cover
+                        0.45f to animatedColor.copy(alpha = 0.5f),  // color starts
+                        0.70f to animatedColor.copy(alpha = 0.15f),
+                        1f to Color.Black,                 // solid black at bottom
                     )
                     onDrawBehind { drawRect(gradient) }
-                }
-        )
-
-        // ── Layer 3: subtle top shadow ──
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .drawWithCache {
-                    val topShadow = Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.25f),
-                        1f to Color.Transparent,
-                        endY = size.height * 0.1f,
-                    )
-                    onDrawBehind {
-                        drawRect(topShadow, size = Size(size.width, size.height * 0.1f))
-                    }
                 }
         )
     }
