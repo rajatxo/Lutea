@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.model.Playlist
+import com.rajatxo.lutea.data.prefs.PlaylistStyle
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
@@ -109,6 +110,7 @@ fun LuteaArc(
     accentColor: Color = Color(0xFFF4B400),
     onOpenPlaylist: (Playlist) -> Unit = {},
     titleFontSize: Int = 28,
+    playlistStyle: PlaylistStyle = PlaylistStyle.WHEEL_SIMPLER,
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -389,12 +391,19 @@ fun LuteaArc(
                 val pivotX = w * -0.20f
                 val pivotY = h * 0.50f
 
-                // === 2. DUAL CONCENTRIC RADII SYSTEM (Lutea's own geometry) ===
-                // Two thick + bright arcs (kept at Lutea's 3.5dp→0.5dp @ 0.8 alpha needle arc)
-                // at 0.42w (inner) and 0.52w (outer). Text sits just past the outer arc.
+                // === 2. RADII SYSTEM ===
+                // Simpler: two arcs (inner 0.42w + outer 0.52w), text past outer arc.
+                // Advanced: ONE arc only (inner 0.42w), text sits ON the arc.
+                val isAdvanced = playlistStyle == PlaylistStyle.WHEEL_ADVANCED
                 val innerRadius = w * 0.42f
-                val outerRadius = w * 0.52f
-                val textRadius = outerRadius + with(density) { 14.dp.toPx() }
+                val outerRadius = if (isAdvanced) innerRadius else w * 0.52f
+                // ★ Advanced: text sits ON the arc (innerRadius + small gap).
+                //    Simpler: text sits past the outer arc (outerRadius + 14dp).
+                val textRadius = if (isAdvanced) {
+                    innerRadius + with(density) { 10.dp.toPx() }
+                } else {
+                    outerRadius + with(density) { 14.dp.toPx() }
+                }
 
                 val arcSweepDeg = 180f
                 val arcStartDeg = -arcSweepDeg / 2f
@@ -431,19 +440,22 @@ fun LuteaArc(
                     }
                 }
 
-                // ★ BOTH arcs thick + bright (Lutea's signature needle arc — DO NOT change).
+                // ★ Simpler: BOTH arcs thick + bright.
+                //    Advanced: ONLY the inner (small) arc — no outer arc.
                 drawNeedleArc(
                     radius = innerRadius,
                     maxStrokePx = with(density) { 3.5.dp.toPx() },
                     minStrokePx = with(density) { 0.5.dp.toPx() },
                     maxAlpha = 0.8f
                 )
-                drawNeedleArc(
-                    radius = outerRadius,
-                    maxStrokePx = with(density) { 3.5.dp.toPx() },
-                    minStrokePx = with(density) { 0.5.dp.toPx() },
-                    maxAlpha = 0.8f
-                )
+                if (!isAdvanced) {
+                    drawNeedleArc(
+                        radius = outerRadius,
+                        maxStrokePx = with(density) { 3.5.dp.toPx() },
+                        minStrokePx = with(density) { 0.5.dp.toPx() },
+                        maxAlpha = 0.8f
+                    )
+                }
 
                 // === 4. TEXT ITEMS + BALLS on the wheel ===
                 if (playlists.isNotEmpty()) {
@@ -526,11 +538,11 @@ fun LuteaArc(
                         }
 
                         // === OUTER ARC BALL (text orbit) ===
-                        // Solid white balls (Lutea look — no accent gradient on balls).
+                        // ★ Simpler: balls on outer arc. Advanced: NO outer balls.
                         val ballRadiusPx = with(density) { 4.dp.toPx() }
                         val ballX = pivotX + outerRadius * cos(itemAngleRad)
                         val ballY = pivotY + outerRadius * sin(itemAngleRad)
-                        if (alpha > 0.01f) {
+                        if (alpha > 0.01f && !isAdvanced) {
                             drawCircle(
                                 color = Color.White,
                                 radius = ballRadiusPx,
@@ -577,8 +589,11 @@ fun LuteaArc(
                 val rotationItems = scrollOffset.value / pxPerItem
                 val angleStepDeg = 14f
                 val visibleSpan = 5
-                val activeFontSp = 42f
-                val inactiveFontSp = 16f
+                // ★ Advanced: smaller fonts (text hugs the small arc, less room).
+                //    Simpler: original sizes.
+                val isAdvancedOverlay = playlistStyle == PlaylistStyle.WHEEL_ADVANCED
+                val activeFontSp = if (isAdvancedOverlay) 32f else 42f
+                val inactiveFontSp = if (isAdvancedOverlay) 13f else 16f
                 val maxBlurDp = 30f
 
             // Cache RenderEffects (Mochy pattern) — quantize to avoid thousands of allocations.
@@ -608,9 +623,16 @@ fun LuteaArc(
 
             val pivotX = w * -0.20f
             val pivotY = h * 0.50f
-            val outerRadius = w * 0.52f
+            // ★ Match the Canvas geometry: Advanced uses innerRadius only.
+            val innerRadiusOv = w * 0.42f
+            val outerRadius = if (isAdvancedOverlay) innerRadiusOv else w * 0.52f
+            val textRadiusOv = if (isAdvancedOverlay) {
+                innerRadiusOv + with(density) { 10.dp.toPx() }
+            } else {
+                outerRadius + with(density) { 14.dp.toPx() }
+            }
             val ballRadiusPx = with(density) { 4.dp.toPx() }
-            val gapAfterBallPx = with(density) { 6.dp.toPx() }
+            val gapAfterBallPx = if (isAdvancedOverlay) with(density) { 4.dp.toPx() } else with(density) { 6.dp.toPx() }
             val maxTextWidthPx = with(density) { 173.dp.toPx() }
 
             for (offset in -visibleSpan..visibleSpan) {

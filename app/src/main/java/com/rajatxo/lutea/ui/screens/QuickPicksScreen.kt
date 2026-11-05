@@ -466,6 +466,7 @@ private fun PlaylistsContent(
                 PlaylistStyle.WHEEL_ADVANCED -> 42
                 PlaylistStyle.WHEEL_SIMPLER -> 28
             },
+            playlistStyle = playlistStyle,
         )
     }
 }
