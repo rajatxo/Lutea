@@ -79,6 +79,7 @@ fun LuteaScaffold(
     onProfileClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onNewPlaylistClick: () -> Unit = {},
+    onPlaylistStyleClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     content: @Composable () -> Unit
 ) {
@@ -177,6 +178,27 @@ fun LuteaScaffold(
                         ) {
                             Text(
                                 text = "New Playlist",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = CalSansFamily,
+                            )
+                        }
+                        // Playlist Style option
+                        Box(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        showMenu = false
+                                        onPlaylistStyleClick()
+                                    },
+                                )
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                text = "Playlist Style",
                                 color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,

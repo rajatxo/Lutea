@@ -40,6 +40,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.rajatxo.lutea.data.prefs.PlaylistStyle
+import com.rajatxo.lutea.data.prefs.PlaylistStyleManager
 import com.rajatxo.lutea.data.scanner.MusicScanner
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.domain.model.Song
@@ -66,6 +68,8 @@ fun QuickPicksScreen(
     var selectedPlaylist by remember { mutableStateOf<com.rajatxo.lutea.data.model.Playlist?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showStylePicker by remember { mutableStateOf(false) }
+    val playlistStyle by PlaylistStyleManager.state
 
     if (showSettings) {
         SettingsScreen(onBackClick = { showSettings = false })
@@ -139,12 +143,20 @@ fun QuickPicksScreen(
         onTabSelected = { activeTab = it },
         onSettingsClick = { showSettings = true },
         onNewPlaylistClick = { showCreateDialog = true },
+        onPlaylistStyleClick = { showStylePicker = true },
     ) {
         when (activeTab) {
             LuteaTab.QuickPicks -> QuickPicksContent()
             LuteaTab.Songs -> SongsContent()
-            LuteaTab.Playlists -> PlaylistsContent(onOpenPlaylist = { selectedPlaylist = it })
+            LuteaTab.Playlists -> PlaylistsContent(
+                onOpenPlaylist = { selectedPlaylist = it },
+                playlistStyle = playlistStyle,
+            )
         }
+    }
+
+    if (showStylePicker) {
+        PlaylistStylePickerDialog(onDismiss = { showStylePicker = false })
     }
 }
 
@@ -436,16 +448,24 @@ private fun formatDuration(ms: Long): String {
 
 // ── Playlists content — the wheel — tap main text opens the playlist ──
 @Composable
-private fun PlaylistsContent(onOpenPlaylist: (com.rajatxo.lutea.data.model.Playlist) -> Unit) {
+private fun PlaylistsContent(
+    onOpenPlaylist: (com.rajatxo.lutea.data.model.Playlist) -> Unit,
+    playlistStyle: PlaylistStyle,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
         // The arc — playlist wheel indicator
+        // Wheel Advanced = 42sp title, Wheel Simpler = 28sp title
         LuteaArc(
             modifier = Modifier.fillMaxSize(),
             onOpenPlaylist = onOpenPlaylist,
+            titleFontSize = when (playlistStyle) {
+                PlaylistStyle.WHEEL_ADVANCED -> 42
+                PlaylistStyle.WHEEL_SIMPLER -> 28
+            },
         )
     }
 }

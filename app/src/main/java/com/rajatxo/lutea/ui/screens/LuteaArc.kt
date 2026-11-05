@@ -108,6 +108,7 @@ fun LuteaArc(
     modifier: Modifier = Modifier,
     accentColor: Color = Color(0xFFF4B400),
     onOpenPlaylist: (Playlist) -> Unit = {},
+    titleFontSize: Int = 28,
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -786,14 +787,14 @@ fun LuteaArc(
             Text(
                 text = "Choose your",
                 color = Color.White.copy(alpha = 0.7f),
-                fontSize = 28.sp,
+                fontSize = titleFontSize.sp,
                 fontFamily = CalSansFamily,
                 fontWeight = FontWeight.Bold,
             )
             Text(
                 text = "playlist",
                 color = Color.White,
-                fontSize = 28.sp,
+                fontSize = titleFontSize.sp,
                 fontFamily = CalSansFamily,
                 fontWeight = FontWeight.Bold,
             )
