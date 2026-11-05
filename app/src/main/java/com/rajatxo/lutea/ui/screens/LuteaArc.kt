@@ -307,7 +307,7 @@ fun LuteaArc(
                                                 animationSpec = exponentialDecay(frictionMultiplier = 2.5f)
                                             )
                                             val nearest = (scrollOffset.value / pxPerItem).roundToInt()
-                                            scrollOffset.animateTo(nearest * pxPerItem, spring(DampingRatioNoBouncy, StiffnessLow))
+                                            scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
                                         }
                                     }
                                     isLeftZoneDrag = false
@@ -332,7 +332,7 @@ fun LuteaArc(
                                     coroutineScope.launch {
                                         scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
                                         val nearest = (scrollOffset.value / pxPerItem).roundToInt()
-                                        scrollOffset.animateTo(nearest * pxPerItem, spring(DampingRatioNoBouncy, StiffnessLow))
+                                        scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
                                     }
                                 },
                                 onVerticalDrag = { change, dragAmount ->
