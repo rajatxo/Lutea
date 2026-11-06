@@ -60,8 +60,8 @@ import com.rajatxo.lutea.ui.util.LuteaTab
  * Three concentric layers (outside → in):
  *   1. OUTER capsule — whitish frosted glass (kyant blur + white tint),
  *      80% of screen width, thin, with a subtle dark drop shadow.
- *   2. INNER capsule — inset 4dp, less white + STRONGER blur (frosts harder
- *      than the outer) so the inner ring reads visibly grayer/more-blurred.
+ *   2. INNER capsule — inset, white + STRONGER blur (frosts harder than the
+ *      outer; blur intensity is the distinguishing factor between layers).
  *   3. BLACK active pill — sits inside the inner capsule, slides between
  *      tabs with a spring; active icon+label invert to white.
  *
@@ -108,9 +108,11 @@ fun LuteaTabCapsule(
     val activeContentColor = Color.White
     val inactiveContentColor = Color(0xFF1C1C1E)
     // Frosted-glass tints — white overlays on the blurred backdrop.
-    // Outer is MORE white (0.55); inner is LESS white (0.30) so blur dominates.
+    // Inner was 0.30 (too dark over Lutea's dark bg) → raised to 0.58.
+    // Outer stays 0.55. The layers now differ mainly by blur intensity
+    // (inner blurs 2× harder), not by whiteness.
     val outerFrostAlpha = 0.55f
-    val innerFrostAlpha = 0.30f
+    val innerFrostAlpha = 0.58f
     // Blur radii. Inner blurs harder than outer (the key requirement).
     val outerBlurDp = 8.dp
     val innerBlurDp = 16.dp
@@ -121,20 +123,19 @@ fun LuteaTabCapsule(
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         // ★ Law 7: 80% of available width, clamped for extreme aspect ratios.
         val outerWidth: Dp = (maxWidth * 0.8f).coerceIn(280.dp, 460.dp)
-        val outerHeight: Dp = 46.dp
+        // Explicit heights per spec — insets derive symmetrically from these.
+        val outerHeight: Dp = 51.dp
+        val innerHeight: Dp = 46.dp
+        val pillHeight: Dp = 40.dp
+        val innerInset: Dp = (outerHeight - innerHeight) / 2   // 2.5dp
+        val pillInsetV: Dp = (innerHeight - pillHeight) / 2    // 3dp
         val outerShape: Shape = RoundedCornerShape(outerHeight / 2)
-
-        // Inner capsule — inset 4dp on all sides
-        val innerInset: Dp = 4.dp
-        val innerHeight: Dp = outerHeight - (innerInset * 2)
         val innerShape: Shape = RoundedCornerShape(innerHeight / 2)
 
         // Sliding black pill — lives inside the inner capsule
         val tabSlotWidth: Dp = (outerWidth - (innerInset * 2)) / tabs.size
         val pillInsetH: Dp = 4.dp
-        val pillInsetV: Dp = 3.dp
         val pillWidth: Dp = tabSlotWidth - (pillInsetH * 2)
-        val pillHeight: Dp = innerHeight - (pillInsetV * 2)
         val pillShape: Shape = RoundedCornerShape(pillHeight / 2)
 
         // ★ Spring-animated sliding indicator — glides between slots.
@@ -178,7 +179,7 @@ fun LuteaTabCapsule(
                 .height(outerHeight)
                 .then(outerModifier)
         ) {
-            // INNER capsule surface — inset 4dp, less white + STRONGER blur.
+            // INNER capsule surface — inset, white + STRONGER blur (2× the outer).
             val innerModifier = if (backdrop != null) {
                 Modifier.drawBackdrop(
                     backdrop = backdrop, shape = { innerShape },
