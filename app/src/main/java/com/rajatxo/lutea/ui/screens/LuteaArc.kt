@@ -472,7 +472,7 @@ fun LuteaArc(
                 if (isAdvanced) {
                     // ★ Inner smaller arc — at 60% of main arc radius, thinner + dimmer
                     drawNeedleArc(
-                        radius = innerRadius * 0.60f,
+                        radius = innerRadius * 0.85f,  // ★ closer to main arc (was 0.60f, too far)
                         maxStrokePx = with(density) { 2.dp.toPx() },
                         minStrokePx = with(density) { 0.3.dp.toPx() },
                         maxAlpha = 0.4f
@@ -1172,8 +1172,30 @@ fun LuteaArc(
             }
         }
 
-        // ★ Title removed — differentiating from the mockup.
-        //    Will add a new unique heading later.
+        // ──────────────────────────────────────────────────────────────
+        // ★ Title: "Search your playlist"
+        // ──────────────────────────────────────────────────────────────
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 24.dp, top = 16.dp, end = 80.dp)
+        ) {
+            Text(
+                text = "Search your",
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = titleFontSize.sp,
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "playlist",
+                color = Color.White,
+                fontSize = titleFontSize.sp,
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
