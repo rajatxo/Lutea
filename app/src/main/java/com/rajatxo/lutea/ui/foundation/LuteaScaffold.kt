@@ -189,18 +189,20 @@ fun LuteaScaffold(
             )
 
             // ★ Brick box — whitish frosted glass, rounded square shape covering
-            // ~20% of screen height from the top (below status bar with a gap).
-            // Bottom edge fades into the blur. X icon inside (top-right corner).
-            // Shows when menu opens (fades/scales in with blurProgress).
+            // ~20% of screen height from the top. Bottom edge fades seamlessly
+            // into the blur below (no hard edge). The menu's X icon is reused
+            // INSIDE the brick (top-right) — clicking it closes the menu.
+            // The 4 pills are INSIDE the brick.
             if (blurProgress > 0.01f) {
                 val brickHeight = maxHeight * 0.20f
-                val brickShape = RoundedCornerShape(24.dp)
+                val brickShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
-                        .padding(top = effTopDp + 8.dp)
+                        .statusBarsPadding()
+                        .padding(top = 4.dp)
                         .height(brickHeight)
                         .graphicsLayer {
                             alpha = blurProgress
@@ -215,20 +217,34 @@ fun LuteaScaffold(
                                 blur(12.dp.toPx())
                             },
                             onDrawSurface = {
+                                // Whitish frost + gradient at the bottom that fades
+                                // from the frost into transparent — so the bottom edge
+                                // blends into the blur below (no hard line).
                                 drawRect(Color.White.copy(alpha = 0.12f))
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colorStops = arrayOf(
+                                            0.0f to Color.Transparent,
+                                            0.60f to Color.Transparent,
+                                            1.0f to Color.White.copy(alpha = 0.12f)
+                                        )
+                                    ),
+                                    blendMode = BlendMode.DstOut
+                                )
                             }
                         )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { menuOpen = false }
-                        )
                 ) {
-                    // X icon inside the brick, top-right corner
+                    // X icon inside the brick, top-right corner — same icon as the
+                    // menu button. Clicking it closes the menu.
+                    val xAlpha by animateFloatAsState(
+                        targetValue = if (menuOpen) 1f else 0f,
+                        animationSpec = tween(300),
+                        label = "xAlpha"
+                    )
                     Icon(
                         painter = painterResource(R.drawable.ic_close_circle),
                         contentDescription = "Close",
-                        tint = Color.White,
+                        tint = Color.White.copy(alpha = xAlpha),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(12.dp)
@@ -239,11 +255,46 @@ fun LuteaScaffold(
                                 onClick = { menuOpen = false }
                             )
                     )
+
+                    // 4 black glossy pills INSIDE the brick — 2×2 grid.
+                    val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
+                    val pillProgress by animateFloatAsState(
+                        targetValue = if (menuOpen) 1f else 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "pills"
+                    )
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .graphicsLayer { alpha = pillProgress },
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left column
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            MenuPill(labels[0])
+                            MenuPill(labels[2])
+                        }
+                        // Right column
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            MenuPill(labels[1])
+                            MenuPill(labels[3])
+                        }
+                    }
                 }
             }
 
             // ★ Menu button (top-right) — 40dp click target. Hollow circles at rest,
-            // X icon when open. Click toggles menuOpen.
+            // X icon when open. Click toggles menuOpen. Position NEVER changes.
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -259,27 +310,8 @@ fun LuteaScaffold(
                             onClick = { menuOpen = !menuOpen }
                         ),
                     contentAlignment = Alignment.Center
-                ) {
-                    val xAlpha by animateFloatAsState(
-                        targetValue = if (menuOpen) 1f else 0f,
-                        animationSpec = tween(300),
-                        label = "xAlpha"
-                    )
-                    Icon(
-                        painter = painterResource(R.drawable.ic_close_circle),
-                        contentDescription = "Close",
-                        tint = Color.White,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .graphicsLayer(alpha = xAlpha)
-                    )
-                }
-
-                // 4 black glossy pills — 2×2 grid on the left when open.
-                // New Playlist (top-left), Select Tag (top-right),
-                // Favourite (bottom-left), Settings (bottom-right).
-                // At rest: hollow circles (2×2 grid = menu icon). When open:
-                // crossfade from hollow circle → black glossy pill with text.
+                )
+                // Hollow circles (rest state) — 4 small circles in 2×2 grid
                 val circleData = remember {
                     listOf(
                         CircleAnim(9.dp, 9.dp, (-255).dp, 0.dp),
@@ -288,7 +320,6 @@ fun LuteaScaffold(
                         CircleAnim(24.dp, 24.dp, (-100).dp, 56.dp),
                     )
                 }
-                val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
                 circleData.forEachIndexed { i, c ->
                     val progress by animateFloatAsState(
                         targetValue = if (menuOpen) 1f else 0f,
@@ -298,48 +329,12 @@ fun LuteaScaffold(
                         ),
                         label = "circle$i"
                     )
-                    val offsetX = c.restX + (c.targetX - c.restX) * progress
-                    val offsetY = c.restY + (c.targetY - c.restY) * progress
-                    // Hollow circle (rest state) — fades out as menu opens
                     Box(
                         modifier = Modifier
-                            .offset(x = offsetX, y = offsetY)
+                            .offset(x = c.restX, y = c.restY)
                             .size(8.dp)
                             .border(1.5.dp, Color.White.copy(alpha = 1f - progress), CircleShape)
                     )
-                    // Black glossy pill with text (open state) — wrapped in
-                    // size(0.dp) so it doesn't expand the outer menu Box.
-                    Box(
-                        modifier = Modifier
-                            .size(0.dp)
-                            .offset(x = offsetX - 10.dp, y = offsetY - 10.dp)
-                            .graphicsLayer { alpha = progress }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .wrapContentSize(align = Alignment.TopStart, unbounded = true)
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(
-                                    brush = Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color(0xFF2C2C2C),
-                                            Color(0xFF181818),
-                                        )
-                                    )
-                                )
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = labels[i],
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontFamily = CalSansFamily,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                            )
-                        }
-                    }
                 }
             }
 
@@ -415,3 +410,30 @@ fun LuteaScaffold(
 }
 
 private data class CircleAnim(val restX: Dp, val restY: Dp, val targetX: Dp, val targetY: Dp)
+
+@Composable
+private fun MenuPill(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF2C2C2C),
+                        Color(0xFF181818),
+                    )
+                )
+            )
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = Color.White,
+            fontSize = 14.sp,
+            fontFamily = CalSansFamily,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
