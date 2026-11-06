@@ -175,25 +175,23 @@ fun LuteaScaffold(
                 )
             }
 
-            // Black fade at the very bottom — hides the thin line when the blur
-            // is open. Fades from transparent (at the nav bar level) to black
-            // (very bottom). Only shows when the menu opens (fades with blurProgress).
-            if (blurProgress > 0.01f) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(effBottomDp)
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = blurProgress),
-                                )
+            // Black fade gradient at the very bottom — ALWAYS visible (permanent).
+            // Layer order: content → this gradient → menu/nav (on top of everything).
+            // Fades from transparent (above the nav bar) to black (very bottom).
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(effBottomDp)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black,
                             )
                         )
-                )
-            }
+                    )
+            )
 
             // ★ Menu button (top-right) — 4 manually-drawn circles in a 2×2 grid.
             //    Click → circles animate apart (to the upper area) + an X icon
