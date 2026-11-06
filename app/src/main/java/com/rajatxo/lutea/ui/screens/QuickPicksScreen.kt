@@ -64,7 +64,7 @@ import kotlinx.coroutines.withContext
 fun QuickPicksScreen(
     modifier: Modifier = Modifier,
 ) {
-    var activeTab by remember { mutableStateOf(LuteaTab.Playlists) }
+    var activeTab by remember { mutableStateOf(LuteaTab.Home) }
     var selectedPlaylist by remember { mutableStateOf<com.rajatxo.lutea.data.model.Playlist?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -135,9 +135,9 @@ fun QuickPicksScreen(
 
     LuteaScaffold(
         title = when (activeTab) {
-            LuteaTab.QuickPicks -> "Quick Picks"
-            LuteaTab.Songs -> "Songs"
-            LuteaTab.Playlists -> ""
+            LuteaTab.Home -> ""
+            LuteaTab.Search -> ""
+            LuteaTab.Library -> ""
         },
         activeTab = activeTab,
         onTabSelected = { activeTab = it },
@@ -146,12 +146,12 @@ fun QuickPicksScreen(
         onPlaylistStyleClick = { showStylePicker = true },
     ) {
         when (activeTab) {
-            LuteaTab.QuickPicks -> QuickPicksContent()
-            LuteaTab.Songs -> SongsContent()
-            LuteaTab.Playlists -> PlaylistsContent(
+            LuteaTab.Home -> PlaylistsContent(
                 onOpenPlaylist = { selectedPlaylist = it },
                 playlistStyle = playlistStyle,
             )
+            LuteaTab.Search -> QuickPicksContent()  // placeholder — will be search screen later
+            LuteaTab.Library -> SongsContent()
         }
     }
 

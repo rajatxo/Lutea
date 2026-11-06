@@ -151,4 +151,44 @@ object LuteaIcons {
             close()
         }
     }.build()
+
+    /** Lucide house icon (MIT) — for Home tab. */
+    val Home: ImageVector = stroke("Home") {
+        // House outline
+        moveTo(3f, 12f)
+        lineTo(12f, 3f)
+        lineTo(21f, 12f)
+        // Roof line
+        moveTo(5f, 10f)
+        lineTo(5f, 20f)
+        lineTo(19f, 20f)
+        lineTo(19f, 10f)
+        // Door
+        moveTo(9f, 20f)
+        lineTo(9f, 14f)
+        lineTo(15f, 14f)
+        lineTo(15f, 20f)
+    }
+
+    /** Lucide library icon (MIT) — for Library tab. */
+    val Library: ImageVector = stroke("Library") {
+        // Left book
+        moveTo(3f, 4f)
+        lineTo(3f, 20f)
+        lineTo(8f, 20f)
+        lineTo(8f, 4f)
+        close()
+        // Middle book
+        moveTo(9f, 4f)
+        lineTo(9f, 20f)
+        lineTo(14f, 20f)
+        lineTo(14f, 4f)
+        close()
+        // Right book (tilted)
+        moveTo(16f, 5f)
+        lineTo(18f, 4f)
+        lineTo(21f, 18f)
+        lineTo(19f, 19f)
+        close()
+    }
 }

@@ -1077,8 +1077,15 @@ fun LuteaArc(
                         val textX = arcPivotXpx + textRadiusPx * cos(itemAngleRad)
                         val textY = arcPivotYpx + textRadiusPx * sin(itemAngleRad)
 
-                        // ★ Auto-fit: measure text, shrink if wider than available space
-                        var actualFontSize = if (isActive) 55f else 40f
+                        // ★ Responsive text size — scales with screen width (Universal Fitting Rule).
+                        //    Main = 15% of screen width (dp→sp), clamped 50-60.
+                        //    Secondary = 10% of screen width, clamped 35-45.
+                        //    On 360dp phone: main=54sp, secondary=36sp
+                        //    On 411dp phone: main=57sp (my recommended value), secondary=41sp
+                        //    On 480dp phone: main=60sp (clamped), secondary=45sp (clamped)
+                        val mainTextSp = (maxWidth.value * 0.15f).coerceIn(50f, 60f)
+                        val secondaryTextSp = (maxWidth.value * 0.10f).coerceIn(35f, 45f)
+                        var actualFontSize = if (isActive) mainTextSp else secondaryTextSp
                         val textLayoutResult = textMeasurer.measure(
                             text = AnnotatedString(displayText),
                             style = TextStyle(

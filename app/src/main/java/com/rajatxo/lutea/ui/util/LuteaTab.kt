@@ -1,13 +1,15 @@
 package com.rajatxo.lutea.ui.util
 
 /**
- * Lutea's tab definitions — same structure as Coral X's CoralTab.
+ * Lutea's tab definitions — redesigned nav bar.
  *
- * Each tab has a label that shows in the nav bar capsule.
- * Tabs: Quick Picks, Songs, Playlists
+ * Three tabs matching the reference design:
+ *   Home → quick picks / recently played
+ *   Search → search screen
+ *   Library → songs + playlists
  */
 enum class LuteaTab(val label: String) {
-    QuickPicks("Quick picks"),
-    Songs("Songs"),
-    Playlists("Playlists")
+    Home("Home"),
+    Search("Search"),
+    Library("Library")
 }
