@@ -245,6 +245,7 @@ fun LuteaScaffold(
                     tabs = LuteaTab.entries.toList(),
                     activeTab = activeTab,
                     onTabSelected = onTabSelected,
+                    backdrop = glassBackdrop,
                 )
             }
         }
