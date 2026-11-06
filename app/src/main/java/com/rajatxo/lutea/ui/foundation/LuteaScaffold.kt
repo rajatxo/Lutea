@@ -232,11 +232,18 @@ fun LuteaScaffold(
                     )
                 }
 
-                // 4 circles — individually animated. At rest: 2×2 grid (looks like
                 // 4 icons — New Playlist (top-left), Order (top-right),
                 // Favourites (bottom-left), Settings (bottom-right).
                 // At rest: hollow circles (2×2 grid). When open: crossfade
                 // from hollow circle → the specific icon as they fly out.
+                val circleData = remember {
+                    listOf(
+                        CircleAnim(9.dp, 9.dp, (-200).dp, 0.dp),
+                        CircleAnim(24.dp, 9.dp, (-200).dp, 44.dp),
+                        CircleAnim(9.dp, 24.dp, (-200).dp, 88.dp),
+                        CircleAnim(24.dp, 24.dp, (-200).dp, 132.dp),
+                    )
+                }
                 val iconDrawables = listOf(
                     R.drawable.ic_menu_new_playlist,
                     R.drawable.ic_menu_order,
