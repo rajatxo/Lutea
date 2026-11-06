@@ -146,17 +146,52 @@ fun QuickPicksScreen(
         onPlaylistStyleClick = { showStylePicker = true },
     ) {
         when (activeTab) {
-            LuteaTab.Home -> PlaylistsContent(
+            LuteaTab.Home -> QuickPicksContent()
+            LuteaTab.Search -> SearchContent()
+            LuteaTab.Library -> PlaylistsContent(
                 onOpenPlaylist = { selectedPlaylist = it },
                 playlistStyle = playlistStyle,
             )
-            LuteaTab.Search -> QuickPicksContent()  // placeholder — will be search screen later
-            LuteaTab.Library -> SongsContent()
         }
     }
 
     if (showStylePicker) {
         PlaylistStylePickerDialog(onDismiss = { showStylePicker = false })
+    }
+}
+
+// ── Search content — basic placeholder, will be polished later ──
+@Composable
+private fun SearchContent() {
+    var query by remember { mutableStateOf("") }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1C1C1E))
+            .padding(horizontal = 20.dp)
+            .padding(top = 120.dp, bottom = 120.dp),
+    ) {
+        Text(
+            text = "Search",
+            color = Color.White,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = CalSansFamily,
+        )
+        Spacer(Modifier.height(16.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Songs, artists, playlists...") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(24.dp))
+        Text(
+            text = "Type to search your music",
+            color = Color(0xFF8E8E93),
+            fontSize = 14.sp,
+        )
     }
 }
 

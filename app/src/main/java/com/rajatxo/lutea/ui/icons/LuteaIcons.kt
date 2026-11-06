@@ -36,13 +36,41 @@ object LuteaIcons {
         )
     }.build()
 
-    /** Lucide search icon (MIT). */
+    /**
+     * Filled-icon builder for Material Symbols glyphs whose path data lives in
+     * a 960×960 viewport (Material coordinate space). The 24dp display size is
+     * preserved; Compose scales the viewport to fit.
+     */
+    private fun filled(
+        name: String,
+        viewportWidth: Float = 960f,
+        viewportHeight: Float = 960f,
+        pathBuilder: PathBuilder.() -> Unit
+    ): ImageVector = ImageVector.Builder(
+        name = name,
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = viewportWidth,
+        viewportHeight = viewportHeight
+    ).apply {
+        path(
+            fill = SolidColor(Color.Black),
+            stroke = null,
+            strokeLineWidth = 0f,
+            strokeLineCap = StrokeCap.Butt,
+            strokeLineJoin = StrokeJoin.Miter,
+            strokeLineMiter = 4f,
+            pathBuilder = pathBuilder
+        )
+    }.build()
+
+    /** Lucide search icon (MIT). circle cx=11 cy=11 r=8 + handle line. */
     val Search: ImageVector = stroke("Search") {
         moveTo(19f, 11f)
         arcTo(8f, 8f, 0f, true, true, 3f, 11f)
         arcTo(8f, 8f, 0f, true, true, 19f, 11f)
         moveTo(21f, 21f)
-        lineTo(16.7f, 16.7f)
+        lineTo(16.66f, 16.66f)
     }
 
     /** Lucide settings/cog icon (MIT). Ported from Coral X. */
@@ -152,43 +180,88 @@ object LuteaIcons {
         }
     }.build()
 
-    /** Lucide house icon (MIT) — for Home tab. */
+    /** Lucide house icon (MIT) — exact provided SVG. Curved roof + arched door. */
     val Home: ImageVector = stroke("Home") {
-        // House outline
-        moveTo(3f, 12f)
-        lineTo(12f, 3f)
-        lineTo(21f, 12f)
-        // Roof line
-        moveTo(5f, 10f)
-        lineTo(5f, 20f)
-        lineTo(19f, 20f)
-        lineTo(19f, 10f)
-        // Door
-        moveTo(9f, 20f)
-        lineTo(9f, 14f)
-        lineTo(15f, 14f)
-        lineTo(15f, 20f)
+        // Door: M15,21 v-8 a1,1 0 0 0 -1,-1 h-4 a1,1 0 0 0 -1,1 v8
+        moveTo(15f, 21f)
+        verticalLineTo(13f)
+        arcTo(1f, 1f, 0f, false, false, 14f, 12f)
+        horizontalLineTo(10f)
+        arcTo(1f, 1f, 0f, false, false, 9f, 13f)
+        verticalLineTo(21f)
+        // House outline: M3,10 a2,2 0 0 1 .709,-1.528 l7,-6 a2,2 0 0 1 2.582,0 l7,6 A2,2 0 0 1 21,10 v9 a2,2 0 0 1 -2,2 H5 a2,2 0 0 1 -2,-2 z
+        moveTo(3f, 10f)
+        arcTo(2f, 2f, 0f, false, true, 3.709f, 8.472f)
+        lineTo(10.709f, 2.472f)
+        arcTo(2f, 2f, 0f, false, true, 13.291f, 2.472f)
+        lineTo(20.291f, 8.472f)
+        arcTo(2f, 2f, 0f, false, true, 21f, 10f)
+        verticalLineTo(19f)
+        arcTo(2f, 2f, 0f, false, true, 19f, 21f)
+        horizontalLineTo(5f)
+        arcTo(2f, 2f, 0f, false, true, 3f, 19f)
+        close()
     }
 
-    /** Lucide library icon (MIT) — for Library tab. */
-    val Library: ImageVector = stroke("Library") {
-        // Left book
-        moveTo(3f, 4f)
-        lineTo(3f, 20f)
-        lineTo(8f, 20f)
-        lineTo(8f, 4f)
+    /**
+     * Material Symbols "library_music" (Apache-2.0) — filled. Two overlapping
+     * rounded albums; the front one carries a music note.
+     *
+     * Path converted from SVG (viewBox 0 -960 960 960) into a 960×960 viewport
+     * with y translated by +960 so every coord is non-negative, and SVG smooth
+     * quadratics (t / T) expanded to explicit quadTo calls with reflected
+     * control points — Compose PathBuilder has no reflective-quad primitive.
+     * Windings: front outline clockwise, inner rect counter-clockwise → the
+     * rect cuts a hole (NonZero fill) so the music note shows through.
+     */
+    val Library: ImageVector = filled("Library") {
+        // Subpath 1 — music note (stem + note head)
+        moveTo(500f, 600f)
+        quadTo(542f, 600f, 571f, 571f)
+        quadTo(600f, 542f, 600f, 500f)
+        lineTo(600f, 280f)
+        lineTo(720f, 280f)
+        lineTo(720f, 200f)
+        lineTo(560f, 200f)
+        lineTo(560f, 420f)
+        quadTo(547f, 410f, 532f, 405f)
+        quadTo(517f, 400f, 500f, 400f)
+        quadTo(458f, 400f, 429f, 429f)
+        quadTo(400f, 458f, 400f, 500f)
+        quadTo(400f, 542f, 429f, 571f)
+        quadTo(458f, 600f, 500f, 600f)
         close()
-        // Middle book
-        moveTo(9f, 4f)
-        lineTo(9f, 20f)
-        lineTo(14f, 20f)
-        lineTo(14f, 4f)
+        // Subpath 2 — front album outline (clockwise → fills the frame border)
+        moveTo(320f, 720f)
+        quadTo(287f, 720f, 263.5f, 696.5f)
+        quadTo(240f, 673f, 240f, 640f)
+        lineTo(240f, 160f)
+        quadTo(240f, 127f, 263.5f, 103.5f)
+        quadTo(287f, 80f, 320f, 80f)
+        lineTo(800f, 80f)
+        quadTo(833f, 80f, 856.5f, 103.5f)
+        quadTo(880f, 127f, 880f, 160f)
+        lineTo(880f, 640f)
+        quadTo(880f, 673f, 856.5f, 696.5f)
+        quadTo(833f, 720f, 800f, 720f)
+        lineTo(320f, 720f)
         close()
-        // Right book (tilted)
-        moveTo(16f, 5f)
-        lineTo(18f, 4f)
-        lineTo(21f, 18f)
-        lineTo(19f, 19f)
+        // Subpath 3 — inner rect (counter-clockwise → cuts the hole so the note shows)
+        moveTo(320f, 640f)
+        lineTo(800f, 640f)
+        lineTo(800f, 160f)
+        lineTo(320f, 160f)
+        close()
+        // Subpath 4 — back album (peeks behind, one rounded corner)
+        moveTo(160f, 880f)
+        quadTo(127f, 880f, 103.5f, 856.5f)
+        quadTo(80f, 833f, 80f, 800f)
+        lineTo(80f, 240f)
+        lineTo(160f, 240f)
+        lineTo(160f, 800f)
+        lineTo(720f, 800f)
+        lineTo(720f, 880f)
+        lineTo(160f, 880f)
         close()
     }
 }
