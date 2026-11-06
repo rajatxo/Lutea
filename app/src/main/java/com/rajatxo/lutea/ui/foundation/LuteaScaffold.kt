@@ -151,7 +151,7 @@ fun LuteaScaffold(
                         .drawBackdrop(
                             backdrop = glassBackdrop,
                             shape = { RectangleShape },
-                            effects = { blur(14.dp.toPx() * blurProgress) },
+                            effects = { blur(20.dp.toPx() * blurProgress) },
                             onDrawSurface = {
                                 // Punch out the blur below ~45% so it fades COMPLETELY
                                 // before the screen's horizontal center — the original
@@ -216,9 +216,9 @@ fun LuteaScaffold(
                 val circleData = remember {
                     listOf(
                         CircleAnim(9.dp, 9.dp, (-200).dp, 0.dp),
-                        CircleAnim(24.dp, 9.dp, (-200).dp, 24.dp),
-                        CircleAnim(9.dp, 24.dp, (-200).dp, 48.dp),
-                        CircleAnim(24.dp, 24.dp, (-200).dp, 72.dp),
+                        CircleAnim(24.dp, 9.dp, (-200).dp, 44.dp),
+                        CircleAnim(9.dp, 24.dp, (-200).dp, 88.dp),
+                        CircleAnim(24.dp, 24.dp, (-200).dp, 132.dp),
                     )
                 }
                 circleData.forEachIndexed { i, c ->
@@ -236,7 +236,7 @@ fun LuteaScaffold(
                         modifier = Modifier
                             .offset(x = offsetX, y = offsetY)
                             .size(8.dp)
-                            .background(Color.White.copy(alpha = progress))
+                            .background(Color.White.copy(alpha = progress), CircleShape)
                             .border(1.5.dp, Color.White, CircleShape)
                     )
                 }
