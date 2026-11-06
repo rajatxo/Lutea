@@ -113,8 +113,8 @@ fun LuteaTabCapsule(
     val innerSolidFill = Color(0xFFE2E2E2)
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        // ★ Law 7: 80% of available width, clamped for extreme aspect ratios.
-        val outerWidth: Dp = (maxWidth * 0.8f).coerceIn(280.dp, 460.dp)
+        // ★ Law 7: 70% of available width, clamped for extreme aspect ratios.
+        val outerWidth: Dp = (maxWidth * 0.7f).coerceIn(250.dp, 420.dp)
         // Explicit heights per spec — insets derive symmetrically from these.
         val outerHeight: Dp = 51.dp
         val innerHeight: Dp = 46.dp

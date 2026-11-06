@@ -461,23 +461,15 @@ fun LuteaArc(
                     }
                 }
 
-                // ★ Advanced: main arc + smaller inner arc (creates visual difference from mockup).
-                //    Simpler: BOTH original arcs.
+                // ★ Advanced: main arc only. Simpler: BOTH original arcs (inner + outer).
                 drawNeedleArc(
                     radius = innerRadius,
                     maxStrokePx = with(density) { 3.5.dp.toPx() },
                     minStrokePx = with(density) { 0.5.dp.toPx() },
                     maxAlpha = 0.8f
                 )
-                if (isAdvanced) {
-                    // ★ Inner smaller arc — at 60% of main arc radius, thinner + dimmer
-                    drawNeedleArc(
-                        radius = innerRadius * 0.85f,  // ★ closer to main arc (was 0.60f, too far)
-                        maxStrokePx = with(density) { 2.dp.toPx() },
-                        minStrokePx = with(density) { 0.3.dp.toPx() },
-                        maxAlpha = 0.4f
-                    )
-                } else {
+                if (!isAdvanced) {
+                    // Simpler mode: outer arc too. Advanced: main arc only (no small inner arc).
                     drawNeedleArc(
                         radius = outerRadius,
                         maxStrokePx = with(density) { 3.5.dp.toPx() },

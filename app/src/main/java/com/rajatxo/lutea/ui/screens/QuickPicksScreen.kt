@@ -195,98 +195,82 @@ private fun SearchContent() {
     }
 }
 
-// ── Quick Picks content ──
+// ── Quick Picks content — scans device music + lists songs with album art ──
+// Scrollable so album covers pass behind the nav → the frosted blur reads.
 @Composable
 private fun QuickPicksContent() {
-    Column(
+    val context = LocalContext.current
+    var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var scanning by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        songs = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+        scanning = false
+    }
+
+    if (scanning) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1C1C1E)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Scanning music...",
+                color = Color(0xFF8E8E93),
+                fontSize = 14.sp,
+            )
+        }
+        return
+    }
+
+    if (songs.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF1C1C1E)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "No music found",
+                color = Color(0xFF8E8E93),
+                fontSize = 14.sp,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF1C1C1E))
-            .padding(horizontal = 20.dp)
-            .padding(top = 120.dp, bottom = 120.dp),
+            .padding(horizontal = 20.dp),
+        contentPadding = PaddingValues(top = 120.dp, bottom = 120.dp),
     ) {
-            // Section: Recently Played
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Recently Played",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = CalSansFamily,
-                )
-                Text(
-                    text = "See all",
-                    color = Color(0xFF8E8E93),
-                    fontSize = 13.sp,
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            // Horizontal row of circular thumbnails
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                repeat(4) {
-                    CircularThumbPlaceholder()
-                }
-            }
-
-            Spacer(Modifier.height(28.dp))
-
-            // Section: Made for You
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Made for You",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = CalSansFamily,
-                )
-                Text(
-                    text = "See all",
-                    color = Color(0xFF8E8E93),
-                    fontSize = 13.sp,
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                repeat(4) {
-                    CircularThumbPlaceholder()
-                }
-            }
-
-            Spacer(Modifier.height(28.dp))
-
-            // Section: Recently Added
+        item {
             Text(
-                text = "Recently Added",
+                text = "Quick Picks",
                 color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
                 fontFamily = CalSansFamily,
             )
-
-            Spacer(Modifier.height(16.dp))
-
-            repeat(3) {
-                SongRowPlaceholder()
-                Spacer(Modifier.height(12.dp))
-            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "${songs.size} songs on your device",
+                color = Color(0xFF8E8E93),
+                fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(20.dp))
+        }
+        items(songs) { song ->
+            SongItem(
+                song = song,
+                onClick = {
+                    PlaybackConnection.playSong(song, songs)
+                },
+            )
+        }
     }
 }
 
