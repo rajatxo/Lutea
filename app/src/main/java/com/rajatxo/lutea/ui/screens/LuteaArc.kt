@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.foundation.border
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -935,77 +936,50 @@ fun LuteaArc(
                             }
                         }
                 ) {
-                    // Visible track (narrow, centered in hit area)
+                    // Visible track — grey→white gradient + INNER shadow on all
+                    // borders (fades into the gradient). No outer shadow.
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .width(trackWidth)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(trackCorner))
-                            .background(trackColor)
-                    )
-
-                    // ★ Thumb — INSIDE track Box, constrained to track bounds.
-                    // Offset is from TOP of track. Clamped so it never leaves.
-                    // Layer 1: ★ GLOW — light emitting outward from the thumb on both sides.
-                    //    Uses a wider, blurred Box with a radial gradient that fades to transparent.
-                    //    Positioned behind the thumb, extends beyond the track width.
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) - 8.dp)
-                            .width(thumbWidth + 24.dp)  // wider than thumb = light spreads outward
-                            .height(thumbHeight + 16.dp)  // taller = light spreads vertically too
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.15f),  // center glow
-                                        Color.White.copy(alpha = 0.05f),  // mid fade
-                                        Color.Transparent,                  // edges fade to nothing
+                            .drawBehind {
+                                // Grey-white gradient + left/right inner shadow (horizontal)
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        colorStops = arrayOf(
+                                            0.0f to Color.Black.copy(alpha = 0.5f),
+                                            0.18f to Color(0xFF8A8A8A),
+                                            0.5f to Color.White,
+                                            0.82f to Color(0xFF8A8A8A),
+                                            1.0f to Color.Black.copy(alpha = 0.5f)
+                                        )
                                     )
                                 )
-                            )
-                            .graphicsLayer {
-                                // Soft blur on the glow for a diffused light effect
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                                    this.renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                                        12f, 12f, android.graphics.Shader.TileMode.DECAL
-                                    ).asComposeRenderEffect()
-                                }
-                                this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                                // Top/bottom inner shadow (vertical, fades inward)
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colorStops = arrayOf(
+                                            0.0f to Color.Black.copy(alpha = 0.5f),
+                                            0.06f to Color.Transparent,
+                                            0.94f to Color.Transparent,
+                                            1.0f to Color.Black.copy(alpha = 0.5f)
+                                        )
+                                    )
+                                )
                             }
                     )
-                    // Layer 2: drop shadow
-                    Box(
-                        modifier = Modifier
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + 3.dp)
-                            .align(Alignment.TopCenter)
-                            .width(thumbWidth)
-                            .height(thumbHeight)
-                            .shadow(8.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbDropShadow, spotColor = thumbDropShadow)
-                            .clip(RoundedCornerShape(thumbCorner))
-                    )
-                    // Layer 2: button body
+
+                    // ★ Thumb (shower) — pure black, no outer shadow.
                     Box(
                         modifier = Modifier
                             .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
                             .align(Alignment.TopCenter)
                             .width(thumbWidth)
                             .height(thumbHeight)
-                            .shadow(2.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbTopGlow, spotColor = thumbTopGlow)
                             .clip(RoundedCornerShape(thumbCorner))
-                            .background(thumbGradient)
-                            .border(thumbBorderWidth, thumbBorderTop, RoundedCornerShape(thumbCorner))
-                    )
-                    // Layer 3: center highlight line (was at top — moved to CENTER of thumb)
-                    Box(
-                        modifier = Modifier
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + (thumbHeight / 2) - 1.dp)
-                            .align(Alignment.TopCenter)
-                            .width(thumbWidth)
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(Color.White.copy(alpha = 0.3f))
+                            .background(Color.Black)
                     )
                 }
 
