@@ -1032,6 +1032,8 @@ fun LuteaArc(
                     val absOffset = abs(fractionalOffset)
                     if (absOffset > 4.5f) continue
                     val isActive = absOffset < 0.5f
+                    // ★ Top 5 texts (absOffset < 2.5) are clickable → opens playlist
+                    val isClickable = absOffset < 2.5f
                     val displayText = if (isActive) playlist.name.uppercase() else playlist.name.lowercase()
                     val alpha = alphaFor(absOffset)
                     val blurRadius = blurFor(absOffset)
@@ -1040,7 +1042,6 @@ fun LuteaArc(
                     if (alpha > 0.01f) {
                         val itemAngleDeg = fractionalOffset * angleStepDeg
                         val itemAngleRad = (itemAngleDeg * PI / 180f).toFloat()
-                        // ★ Text position on arc (in pixels from top-left of screen)
                         val textX = arcPivotXpx + textRadiusPx * cos(itemAngleRad)
                         val textY = arcPivotYpx + textRadiusPx * sin(itemAngleRad)
 
@@ -1064,7 +1065,6 @@ fun LuteaArc(
                             val shrinkRatio = availableWidth / measuredWidth
                             actualFontSize = (actualFontSize * shrinkRatio).coerceAtLeast(12f)
                         }
-                        // Re-measure with final font size to get correct height
                         val finalLayout = textMeasurer.measure(
                             text = AnnotatedString(displayText),
                             style = TextStyle(
@@ -1078,28 +1078,53 @@ fun LuteaArc(
                             constraints = Constraints(maxWidth = Int.MAX_VALUE, maxHeight = Int.MAX_VALUE),
                         )
                         val textH = finalLayout.size.height.toFloat()
-                        val textW = finalLayout.size.width.toFloat()
 
-                        Text(
-                            text = displayText,
-                            color = if (isActive) Color.White else Color.White.copy(alpha = alpha),
-                            fontSize = actualFontSize.sp,
-                            fontFamily = BillieEilishFamily,
-                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
-                            modifier = Modifier
-                                .graphicsLayer {
-                                    this.alpha = alpha
-                                    this.translationX = textX
-                                    this.translationY = textY - textH / 2f
-                                    this.rotationZ = itemAngleDeg
-                                    this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
-                                    // ★ Progressive blur on outer texts (like Simpler)
-                                    this.renderEffect = blurEffect
-                                    this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-                                }
-                        )
+                        // ★ SYMMETRY FIX: Use the MAIN text's height for ALL texts' vertical centering.
+                        //    Previously each text used its own measured height (60sp main vs 40sp secondary),
+                        //    causing asymmetric spacing — the gap above main ≠ gap below main.
+                        //    Now all texts use the same centering offset (based on 60sp height),
+                        //    so the arc positioning is perfectly symmetric.
+                        val mainTextHeightPx = with(density) { 60.dp.toPx() }  // approx height of 60sp text
+                        val centerYOffset = mainTextHeightPx / 2f  // same for all texts
+
+                        val modifier = Modifier
+                            .graphicsLayer {
+                                this.alpha = alpha
+                                this.translationX = textX
+                                // ★ Use constant centering offset for symmetry
+                                this.translationY = textY - centerYOffset
+                                this.rotationZ = itemAngleDeg
+                                this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                                this.renderEffect = blurEffect
+                                this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                            }
+
+                        if (isClickable) {
+                            Text(
+                                text = displayText,
+                                color = if (isActive) Color.White else Color.White.copy(alpha = alpha),
+                                fontSize = actualFontSize.sp,
+                                fontFamily = BillieEilishFamily,
+                                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
+                                modifier = modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) { onOpenPlaylist(playlist) }
+                            )
+                        } else {
+                            Text(
+                                text = displayText,
+                                color = Color.White.copy(alpha = alpha),
+                                fontSize = actualFontSize.sp,
+                                fontFamily = BillieEilishFamily,
+                                fontWeight = FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
+                                modifier = modifier
+                            )
+                        }
                     }
                 }
             }

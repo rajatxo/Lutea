@@ -116,13 +116,14 @@ fun LuteaScaffold(
                 content()
             }
 
-            // ★ 3-dot menu — top-right corner. Opens a floating box with options.
+            // ★ Menu button — aligned with slider bar (same gap from right edge).
+            //    Slider uses 8% of screen width → menu uses same.
             var showMenu by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(end = 16.dp, top = 8.dp)
+                    .padding(end = 16.dp, top = 8.dp)  // ★ same as slider visual position
             ) {
                 // 3-dot button
                 Box(
