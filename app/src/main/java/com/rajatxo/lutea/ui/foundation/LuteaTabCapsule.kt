@@ -111,7 +111,7 @@ fun LuteaTabCapsule(
     val blurDp = 12.dp
 
     BoxWithConstraints(modifier = modifier) {
-        val outerHeight: Dp = 51.dp
+        val outerHeight: Dp = 48.dp
         // ★ Law 7: 53% of available width, clamped. On the Library tab the
         //    sparkle-search circle (= outerHeight) + 8dp gap sits beside the
         //    capsule in the scaffold — shrink the capsule so the combined

@@ -1,6 +1,9 @@
 package com.rajatxo.lutea.ui.foundation
 
 import android.os.Build
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -123,13 +127,118 @@ fun LuteaScaffold(
                 content()
             }
 
-            // ★ Menu button removed for now — will come back as a long-press on
-            //    the nav bar (New Playlist / Playlist Style / Settings).
+            // ★ Menu button (top-right) — GridCircles, opens a dropdown.
+            var showMenu by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(end = maxWidth * 0.08f, top = 8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { showMenu = !showMenu }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = LuteaIcons.GridCircles,
+                        contentDescription = "Menu",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                if (showMenu) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { showMenu = false },
+                            )
+                    )
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 44.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF1A1A1A).copy(alpha = 0.95f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        showMenu = false
+                                        onNewPlaylistClick()
+                                    },
+                                )
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                text = "New Playlist",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = CalSansFamily,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        showMenu = false
+                                        onPlaylistStyleClick()
+                                    },
+                                )
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                text = "Playlist Style",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = CalSansFamily,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        showMenu = false
+                                        onSettingsClick()
+                                    },
+                                )
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                text = "Settings",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = CalSansFamily,
+                            )
+                        }
+                    }
+                }
+            }
 
             // Bottom: nav capsule + (Library only) a same-blur circle with the
             // sparkle-search icon beside it. Combined unit, centered. Per Law 7
             // the capsule self-sizes to 53% of maxWidth; the circle matches the
-            // capsule height (51dp) with the same frosted blur.
+            // capsule height (48dp) with the same frosted blur. On entering
+            // Library the circle fuses with the capsule then liquid-separates.
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -144,10 +253,23 @@ fun LuteaScaffold(
                     backdrop = glassBackdrop,
                 )
                 if (activeTab == LuteaTab.Library) {
-                    Spacer(Modifier.width(8.dp))
+                    // ★ Liquid separation: capsule + circle start FUSED (gap 0),
+                    //    then animate apart (gap → 8dp) with a bouncy spring —
+                    //    the reverse of a liquid fuse.
+                    val separation = remember { Animatable(0f) }
+                    LaunchedEffect(Unit) {
+                        separation.animateTo(
+                            targetValue = 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp * separation.value))
                     Box(
                         modifier = Modifier
-                            .size(51.dp)
+                            .size(48.dp)
                             .shadow(elevation = 3.dp, shape = CircleShape, clip = true)
                             .drawBackdrop(
                                 backdrop = glassBackdrop, shape = { CircleShape },
