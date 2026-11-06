@@ -261,30 +261,6 @@ fun LuteaScaffold(
                             .background(Color.White.copy(alpha = progress), CircleShape)
                             .border(1.5.dp, Color.White, CircleShape)
                     )
-                    // Tapered string from X center to this circle.
-                    // size(0.dp) so the Canvas doesn't expand the outer menu Box
-                    // (which would shift the click Box left). Drawing still renders
-                    // beyond the 0×0 bounds (no clip).
-                    Canvas(modifier = Modifier.size(0.dp)) {
-                        if (progress > 0.01f) {
-                            val xCenter = Offset(20.dp.toPx(), 20.dp.toPx())
-                            val circleCenter = Offset((offsetX + 4.dp).toPx(), (offsetY + 4.dp).toPx())
-                            drawLine(
-                                brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.35f * progress),
-                                        Color.White.copy(alpha = 0.05f * progress),
-                                    ),
-                                    start = xCenter,
-                                    end = circleCenter,
-                                ),
-                                start = xCenter,
-                                end = circleCenter,
-                                strokeWidth = 1.5.dp.toPx() * progress,
-                                cap = StrokeCap.Round,
-                            )
-                        }
-                    }
                 }
             }
 
