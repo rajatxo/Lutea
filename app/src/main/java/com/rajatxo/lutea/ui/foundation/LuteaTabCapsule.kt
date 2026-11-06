@@ -48,7 +48,6 @@ import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.vibrancy
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.icons.LuteaIcons
@@ -58,10 +57,10 @@ import com.rajatxo.lutea.ui.util.LuteaTab
  * LuteaTabCapsule — frosted neumorphic floating nav bar.
  *
  * Three concentric layers (outside → in):
- *   1. OUTER capsule — whitish frosted glass (kyant blur + white tint),
- *      80% of screen width, thin, with a subtle dark drop shadow.
- *   2. INNER capsule — inset, white + STRONGER blur (frosts harder than the
- *      outer; blur intensity is the distinguishing factor between layers).
+ *   1. OUTER capsule — opaque white→grey gradient body (no blur, no glossy
+ *      stroke), 80% of screen width, with a subtle dark drop shadow.
+ *   2. INNER capsule — inset, sits simply on the outer; blurs the background
+ *      via kyant backdrop (pure matte blur, no vibrancy/gloss).
  *   3. BLACK active pill — sits inside the inner capsule, slides between
  *      tabs with a spring; active icon+label invert to white.
  *
@@ -105,17 +104,12 @@ fun LuteaTabCapsule(
     // Palette
     val activeContentColor = Color.White
     val inactiveContentColor = Color(0xFF1C1C1E)
-    // Frosted-glass tints — white overlays on the blurred backdrop.
-    // Inner was 0.30 (too dark over Lutea's dark bg) → raised to 0.58.
-    // Outer stays 0.55. The layers now differ mainly by blur intensity
-    // (inner blurs 2× harder), not by whiteness.
-    val outerFrostAlpha = 0.55f
-    val innerFrostAlpha = 0.58f
-    // Blur radii. Inner blurs harder than outer (the key requirement).
-    val outerBlurDp = 8.dp
+    // Inner is the blur layer (frosted window on the opaque outer body).
+    // White tint kept light so the blur reads but inactive dark icons stay
+    // visible over Lutea's dark background.
+    val innerFrostAlpha = 0.45f
     val innerBlurDp = 16.dp
-    // Solid fallback fills (when no backdrop is supplied)
-    val outerSolidFill = Color(0xFFEFEFEF)
+    // Solid fallback for the inner when no backdrop is supplied.
     val innerSolidFill = Color(0xFFE2E2E2)
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -152,23 +146,19 @@ fun LuteaTabCapsule(
         // `Dp * Float` is a member operator and always resolves.
         val pillOffsetX: Dp = tabSlotWidth * pillPosition.value + pillInsetH
 
-        // OUTER capsule surface — whitish frosted glass + subtle dark shadow.
-        val outerModifier = if (backdrop != null) {
-            Modifier
-                .shadow(elevation = 3.dp, shape = outerShape, clip = true)
-                .drawBackdrop(
-                    backdrop = backdrop, shape = { outerShape },
-                    effects = {
-                        vibrancy()
-                        blur(outerBlurDp.toPx())
-                    },
-                    onDrawSurface = { drawRect(Color.White.copy(alpha = outerFrostAlpha)) }
+        // OUTER capsule surface — opaque white→grey gradient body (no blur,
+        // no glossy stroke). The inner is what blurs the background.
+        val outerModifier = Modifier
+            .shadow(elevation = 3.dp, shape = outerShape, clip = true)
+            .background(
+                brush = Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.0f to Color.White,
+                        0.5f to Color(0xFFECECEC),
+                        1.0f to Color(0xFFD4D4D4)
+                    )
                 )
-        } else {
-            Modifier
-                .shadow(elevation = 3.dp, shape = outerShape, clip = true)
-                .background(outerSolidFill)
-        }
+            )
 
         Box(
             modifier = Modifier
@@ -177,7 +167,7 @@ fun LuteaTabCapsule(
                 .height(outerHeight)
                 .then(outerModifier)
         ) {
-            // INNER capsule surface — inset, white + STRONGER blur (2× the outer).
+            // INNER capsule surface — sits on the outer; blurs the background (matte).
             val innerModifier = if (backdrop != null) {
                 Modifier.drawBackdrop(
                     backdrop = backdrop, shape = { innerShape },
