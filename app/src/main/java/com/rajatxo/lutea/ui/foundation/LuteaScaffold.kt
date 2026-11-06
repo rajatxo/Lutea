@@ -233,11 +233,11 @@ fun LuteaScaffold(
                     )
                 }
 
-                // 4 icons — 2×2 grid on the left side when open.
-                // New Playlist (top-left), Order (top-right),
-                // Favourites (bottom-left), Settings (bottom-right).
-                // At rest: hollow circles (2×2 grid). When open: crossfade
-                // from hollow circle → icon + text label.
+                // 4 black glossy pills — 2×2 grid on the left when open.
+                // New Playlist (top-left), Select Tag (top-right),
+                // Favourite (bottom-left), Settings (bottom-right).
+                // At rest: hollow circles (2×2 grid = menu icon). When open:
+                // crossfade from hollow circle → black glossy pill with text.
                 val circleData = remember {
                     listOf(
                         CircleAnim(9.dp, 9.dp, (-280).dp, 0.dp),
@@ -246,13 +246,7 @@ fun LuteaScaffold(
                         CircleAnim(24.dp, 24.dp, (-124).dp, 50.dp),
                     )
                 }
-                val iconDrawables = listOf(
-                    R.drawable.ic_menu_new_playlist,
-                    R.drawable.ic_menu_order,
-                    R.drawable.ic_menu_favourite,
-                    R.drawable.ic_menu_settings,
-                )
-                val labels = listOf("New Playlist", "Order", "Favourites", "Settings")
+                val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
                 circleData.forEachIndexed { i, c ->
                     val progress by animateFloatAsState(
                         targetValue = if (menuOpen) 1f else 0f,
@@ -271,31 +265,33 @@ fun LuteaScaffold(
                             .size(8.dp)
                             .border(1.5.dp, Color.White.copy(alpha = 1f - progress), CircleShape)
                     )
-                    // Icon + text — wrapped in a size(0.dp) Box so it takes ZERO
-                    // layout space (doesn't expand the outer menu Box → doesn't shift
-                    // the menu icon). The Row inside uses wrapContentSize(unbounded)
-                    // to measure at full size, overflowing the 0dp Box (no clip).
+                    // Black glossy pill with text (open state) — wrapped in
+                    // size(0.dp) so it doesn't expand the outer menu Box.
                     Box(
                         modifier = Modifier
                             .size(0.dp)
                             .offset(x = offsetX - 10.dp, y = offsetY - 10.dp)
                             .graphicsLayer { alpha = progress }
                     ) {
-                        Row(
-                            modifier = Modifier.wrapContentSize(align = Alignment.TopStart, unbounded = true),
-                            verticalAlignment = Alignment.CenterVertically
+                        Box(
+                            modifier = Modifier
+                                .wrapContentSize(align = Alignment.TopStart, unbounded = true)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFF2C2C2C),
+                                            Color(0xFF181818),
+                                        )
+                                    )
+                                )
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                painter = painterResource(iconDrawables[i]),
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
                             Text(
                                 text = labels[i],
                                 color = Color.White,
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontFamily = CalSansFamily,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
