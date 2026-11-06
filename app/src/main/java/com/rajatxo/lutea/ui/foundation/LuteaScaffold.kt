@@ -233,7 +233,7 @@ fun LuteaScaffold(
             }
 
             // Bottom: TabCapsule ONLY — search FAB removed per user request.
-            // Capsule is centered horizontally on the bottom line, smaller (180dp × 44dp).
+            // Capsule self-sizes responsively (55% of maxWidth, clamped) per Law 7.
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -246,9 +246,6 @@ fun LuteaScaffold(
                     activeTab = activeTab,
                     onTabSelected = onTabSelected,
                     backdrop = glassBackdrop,
-                    customWidth = 180.dp,
-                    customHeight = 44.dp,
-                    customShape = RoundedCornerShape(22.dp),
                 )
             }
         }
