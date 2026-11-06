@@ -151,7 +151,7 @@ fun LuteaScaffold(
                         .drawBackdrop(
                             backdrop = glassBackdrop,
                             shape = { RectangleShape },
-                            effects = { blur(24.dp.toPx() * blurProgress) },
+                            effects = { blur(14.dp.toPx() * blurProgress) },
                             onDrawSurface = {
                                 // Punch out the blur below ~45% so it fades COMPLETELY
                                 // before the screen's horizontal center — the original
@@ -162,8 +162,8 @@ fun LuteaScaffold(
                                     brush = Brush.verticalGradient(
                                         colorStops = arrayOf(
                                             0.0f to Color.Transparent,
-                                            0.35f to Color.Transparent,
-                                            0.45f to Color.White,
+                                            0.25f to Color.Transparent,
+                                            0.35f to Color.White,
                                             1.0f to Color.White
                                         )
                                     ),
@@ -215,10 +215,10 @@ fun LuteaScaffold(
                 // upper area. Targets are placeholders for now (you'll place them).
                 val circleData = remember {
                     listOf(
-                        CircleAnim(9.dp, 9.dp, (-250).dp, 20.dp),
-                        CircleAnim(24.dp, 9.dp, (-170).dp, 0.dp),
-                        CircleAnim(9.dp, 24.dp, (-250).dp, 60.dp),
-                        CircleAnim(24.dp, 24.dp, (-170).dp, 40.dp),
+                        CircleAnim(9.dp, 9.dp, (-200).dp, 0.dp),
+                        CircleAnim(24.dp, 9.dp, (-200).dp, 24.dp),
+                        CircleAnim(9.dp, 24.dp, (-200).dp, 48.dp),
+                        CircleAnim(24.dp, 24.dp, (-200).dp, 72.dp),
                     )
                 }
                 circleData.forEachIndexed { i, c ->
@@ -236,6 +236,7 @@ fun LuteaScaffold(
                         modifier = Modifier
                             .offset(x = offsetX, y = offsetY)
                             .size(8.dp)
+                            .background(Color.White.copy(alpha = progress))
                             .border(1.5.dp, Color.White, CircleShape)
                     )
                 }
