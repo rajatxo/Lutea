@@ -6,6 +6,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -49,6 +51,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -258,6 +261,27 @@ fun LuteaScaffold(
                             .background(Color.White.copy(alpha = progress), CircleShape)
                             .border(1.5.dp, Color.White, CircleShape)
                     )
+                    // Tapered string from X center to this circle
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        if (progress > 0.01f) {
+                            val xCenter = Offset(20.dp.toPx(), 20.dp.toPx())
+                            val circleCenter = Offset((offsetX + 4.dp).toPx(), (offsetY + 4.dp).toPx())
+                            drawLine(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.35f * progress),
+                                        Color.White.copy(alpha = 0.05f * progress),
+                                    ),
+                                    start = xCenter,
+                                    end = circleCenter,
+                                ),
+                                start = xCenter,
+                                end = circleCenter,
+                                strokeWidth = 1.5.dp.toPx() * progress,
+                                cap = StrokeCap.Round,
+                            )
+                        }
+                    }
                 }
             }
 
