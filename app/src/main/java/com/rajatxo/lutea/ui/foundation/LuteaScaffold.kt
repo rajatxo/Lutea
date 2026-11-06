@@ -116,14 +116,14 @@ fun LuteaScaffold(
                 content()
             }
 
-            // ★ Menu button — aligned with slider bar (same gap from right edge).
-            //    Slider uses 8% of screen width → menu uses same.
+            // ★ Menu button — X aligned with slider bar (same 8% gap from right edge).
+            //    Visually the slider bar would "cut through" the menu icon's center.
             var showMenu by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    .padding(end = 16.dp, top = 8.dp)  // ★ same as slider visual position
+                    .padding(end = maxWidth * 0.08f, top = 8.dp)  // ★ same as slider trackPaddingEnd
             ) {
                 // 3-dot button
                 Box(

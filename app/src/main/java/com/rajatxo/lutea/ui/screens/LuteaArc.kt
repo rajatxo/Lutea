@@ -297,7 +297,39 @@ fun LuteaArc(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (isAdvanced) Modifier  // ★ No screen drag in Advanced — slider only
+                    if (isAdvanced) Modifier
+                        // ★ Advanced: BOTH screen drag AND slider drag rotate the wheel.
+                        //    Thumb button follows wheel position (connected).
+                        .pointerInput(playlists.size) {
+                            var velocityTracker = VelocityTracker()
+                            detectVerticalDragGestures(
+                                onDragStart = { velocityTracker = VelocityTracker() },
+                                onDragEnd = {
+                                    val velocity = velocityTracker.calculateVelocity().y
+                                    coroutineScope.launch {
+                                        val cycleLen = playlists.size * pxPerItem
+                                        val maxSc = cycleLen * 3f
+                                        scrollOffset.animateDecay(velocity * 0.30f, exponentialDecay(frictionMultiplier = 2.5f))
+                                        val clamped = scrollOffset.value.coerceIn(0f, maxSc)
+                                        scrollOffset.snapTo(clamped)
+                                        val nearest = (clamped / pxPerItem).roundToInt()
+                                        scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    coroutineScope.launch {
+                                        val cycleLen = playlists.size * pxPerItem
+                                        val maxSc = cycleLen * 3f
+                                        val newValue = (scrollOffset.value + dragAmount).coerceIn(0f, maxSc)
+                                        scrollOffset.snapTo(newValue)
+                                    }
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                    val currentIdx = ((scrollOffset.value / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
+                                    if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
+                                    change.consume()
+                                }
+                            )
+                        }
                     else Modifier
                         .pointerInput(playlists.size) {
                             val halfScreen = size.width / 2
@@ -1046,7 +1078,7 @@ fun LuteaArc(
                         val textY = arcPivotYpx + textRadiusPx * sin(itemAngleRad)
 
                         // ★ Auto-fit: measure text, shrink if wider than available space
-                        var actualFontSize = if (isActive) 60f else 40f
+                        var actualFontSize = if (isActive) 55f else 40f
                         val textLayoutResult = textMeasurer.measure(
                             text = AnnotatedString(displayText),
                             style = TextStyle(
@@ -1079,20 +1111,15 @@ fun LuteaArc(
                         )
                         val textH = finalLayout.size.height.toFloat()
 
-                        // ★ SYMMETRY FIX: Use the MAIN text's height for ALL texts' vertical centering.
-                        //    Previously each text used its own measured height (60sp main vs 40sp secondary),
-                        //    causing asymmetric spacing — the gap above main ≠ gap below main.
-                        //    Now all texts use the same centering offset (based on 60sp height),
-                        //    so the arc positioning is perfectly symmetric.
-                        val mainTextHeightPx = with(density) { 60.dp.toPx() }  // approx height of 60sp text
-                        val centerYOffset = mainTextHeightPx / 2f  // same for all texts
-
+                        // ★ SYMMETRY FIX: Each text centered on its OWN measured height.
+                        //    Main text reduced to 55sp (from 60sp) to reduce height difference.
+                        //    With each text using textH/2, the bounding box centers are on the arc
+                        //    point — symmetric by construction (sin(angle) is odd function).
                         val modifier = Modifier
                             .graphicsLayer {
                                 this.alpha = alpha
                                 this.translationX = textX
-                                // ★ Use constant centering offset for symmetry
-                                this.translationY = textY - centerYOffset
+                                this.translationY = textY - textH / 2f  // ★ own height, not constant
                                 this.rotationZ = itemAngleDeg
                                 this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
                                 this.renderEffect = blurEffect
