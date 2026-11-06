@@ -2,24 +2,21 @@ package com.rajatxo.lutea.ui.foundation
 
 import android.media.SoundPool
 import android.view.HapticFeedbackConstants
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,17 +24,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -53,21 +51,21 @@ import com.rajatxo.lutea.ui.icons.LuteaIcons
 import com.rajatxo.lutea.ui.util.LuteaTab
 
 /**
- * LuteaTabCapsule — frosted floating nav bar (2 layers).
+ * LuteaTabCapsule — frosted floating nav bar, Coral-style single-tab display.
  *
- *   1. OUTER capsule — blurs the background (kyant drawBackdrop) with a white
- *      gradient overlay on top (frosted white gradient: brighter at top,
- *      fading toward the bottom). 70% of screen width, subtle dark shadow.
- *   2. BLACK active pill — sits directly inside the outer capsule (the inner
- *      capsule was removed), slides between tabs with a spring; active
- *      icon+label invert to white.
+ *   ONE OUTER capsule — blurs the background (kyant drawBackdrop) + a white
+ *   gradient overlay (frosted white gradient: brighter at top, fading down).
+ *   70% of screen width, subtle dark shadow.
  *
- * Each tab = icon (left, 22dp) + CalSans label (right, 14sp), horizontal.
+ *   Inside: only the ACTIVE tab is shown at a time — icon + CalSans label,
+ *   centered. Swipe left/right to change tabs; the content slides in the
+ *   swipe direction (AnimatedContent + slideInHorizontally/slideOutHorizontally).
+ *   Tabs wrap around (past Library → Home). No black pill, no per-slot layout.
+ *
+ * Pattern ported from Coral's TabCapsule.kt (swipe + AnimatedContent slide).
  *
  * Universal Layout Laws:
  *  - Law 7: BoxWithConstraints at root. Width = 70% of maxWidth, clamped.
- *  - Universal Fitting Rule: screen-relative sizing via % of maxWidth; only
- *    UI-element sizes (icon, text, gap, elevation) use hardcoded dp.
  */
 @Composable
 fun LuteaTabCapsule(
@@ -99,9 +97,13 @@ fun LuteaTabCapsule(
         }
     }
 
+    // Swipe state — ported from Coral's TabCapsule.
+    var slideDirection by remember { mutableIntStateOf(1) }   // 1 = forward (left swipe), -1 = back
+    var dragAccumulator by remember { mutableFloatStateOf(0f) }
+    val dragThreshold = 60f
+
     // Palette
-    val activeContentColor = Color.White
-    val inactiveContentColor = Color(0xFF1C1C1E)
+    val contentColor = Color(0xFF1C1C1E)   // dark icon+label on the white frosted surface
     // Frosted white gradient overlay — alpha varies top→bottom for the gradient.
     val frostWhiteTop = 0.55f
     val frostWhiteBottom = 0.38f
@@ -113,29 +115,6 @@ fun LuteaTabCapsule(
         val outerWidth: Dp = (maxWidth * 0.7f).coerceIn(250.dp, 420.dp)
         val outerHeight: Dp = 51.dp
         val outerShape: Shape = RoundedCornerShape(outerHeight / 2)
-
-        // Sliding black pill — sits directly inside the outer capsule (no inner layer).
-        val tabSlotWidth: Dp = outerWidth / tabs.size
-        val pillInsetH: Dp = 2.dp
-        val pillHeight: Dp = 40.dp
-        val pillWidth: Dp = tabSlotWidth - (pillInsetH * 2)
-        val pillShape: Shape = RoundedCornerShape(pillHeight / 2)
-
-        // ★ Spring-animated sliding indicator — glides between slots.
-        val pillPosition = remember { Animatable(activeIndex.toFloat()) }
-        LaunchedEffect(activeIndex) {
-            pillPosition.animateTo(
-                targetValue = activeIndex.toFloat(),
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            )
-        }
-        // NOTE: Dp must be LEFT operand — `Float * Dp` resolves to a top-level
-        // extension in androidx.compose.ui.unit that isn't auto-imported;
-        // `Dp * Float` is a member operator and always resolves.
-        val pillOffsetX: Dp = tabSlotWidth * pillPosition.value + pillInsetH
 
         // OUTER capsule surface — blurs the background + white gradient overlay.
         val outerModifier = if (backdrop != null) {
@@ -175,92 +154,74 @@ fun LuteaTabCapsule(
                 .width(outerWidth)
                 .height(outerHeight)
                 .then(outerModifier)
+                // ★ Swipe to change tabs (Coral pattern). Wraps around.
+                .pointerInput(tabs, activeTab) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            dragAccumulator = 0f
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            dragAccumulator += dragAmount
+                            if (dragAccumulator < -dragThreshold) {
+                                // Swiped left → next tab
+                                slideDirection = 1
+                                val nextIndex = (activeIndex + 1) % tabs.size
+                                onTabSelected(tabs[nextIndex])
+                                doTick()
+                                dragAccumulator = 0f
+                            } else if (dragAccumulator > dragThreshold) {
+                                // Swiped right → previous tab (wrap to last)
+                                slideDirection = -1
+                                val prevIndex = if (activeIndex - 1 < 0) tabs.size - 1 else activeIndex - 1
+                                onTabSelected(tabs[prevIndex])
+                                doTick()
+                                dragAccumulator = 0f
+                            }
+                        }
+                    )
+                }
         ) {
-            // Black active pill (slides inside the outer capsule)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .offset(x = pillOffsetX)
-                    .width(pillWidth)
-                    .height(pillHeight)
-                    .shadow(elevation = 2.dp, shape = pillShape, clip = true)
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color(0xFF333333),  // top: subtle dark-gray sheen (premium highlight)
-                                0.5f to Color(0xFF0A0A0A),  // center: near-pure black
-                                1.0f to Color(0xFF1F1F1F)   // bottom: subtle reflection
-                            )
-                        )
-                    )
-            )
-
-            // Tabs row — on top of everything
-            Row(
+            // ★ Only the active tab is shown at a time — icon + label, centered.
+            //    Slides in the swipe direction on tab change (Coral's AnimatedContent pattern).
+            AnimatedContent(
+                targetState = activeTab,
+                transitionSpec = {
+                    if (slideDirection == 1) {
+                        slideInHorizontally(animationSpec = tween(250)) { fullWidth -> fullWidth } togetherWith
+                            slideOutHorizontally(animationSpec = tween(250)) { fullWidth -> -fullWidth }
+                    } else {
+                        slideInHorizontally(animationSpec = tween(250)) { fullWidth -> -fullWidth } togetherWith
+                            slideOutHorizontally(animationSpec = tween(250)) { fullWidth -> fullWidth }
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                tabs.forEachIndexed { index, tab ->
-                    val isActive = index == activeIndex
-
-                    val iconScale by animateFloatAsState(
-                        targetValue = if (isActive) 1.1f else 1f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        ),
-                        label = "iconScale"
+                contentAlignment = Alignment.Center,
+                label = "tabContent"
+            ) { tab ->
+                val icon = when (tab) {
+                    LuteaTab.Home -> LuteaIcons.Home
+                    LuteaTab.Search -> LuteaIcons.Search
+                    LuteaTab.Library -> LuteaIcons.Library
+                }
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = tab.label,
+                        tint = contentColor,
+                        modifier = Modifier.size(22.dp)
                     )
-                    // Single color state drives both icon tint and label color
-                    // so they always stay in sync as the pill slides under them.
-                    val contentColor by animateColorAsState(
-                        targetValue = if (isActive) activeContentColor else inactiveContentColor,
-                        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-                        label = "contentColor"
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = tab.label,
+                        color = contentColor,
+                        fontSize = 16.sp,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
                     )
-
-                    val icon = when (tab) {
-                        LuteaTab.Home -> LuteaIcons.Home
-                        LuteaTab.Search -> LuteaIcons.Search
-                        LuteaTab.Library -> LuteaIcons.Library
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = {
-                                    if (!isActive) {
-                                        onTabSelected(tab)
-                                        doTick()
-                                    }
-                                }
-                            ),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = tab.label,
-                            tint = contentColor,
-                            modifier = Modifier
-                                .size(22.dp)
-                                .graphicsLayer(scaleX = iconScale, scaleY = iconScale)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = tab.label,
-                            color = contentColor,
-                            fontSize = 14.sp,
-                            fontFamily = CalSansFamily,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1
-                        )
-                    }
                 }
             }
         }
