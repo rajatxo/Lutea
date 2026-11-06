@@ -271,30 +271,36 @@ fun LuteaScaffold(
                             .size(8.dp)
                             .border(1.5.dp, Color.White.copy(alpha = 1f - progress), CircleShape)
                     )
-                    // Icon + text (open state) — Row with wrapContentSize so text
-                    // isn't constrained. Fades in as a unit via graphicsLayer alpha.
-                    Row(
+                    // Icon + text — wrapped in a size(0.dp) Box so it takes ZERO
+                    // layout space (doesn't expand the outer menu Box → doesn't shift
+                    // the menu icon). The Row inside uses wrapContentSize(unbounded)
+                    // to measure at full size, overflowing the 0dp Box (no clip).
+                    Box(
                         modifier = Modifier
-                            .wrapContentSize(align = Alignment.TopStart, unbounded = true)
+                            .size(0.dp)
                             .offset(x = offsetX - 10.dp, y = offsetY - 10.dp)
-                            .graphicsLayer { alpha = progress },
-                        verticalAlignment = Alignment.CenterVertically
+                            .graphicsLayer { alpha = progress }
                     ) {
-                        Icon(
-                            painter = painterResource(iconDrawables[i]),
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = labels[i],
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontFamily = CalSansFamily,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                        )
+                        Row(
+                            modifier = Modifier.wrapContentSize(align = Alignment.TopStart, unbounded = true),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(iconDrawables[i]),
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = labels[i],
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontFamily = CalSansFamily,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }
