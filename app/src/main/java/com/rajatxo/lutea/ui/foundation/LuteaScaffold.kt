@@ -240,10 +240,10 @@ fun LuteaScaffold(
                 // crossfade from hollow circle → black glossy pill with text.
                 val circleData = remember {
                     listOf(
-                        CircleAnim(9.dp, 9.dp, (-280).dp, 0.dp),
-                        CircleAnim(24.dp, 9.dp, (-124).dp, 0.dp),
-                        CircleAnim(9.dp, 24.dp, (-280).dp, 50.dp),
-                        CircleAnim(24.dp, 24.dp, (-124).dp, 50.dp),
+                        CircleAnim(9.dp, 9.dp, (-255).dp, 0.dp),
+                        CircleAnim(24.dp, 9.dp, (-100).dp, 0.dp),
+                        CircleAnim(9.dp, 24.dp, (-255).dp, 56.dp),
+                        CircleAnim(24.dp, 24.dp, (-100).dp, 56.dp),
                     )
                 }
                 val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
