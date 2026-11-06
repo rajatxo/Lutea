@@ -143,8 +143,11 @@ fun LuteaTabCapsule(
                 )
             )
         }
-        // pillOffset = animated slot index × slot width + inset (draw-phase via offset)
-        val pillOffsetX: Dp = pillPosition.value * tabSlotWidth + pillInset
+        // pillOffset = animated slot index × slot width + inset (draw-phase via offset).
+        // NOTE: Dp must be the LEFT operand — `Float * Dp` resolves to a top-level
+        // extension in androidx.compose.ui.unit that isn't auto-imported, whereas
+        // `Dp * Float` is a member operator on Dp and always resolves.
+        val pillOffsetX: Dp = tabSlotWidth * pillPosition.value + pillInset
 
         // Glass capsule surface
         val glassModifier = if (backdrop != null) {
