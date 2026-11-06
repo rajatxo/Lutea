@@ -144,6 +144,7 @@ fun QuickPicksScreen(
         onSettingsClick = { showSettings = true },
         onNewPlaylistClick = { showCreateDialog = true },
         onPlaylistStyleClick = { showStylePicker = true },
+        onSearchClick = { showCreateDialog = true },
     ) {
         when (activeTab) {
             LuteaTab.Home -> QuickPicksContent()
