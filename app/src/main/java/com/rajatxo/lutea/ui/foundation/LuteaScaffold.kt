@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -122,6 +123,8 @@ fun LuteaScaffold(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
+            var menuOpen by remember { mutableStateOf(false) }
+
             // Content — fills the WHOLE screen
             Box(
                 modifier = Modifier
@@ -131,11 +134,41 @@ fun LuteaScaffold(
                 content()
             }
 
+            // ★ Blur overlay — fades in when the menu opens (animated blur radius +
+            // a top→bottom gradient tint), fades out slowly on close. Samples the
+            // content via the glassBackdrop (kyant). Studied Mochy's ProgressiveBlur;
+            // this is a lighter uniform-blur + gradient-tint version.
+            val blurProgress by animateFloatAsState(
+                targetValue = if (menuOpen) 1f else 0f,
+                animationSpec = tween(durationMillis = if (menuOpen) 400 else 700),
+                label = "menuBlur"
+            )
+            if (blurProgress > 0.01f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawBackdrop(
+                            backdrop = glassBackdrop,
+                            shape = { RectangleShape },
+                            effects = { blur(24.dp.toPx() * blurProgress) },
+                            onDrawSurface = {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Black.copy(alpha = 0.35f * blurProgress),
+                                            Color.Transparent,
+                                        )
+                                    )
+                                )
+                            }
+                        )
+                )
+            }
+
             // ★ Menu button (top-right) — 4 manually-drawn circles in a 2×2 grid.
             //    Click → circles animate apart (to the upper area) + an X icon
             //    fades in at the menu spot. Click again → X fades out + circles
             //    spring back to the grid. Same 40dp spot, same position as before.
-            var menuOpen by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -193,9 +226,8 @@ fun LuteaScaffold(
                     Box(
                         modifier = Modifier
                             .offset(x = offsetX, y = offsetY)
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(Color.White)
+                            .size(8.dp)
+                            .border(1.5.dp, Color.White, CircleShape)
                     )
                 }
             }

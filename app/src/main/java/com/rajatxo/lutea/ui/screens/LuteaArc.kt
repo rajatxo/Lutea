@@ -845,8 +845,8 @@ fun LuteaArc(
                 val trackCorner = 3.dp
                 val trackPaddingEnd = maxWidth * 0.08f
                 // ★ Thumb — 3D button: layered shadows + gradient + inner highlight
-                val thumbWidth = 20.dp
-                val thumbHeight = 60.dp
+                val thumbWidth = 32.dp
+                val thumbHeight = 32.dp
                 val thumbCorner = 10.dp
                 // ★ 3D gradient: bright top edge → mid dark → darker bottom (creates dome illusion)
                 val thumbGradient = Brush.verticalGradient(
@@ -936,50 +936,25 @@ fun LuteaArc(
                             }
                         }
                 ) {
-                    // Visible track — grey→white gradient + INNER shadow on all
-                    // borders (fades into the gradient). No outer shadow.
+                    // Visible track (narrow, centered in hit area)
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .width(trackWidth)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(trackCorner))
-                            .drawBehind {
-                                // Grey-white gradient + left/right inner shadow (horizontal)
-                                drawRect(
-                                    brush = Brush.horizontalGradient(
-                                        colorStops = arrayOf(
-                                            0.0f to Color.Black.copy(alpha = 0.5f),
-                                            0.18f to Color(0xFF8A8A8A),
-                                            0.5f to Color.White,
-                                            0.82f to Color(0xFF8A8A8A),
-                                            1.0f to Color.Black.copy(alpha = 0.5f)
-                                        )
-                                    )
-                                )
-                                // Top/bottom inner shadow (vertical, fades inward)
-                                drawRect(
-                                    brush = Brush.verticalGradient(
-                                        colorStops = arrayOf(
-                                            0.0f to Color.Black.copy(alpha = 0.5f),
-                                            0.06f to Color.Transparent,
-                                            0.94f to Color.Transparent,
-                                            1.0f to Color.Black.copy(alpha = 0.5f)
-                                        )
-                                    )
-                                )
-                            }
+                            .background(trackColor)
                     )
 
-                    // ★ Thumb (shower) — pure black, no outer shadow.
-                    Box(
+                    // ★ Thumb (shower) — the target/ring icon, no shadow.
+                    Icon(
+                        painter = painterResource(R.drawable.ic_thumb_target),
+                        contentDescription = null,
+                        tint = Color.White,
                         modifier = Modifier
                             .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
                             .align(Alignment.TopCenter)
-                            .width(thumbWidth)
-                            .height(thumbHeight)
-                            .clip(RoundedCornerShape(thumbCorner))
-                            .background(Color.Black)
+                            .size(thumbWidth)
                     )
                 }
 
