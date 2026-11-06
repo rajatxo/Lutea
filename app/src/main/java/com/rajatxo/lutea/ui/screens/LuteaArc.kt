@@ -1171,35 +1171,116 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ "Search your playlist" — the text itself IS the search capsule
-        //    (sparkle-search icon + label in a content-sized pill). Right side
-        //    stays free for later work where the menu button used to be.
+        // ★ Title "Rotate the Playlist wheel" (two-tone, big) + view toggle.
+        //    Toggle = black capsule (nav-bar premium gradient) with a glossy
+        //    inner pill behind the selected button (Playlist / Tag).
         // ──────────────────────────────────────────────────────────────
+        var selectedView by remember { mutableStateOf(0) }  // 0 = playlist, 1 = tag
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 24.dp, top = 16.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color.White.copy(alpha = 0.12f))
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(start = 24.dp, top = 16.dp, end = 24.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.Top
         ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_search_sparkle),
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "Search your playlist",
-                color = Color.White,
-                fontSize = titleFontSize.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Rotate the",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = titleFontSize.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                Text(
+                    text = "Playlist wheel",
+                    color = Color.White,
+                    fontSize = titleFontSize.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+
+            // View toggle — black capsule (nav style) + glossy selected pill.
+            Row(
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color(0xFF333333),
+                                0.5f to Color(0xFF0F0F0F),
+                                1.0f to Color(0xFF1F1F1F)
+                            )
+                        )
+                    )
+                    .padding(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Playlist button (list icon)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .then(
+                            if (selectedView == 0) Modifier.background(
+                                brush = Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to Color(0xFFFFFFFF),
+                                        0.5f to Color(0xFFE8E8E8),
+                                        1.0f to Color(0xFFD0D0D0)
+                                    )
+                                )
+                            ) else Modifier
+                        )
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { selectedView = 0 }
+                        )
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = LuteaIcons.ListIcon,
+                        contentDescription = "Playlist view",
+                        tint = if (selectedView == 0) Color(0xFF1C1C1E) else Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                // Tag button (square icon)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .then(
+                            if (selectedView == 1) Modifier.background(
+                                brush = Brush.verticalGradient(
+                                    colorStops = arrayOf(
+                                        0.0f to Color(0xFFFFFFFF),
+                                        0.5f to Color(0xFFE8E8E8),
+                                        1.0f to Color(0xFFD0D0D0)
+                                    )
+                                )
+                            ) else Modifier
+                        )
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { selectedView = 1 }
+                        )
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = LuteaIcons.Square,
+                        contentDescription = "Tag view",
+                        tint = if (selectedView == 1) Color(0xFF1C1C1E) else Color.White.copy(alpha = 0.5f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }

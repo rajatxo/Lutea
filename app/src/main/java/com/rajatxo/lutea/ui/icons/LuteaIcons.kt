@@ -264,4 +264,35 @@ object LuteaIcons {
         lineTo(160f, 880f)
         close()
     }
+
+    /** Lucide list icon (MIT) — bulleted list, for the playlist-view toggle. */
+    val ListIcon: ImageVector = stroke("ListIcon") {
+        // Three horizontal lines
+        moveTo(8f, 6f)
+        lineTo(21f, 6f)
+        moveTo(8f, 12f)
+        lineTo(21f, 12f)
+        moveTo(8f, 18f)
+        lineTo(21f, 18f)
+        // Three dots (round-capped micro-lines render as dots)
+        moveTo(3f, 6f)
+        lineTo(3.01f, 6f)
+        moveTo(3f, 12f)
+        lineTo(3.01f, 12f)
+        moveTo(3f, 18f)
+        lineTo(3.01f, 18f)
+    }
+
+    /** Lucide square icon (MIT) — rounded square outline, for the tag-view toggle. */
+    val Square: ImageVector = stroke("Square") {
+        moveTo(3f, 5f)
+        arcTo(2f, 2f, 0f, false, true, 5f, 3f)
+        horizontalLineTo(19f)
+        arcTo(2f, 2f, 0f, false, true, 21f, 5f)
+        verticalLineTo(19f)
+        arcTo(2f, 2f, 0f, false, true, 19f, 21f)
+        horizontalLineTo(5f)
+        arcTo(2f, 2f, 0f, false, true, 3f, 19f)
+        close()
+    }
 }
