@@ -482,8 +482,8 @@ private fun PlaylistsContent(
             modifier = Modifier.fillMaxSize(),
             onOpenPlaylist = onOpenPlaylist,
             titleFontSize = when (playlistStyle) {
-                PlaylistStyle.WHEEL_ADVANCED -> 34
-                PlaylistStyle.WHEEL_SIMPLER -> 28
+                PlaylistStyle.WHEEL_ADVANCED -> 37
+                PlaylistStyle.WHEEL_SIMPLER -> 37
             },
             playlistStyle = playlistStyle,
         )

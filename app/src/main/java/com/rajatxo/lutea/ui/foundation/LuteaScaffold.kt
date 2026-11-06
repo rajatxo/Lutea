@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -28,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.BlurEffect
@@ -39,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,6 +55,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.vibrancy
+import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.icons.LuteaIcons
 import com.rajatxo.lutea.ui.util.LuteaTab
@@ -119,14 +126,16 @@ fun LuteaScaffold(
             // ★ Menu button removed for now — will come back as a long-press on
             //    the nav bar (New Playlist / Playlist Style / Settings).
 
-            // Bottom: TabCapsule ONLY — search FAB removed per user request.
-            // Capsule self-sizes responsively (55% of maxWidth, clamped) per Law 7.
-            Box(
+            // Bottom: nav capsule + (Library only) a same-blur circle with the
+            // sparkle-search icon beside it. Combined unit, centered. Per Law 7
+            // the capsule self-sizes to 53% of maxWidth; the circle matches the
+            // capsule height (51dp) with the same frosted blur.
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
                     .padding(bottom = effBottomDp),
-                contentAlignment = Alignment.Center
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 LuteaTabCapsule(
                     tabs = LuteaTab.entries.toList(),
@@ -134,6 +143,41 @@ fun LuteaScaffold(
                     onTabSelected = onTabSelected,
                     backdrop = glassBackdrop,
                 )
+                if (activeTab == LuteaTab.Library) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(51.dp)
+                            .shadow(elevation = 3.dp, shape = CircleShape, clip = true)
+                            .drawBackdrop(
+                                backdrop = glassBackdrop, shape = { CircleShape },
+                                effects = { blur(12.dp.toPx()) },
+                                onDrawSurface = {
+                                    drawRect(
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.White.copy(alpha = 0.55f),
+                                                Color.White.copy(alpha = 0.38f)
+                                            )
+                                        )
+                                    )
+                                }
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onSearchClick
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_search_sparkle),
+                            contentDescription = "Search",
+                            tint = Color(0xFF1C1C1E),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
             }
         }
     }

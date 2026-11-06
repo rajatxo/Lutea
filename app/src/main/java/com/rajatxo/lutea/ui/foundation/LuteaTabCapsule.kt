@@ -55,7 +55,7 @@ import com.rajatxo.lutea.ui.util.LuteaTab
  *
  *   ONE OUTER capsule — blurs the background (kyant drawBackdrop) + a white
  *   gradient overlay (frosted white gradient: brighter at top, fading down).
- *   60% of screen width, subtle dark shadow.
+ *   53% of screen width, subtle dark shadow.
  *
  *   Inside: only the ACTIVE tab is shown at a time — icon + CalSans label,
  *   centered. Swipe left/right to change tabs; the content slides in the
@@ -65,7 +65,7 @@ import com.rajatxo.lutea.ui.util.LuteaTab
  * Pattern ported from Coral's TabCapsule.kt (swipe + AnimatedContent slide).
  *
  * Universal Layout Laws:
- *  - Law 7: BoxWithConstraints at root. Width = 60% of maxWidth, clamped.
+ *  - Law 7: BoxWithConstraints at root. Width = 53% of maxWidth, clamped.
  */
 @Composable
 fun LuteaTabCapsule(
@@ -110,9 +110,9 @@ fun LuteaTabCapsule(
     // Backdrop blur radius (Coral-matched 12dp).
     val blurDp = 12.dp
 
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        // ★ Law 7: 60% of available width, clamped for extreme aspect ratios.
-        val outerWidth: Dp = (maxWidth * 0.6f).coerceIn(220.dp, 380.dp)
+    BoxWithConstraints(modifier = modifier) {
+        // ★ Law 7: 53% of available width, clamped for extreme aspect ratios.
+        val outerWidth: Dp = (maxWidth * 0.53f).coerceIn(200.dp, 360.dp)
         val outerHeight: Dp = 51.dp
         val outerShape: Shape = RoundedCornerShape(outerHeight / 2)
 
