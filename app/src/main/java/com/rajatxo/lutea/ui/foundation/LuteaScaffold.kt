@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
@@ -232,16 +233,17 @@ fun LuteaScaffold(
                     )
                 }
 
-                // 4 icons — New Playlist (top-left), Order (top-right),
+                // 4 icons — 2×2 grid on the left side when open.
+                // New Playlist (top-left), Order (top-right),
                 // Favourites (bottom-left), Settings (bottom-right).
                 // At rest: hollow circles (2×2 grid). When open: crossfade
-                // from hollow circle → the specific icon as they fly out.
+                // from hollow circle → icon + text label.
                 val circleData = remember {
                     listOf(
-                        CircleAnim(9.dp, 9.dp, (-200).dp, 0.dp),
-                        CircleAnim(24.dp, 9.dp, (-200).dp, 44.dp),
-                        CircleAnim(9.dp, 24.dp, (-200).dp, 88.dp),
-                        CircleAnim(24.dp, 24.dp, (-200).dp, 132.dp),
+                        CircleAnim(9.dp, 9.dp, (-280).dp, 0.dp),
+                        CircleAnim(24.dp, 9.dp, (-124).dp, 0.dp),
+                        CircleAnim(9.dp, 24.dp, (-280).dp, 50.dp),
+                        CircleAnim(24.dp, 24.dp, (-124).dp, 50.dp),
                     )
                 }
                 val iconDrawables = listOf(
@@ -250,6 +252,7 @@ fun LuteaScaffold(
                     R.drawable.ic_menu_favourite,
                     R.drawable.ic_menu_settings,
                 )
+                val labels = listOf("New Playlist", "Order", "Favourites", "Settings")
                 circleData.forEachIndexed { i, c ->
                     val progress by animateFloatAsState(
                         targetValue = if (menuOpen) 1f else 0f,
@@ -268,15 +271,31 @@ fun LuteaScaffold(
                             .size(8.dp)
                             .border(1.5.dp, Color.White.copy(alpha = 1f - progress), CircleShape)
                     )
-                    // Icon (open state) — fades in as menu opens, centered on the circle
-                    Icon(
-                        painter = painterResource(iconDrawables[i]),
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = progress),
+                    // Icon + text (open state) — Row with wrapContentSize so text
+                    // isn't constrained. Fades in as a unit via graphicsLayer alpha.
+                    Row(
                         modifier = Modifier
-                            .offset(x = offsetX - 6.dp, y = offsetY - 6.dp)
-                            .size(20.dp)
-                    )
+                            .wrapContentSize(align = Alignment.TopStart, unbounded = true)
+                            .offset(x = offsetX - 10.dp, y = offsetY - 10.dp)
+                            .graphicsLayer { alpha = progress },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(iconDrawables[i]),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = labels[i],
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = CalSansFamily,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
 
