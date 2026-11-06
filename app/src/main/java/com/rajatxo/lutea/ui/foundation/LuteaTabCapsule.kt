@@ -103,8 +103,6 @@ fun LuteaTabCapsule(
     }
 
     // Palette
-    val activePillStart = Color(0xFF2C2C2C)
-    val activePillEnd = Color(0xFF181818)
     val activeContentColor = Color.White
     val inactiveContentColor = Color(0xFF1C1C1E)
     // Frosted-glass tints — white overlays on the blurred backdrop.
@@ -134,7 +132,7 @@ fun LuteaTabCapsule(
 
         // Sliding black pill — lives inside the inner capsule
         val tabSlotWidth: Dp = (outerWidth - (innerInset * 2)) / tabs.size
-        val pillInsetH: Dp = 4.dp
+        val pillInsetH: Dp = 2.dp   // tighter → pill a little longer
         val pillWidth: Dp = tabSlotWidth - (pillInsetH * 2)
         val pillShape: Shape = RoundedCornerShape(pillHeight / 2)
 
@@ -184,7 +182,7 @@ fun LuteaTabCapsule(
                 Modifier.drawBackdrop(
                     backdrop = backdrop, shape = { innerShape },
                     effects = {
-                        vibrancy()
+                        // No vibrancy here — keeps the inner matte (no glossy sheen).
                         blur(innerBlurDp.toPx())
                     },
                     onDrawSurface = { drawRect(Color.White.copy(alpha = innerFrostAlpha)) }
@@ -208,8 +206,12 @@ fun LuteaTabCapsule(
                         .height(pillHeight)
                         .shadow(elevation = 2.dp, shape = pillShape, clip = true)
                         .background(
-                            brush = Brush.linearGradient(
-                                colors = listOf(activePillStart, activePillEnd)
+                            brush = Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color(0xFF333333),  // top: subtle dark-gray sheen (premium highlight)
+                                    0.5f to Color(0xFF0A0A0A),  // center: near-pure black
+                                    1.0f to Color(0xFF1F1F1F)   // bottom: subtle reflection
+                                )
                             )
                         )
                 )
