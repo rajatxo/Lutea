@@ -845,8 +845,8 @@ fun LuteaArc(
                 val trackCorner = 3.dp
                 val trackPaddingEnd = maxWidth * 0.08f
                 // ★ Thumb — 3D button: layered shadows + gradient + inner highlight
-                val thumbWidth = 32.dp
-                val thumbHeight = 32.dp
+                val thumbWidth = 20.dp
+                val thumbHeight = 60.dp
                 val thumbCorner = 10.dp
                 // ★ 3D gradient: bright top edge → mid dark → darker bottom (creates dome illusion)
                 val thumbGradient = Brush.verticalGradient(
@@ -946,15 +946,67 @@ fun LuteaArc(
                             .background(trackColor)
                     )
 
-                    // ★ Thumb (shower) — the target/ring icon, no shadow.
-                    Icon(
-                        painter = painterResource(R.drawable.ic_thumb_target),
-                        contentDescription = null,
-                        tint = Color.White,
+                    // ★ Thumb — INSIDE track Box, constrained to track bounds.
+                    // Offset is from TOP of track. Clamped so it never leaves.
+                    // Layer 1: ★ GLOW — light emitting outward from the thumb on both sides.
+                    //    Uses a wider, blurred Box with a radial gradient that fades to transparent.
+                    //    Positioned behind the thumb, extends beyond the track width.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) - 8.dp)
+                            .width(thumbWidth + 24.dp)  // wider than thumb = light spreads outward
+                            .height(thumbHeight + 16.dp)  // taller = light spreads vertically too
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.15f),  // center glow
+                                        Color.White.copy(alpha = 0.05f),  // mid fade
+                                        Color.Transparent,                  // edges fade to nothing
+                                    )
+                                )
+                            )
+                            .graphicsLayer {
+                                // Soft blur on the glow for a diffused light effect
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                    this.renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                                        12f, 12f, android.graphics.Shader.TileMode.DECAL
+                                    ).asComposeRenderEffect()
+                                }
+                                this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                            }
+                    )
+                    // Layer 2: drop shadow
+                    Box(
+                        modifier = Modifier
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + 3.dp)
+                            .align(Alignment.TopCenter)
+                            .width(thumbWidth)
+                            .height(thumbHeight)
+                            .shadow(8.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbDropShadow, spotColor = thumbDropShadow)
+                            .clip(RoundedCornerShape(thumbCorner))
+                    )
+                    // Layer 2: button body
+                    Box(
                         modifier = Modifier
                             .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
                             .align(Alignment.TopCenter)
-                            .size(thumbWidth)
+                            .width(thumbWidth)
+                            .height(thumbHeight)
+                            .shadow(2.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbTopGlow, spotColor = thumbTopGlow)
+                            .clip(RoundedCornerShape(thumbCorner))
+                            .background(thumbGradient)
+                            .border(thumbBorderWidth, thumbBorderTop, RoundedCornerShape(thumbCorner))
+                    )
+                    // Layer 3: center highlight line (was at top — moved to CENTER of thumb)
+                    Box(
+                        modifier = Modifier
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + (thumbHeight / 2) - 1.dp)
+                            .align(Alignment.TopCenter)
+                            .width(thumbWidth)
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(Color.White.copy(alpha = 0.3f))
                     )
                 }
 

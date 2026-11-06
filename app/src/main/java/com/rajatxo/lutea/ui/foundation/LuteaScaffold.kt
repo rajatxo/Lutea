@@ -147,18 +147,27 @@ fun LuteaScaffold(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                         .drawBackdrop(
                             backdrop = glassBackdrop,
                             shape = { RectangleShape },
                             effects = { blur(24.dp.toPx() * blurProgress) },
                             onDrawSurface = {
+                                // Punch out the blur below ~45% so it fades COMPLETELY
+                                // before the screen's horizontal center — the original
+                                // (unblurred) content shows through below the fade.
+                                // DstOut: keep blur where gradient is transparent (top),
+                                // remove it where gradient is opaque (below 45%).
                                 drawRect(
                                     brush = Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Black.copy(alpha = 0.35f * blurProgress),
-                                            Color.Transparent,
+                                        colorStops = arrayOf(
+                                            0.0f to Color.Transparent,
+                                            0.35f to Color.Transparent,
+                                            0.45f to Color.White,
+                                            1.0f to Color.White
                                         )
-                                    )
+                                    ),
+                                    blendMode = BlendMode.DstOut
                                 )
                             }
                         )
