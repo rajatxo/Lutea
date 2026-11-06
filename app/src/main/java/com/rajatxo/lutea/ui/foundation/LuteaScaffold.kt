@@ -310,7 +310,8 @@ fun LuteaScaffold(
                             onClick = { menuOpen = !menuOpen }
                         ),
                     contentAlignment = Alignment.Center
-                )
+                ) {
+                }
                 // Hollow circles (rest state) — 4 small circles in 2×2 grid
                 val circleData = remember {
                     listOf(
