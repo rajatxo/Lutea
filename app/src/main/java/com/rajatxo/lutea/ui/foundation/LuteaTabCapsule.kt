@@ -111,9 +111,17 @@ fun LuteaTabCapsule(
     val blurDp = 12.dp
 
     BoxWithConstraints(modifier = modifier) {
-        // ★ Law 7: 53% of available width, clamped for extreme aspect ratios.
-        val outerWidth: Dp = (maxWidth * 0.53f).coerceIn(200.dp, 360.dp)
         val outerHeight: Dp = 51.dp
+        // ★ Law 7: 53% of available width, clamped. On the Library tab the
+        //    sparkle-search circle (= outerHeight) + 8dp gap sits beside the
+        //    capsule in the scaffold — shrink the capsule so the combined
+        //    [capsule + gap + circle] width equals the full 53% (same width
+        //    as the capsule on the other tabs).
+        val outerWidth: Dp = if (activeTab == LuteaTab.Library) {
+            ((maxWidth * 0.53f) - outerHeight - 8.dp).coerceIn(140.dp, 300.dp)
+        } else {
+            (maxWidth * 0.53f).coerceIn(200.dp, 360.dp)
+        }
         val outerShape: Shape = RoundedCornerShape(outerHeight / 2)
 
         // OUTER capsule surface — blurs the background + white gradient overlay.
