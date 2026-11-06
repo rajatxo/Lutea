@@ -120,11 +120,12 @@ fun LuteaTabCapsule(
     }
 
     Box(modifier = glassModifier) {
-        // Active tab highlight (animated pill that slides)
+        // Active tab highlight (dark pill behind active icon)
+        val tabSlotWidth = actualWidth / tabs.size
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = 4.dp + (activeIndex * (actualWidth / tabs.size)).toDpApprox())
+                .padding(start = 4.dp + (tabSlotWidth * activeIndex))
                 .width(activePillWidth)
                 .height(actualHeight - 8.dp)
                 .clip(activePillShape)
@@ -173,6 +174,3 @@ fun LuteaTabCapsule(
         }
     }
 }
-
-// Helper: approximate Dp from Float (for active pill positioning)
-private fun Float.toDpApprox(): Dp = (this / 3f).dp
