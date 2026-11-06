@@ -64,6 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -1169,15 +1170,27 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ Title: "Search your playlist" (one line, smaller) + thin search capsule below.
+        // ★ "Search your playlist" — the text itself IS the search capsule
+        //    (sparkle-search icon + label in a content-sized pill). Right side
+        //    stays free for later work where the menu button used to be.
         // ──────────────────────────────────────────────────────────────
-        var searchQuery by remember { mutableStateOf("") }
-        Column(
+        Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 24.dp, top = 16.dp, end = 24.dp)
+                .padding(start = 24.dp, top = 16.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.White.copy(alpha = 0.12f))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_search_sparkle),
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(8.dp))
             Text(
                 text = "Search your playlist",
                 color = Color.White,
@@ -1185,38 +1198,6 @@ fun LuteaArc(
                 fontFamily = CalSansFamily,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search playlist name", color = Color.White.copy(alpha = 0.4f)) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = LuteaIcons.Search,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.6f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedContainerColor = Color.White.copy(alpha = 0.08f),
-                    unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    cursorColor = Color.White,
-                    focusedLeadingIconColor = Color.White.copy(alpha = 0.6f),
-                    unfocusedLeadingIconColor = Color.White.copy(alpha = 0.6f),
-                    focusedPlaceholderColor = Color.White.copy(alpha = 0.4f),
-                    unfocusedPlaceholderColor = Color.White.copy(alpha = 0.4f),
-                ),
             )
         }
     }
