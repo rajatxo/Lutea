@@ -3,7 +3,9 @@ package com.rajatxo.lutea.ui.foundation
 import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,6 +54,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -127,110 +131,72 @@ fun LuteaScaffold(
                 content()
             }
 
-            // ★ Menu button (top-right) — GridCircles, opens a dropdown.
-            var showMenu by remember { mutableStateOf(false) }
+            // ★ Menu button (top-right) — 4 manually-drawn circles in a 2×2 grid.
+            //    Click → circles animate apart (to the upper area) + an X icon
+            //    fades in at the menu spot. Click again → X fades out + circles
+            //    spring back to the grid. Same 40dp spot, same position as before.
+            var menuOpen by remember { mutableStateOf(false) }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
                     .padding(end = maxWidth * 0.08f, top = 8.dp)
             ) {
+                // Click target (40dp) + X icon (fades in when open, out when closed)
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = { showMenu = !showMenu }
+                            onClick = { menuOpen = !menuOpen }
                         ),
                     contentAlignment = Alignment.Center
                 ) {
+                    val xAlpha by animateFloatAsState(
+                        targetValue = if (menuOpen) 1f else 0f,
+                        animationSpec = tween(300),
+                        label = "xAlpha"
+                    )
                     Icon(
-                        imageVector = LuteaIcons.GridCircles,
-                        contentDescription = "Menu",
+                        painter = painterResource(R.drawable.ic_close_circle),
+                        contentDescription = "Close",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier
+                            .size(24.dp)
+                            .graphicsLayer(alpha = xAlpha)
                     )
                 }
-                if (showMenu) {
+
+                // 4 circles — individually animated. At rest: 2×2 grid (looks like
+                // the GridCircles icon). Open: each springs to a target in the
+                // upper area. Targets are placeholders for now (you'll place them).
+                val circleData = remember {
+                    listOf(
+                        CircleAnim(9.dp, 9.dp, (-250).dp, 20.dp),
+                        CircleAnim(24.dp, 9.dp, (-170).dp, 0.dp),
+                        CircleAnim(9.dp, 24.dp, (-250).dp, 60.dp),
+                        CircleAnim(24.dp, 24.dp, (-170).dp, 40.dp),
+                    )
+                }
+                circleData.forEachIndexed { i, c ->
+                    val progress by animateFloatAsState(
+                        targetValue = if (menuOpen) 1f else 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "circle$i"
+                    )
+                    val offsetX = c.restX + (c.targetX - c.restX) * progress
+                    val offsetY = c.restY + (c.targetY - c.restY) * progress
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { showMenu = false },
-                            )
+                            .offset(x = offsetX, y = offsetY)
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
                     )
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 44.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF1A1A1A).copy(alpha = 0.95f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {
-                                        showMenu = false
-                                        onNewPlaylistClick()
-                                    },
-                                )
-                                .padding(horizontal = 20.dp, vertical = 14.dp),
-                        ) {
-                            Text(
-                                text = "New Playlist",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = CalSansFamily,
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {
-                                        showMenu = false
-                                        onPlaylistStyleClick()
-                                    },
-                                )
-                                .padding(horizontal = 20.dp, vertical = 14.dp),
-                        ) {
-                            Text(
-                                text = "Playlist Style",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = CalSansFamily,
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = {
-                                        showMenu = false
-                                        onSettingsClick()
-                                    },
-                                )
-                                .padding(horizontal = 20.dp, vertical = 14.dp),
-                        ) {
-                            Text(
-                                text = "Settings",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = CalSansFamily,
-                            )
-                        }
-                    }
                 }
             }
 
@@ -304,3 +270,5 @@ fun LuteaScaffold(
         }
     }
 }
+
+private data class CircleAnim(val restX: Dp, val restY: Dp, val targetX: Dp, val targetY: Dp)
