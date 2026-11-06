@@ -139,10 +139,8 @@ fun LuteaScaffold(
                 content()
             }
 
-            // ★ Blur overlay — fades in when the menu opens (animated blur radius +
-            // a top→bottom gradient tint), fades out slowly on close. Samples the
-            // content via the glassBackdrop (kyant). Studied Mochy's ProgressiveBlur;
-            // this is a lighter uniform-blur + gradient-tint version.
+            // ★ Blur overlay — fades in when the menu opens. Uniform blur via
+            // kyant drawBackdrop, fading to clear before the centerline.
             val blurProgress by animateFloatAsState(
                 targetValue = if (menuOpen) 1f else 0f,
                 animationSpec = tween(durationMillis = if (menuOpen) 400 else 700),
@@ -158,11 +156,6 @@ fun LuteaScaffold(
                             shape = { RectangleShape },
                             effects = { blur(20.dp.toPx() * blurProgress) },
                             onDrawSurface = {
-                                // Punch out the blur below ~45% so it fades COMPLETELY
-                                // before the screen's horizontal center — the original
-                                // (unblurred) content shows through below the fade.
-                                // DstOut: keep blur where gradient is transparent (top),
-                                // remove it where gradient is opaque (below 45%).
                                 drawRect(
                                     brush = Brush.verticalGradient(
                                         colorStops = arrayOf(
@@ -179,9 +172,7 @@ fun LuteaScaffold(
                 )
             }
 
-            // Black fade gradient at the very bottom — ALWAYS visible (permanent).
-            // Layer order: content → this gradient → menu/nav (on top of everything).
-            // Fades from transparent (above the nav bar) to black (very bottom).
+            // Black fade gradient at the very bottom — ALWAYS visible.
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -197,17 +188,68 @@ fun LuteaScaffold(
                     )
             )
 
-            // ★ Menu button (top-right) — 4 manually-drawn circles in a 2×2 grid.
-            //    Click → circles animate apart (to the upper area) + an X icon
-            //    fades in at the menu spot. Click again → X fades out + circles
-            //    spring back to the grid. Same 40dp spot, same position as before.
+            // ★ Brick box — whitish frosted glass, rounded square shape covering
+            // ~20% of screen height from the top (below status bar with a gap).
+            // Bottom edge fades into the blur. X icon inside (top-right corner).
+            // Shows when menu opens (fades/scales in with blurProgress).
+            if (blurProgress > 0.01f) {
+                val brickHeight = maxHeight * 0.20f
+                val brickShape = RoundedCornerShape(24.dp)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(top = effTopDp + 8.dp)
+                        .height(brickHeight)
+                        .graphicsLayer {
+                            alpha = blurProgress
+                            this.clip = true
+                            this.shape = brickShape
+                        }
+                        .drawBackdrop(
+                            backdrop = glassBackdrop,
+                            shape = { brickShape },
+                            effects = {
+                                vibrancy()
+                                blur(12.dp.toPx())
+                            },
+                            onDrawSurface = {
+                                drawRect(Color.White.copy(alpha = 0.12f))
+                            }
+                        )
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { menuOpen = false }
+                        )
+                ) {
+                    // X icon inside the brick, top-right corner
+                    Icon(
+                        painter = painterResource(R.drawable.ic_close_circle),
+                        contentDescription = "Close",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp)
+                            .size(28.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { menuOpen = false }
+                            )
+                    )
+                }
+            }
+
+            // ★ Menu button (top-right) — 40dp click target. Hollow circles at rest,
+            // X icon when open. Click toggles menuOpen.
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
                     .padding(end = maxWidth * 0.08f, top = 8.dp)
             ) {
-                // Click target (40dp) + X icon (fades in when open, out when closed)
                 Box(
                     modifier = Modifier
                         .size(40.dp)
