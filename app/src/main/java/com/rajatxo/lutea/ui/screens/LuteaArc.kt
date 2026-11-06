@@ -24,11 +24,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,6 +80,7 @@ import com.rajatxo.lutea.data.prefs.PlaylistStyle
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.icons.LuteaIcons
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
@@ -1165,27 +1169,54 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ Title: "Search your playlist"
+        // ★ Title: "Search your playlist" (one line, smaller) + thin search capsule below.
         // ──────────────────────────────────────────────────────────────
+        var searchQuery by remember { mutableStateOf("") }
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 24.dp, top = 16.dp, end = 80.dp)
+                .padding(start = 24.dp, top = 16.dp, end = 24.dp)
         ) {
             Text(
-                text = "Search your",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = titleFontSize.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = "playlist",
+                text = "Search your playlist",
                 color = Color.White,
                 fontSize = titleFontSize.sp,
                 fontFamily = CalSansFamily,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search playlist name", color = Color.White.copy(alpha = 0.4f)) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = LuteaIcons.Search,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.6f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedContainerColor = Color.White.copy(alpha = 0.08f),
+                    unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    cursorColor = Color.White,
+                    focusedLeadingIconColor = Color.White.copy(alpha = 0.6f),
+                    unfocusedLeadingIconColor = Color.White.copy(alpha = 0.6f),
+                    focusedPlaceholderColor = Color.White.copy(alpha = 0.4f),
+                    unfocusedPlaceholderColor = Color.White.copy(alpha = 0.4f),
+                ),
             )
         }
     }
