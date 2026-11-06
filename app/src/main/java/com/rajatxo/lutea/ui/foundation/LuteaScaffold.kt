@@ -188,14 +188,26 @@ fun LuteaScaffold(
                     )
             )
 
-            // ★ Brick box — whitish frosted glass, rounded square shape covering
-            // ~20% of screen height from the top. Bottom edge fades seamlessly
-            // into the blur below (no hard edge). The menu's X icon is reused
-            // INSIDE the brick (top-right) — clicking it closes the menu.
-            // The 4 pills are INSIDE the brick.
+            // ★ Brick box — whitish frosted glass, taller to fit 4 vertically
+            // stacked long pills. The bottom edge uses Coral's playlist cover
+            // blend technique (smoothstep scrim from PlaylistDetailScreen):
+            // a 32-stop vertical gradient with smoothstep easing (t*t*(3-2t))
+            // that fades the frost from solid → transparent over the bottom 45%
+            // of the brick. Because the easing starts flat and ends flat, the
+            // transition has no visible hard line — the brick dissolves into
+            // the blur below exactly like Coral's cover dissolves into the
+            // immersive background. The menu's X icon is reused INSIDE the
+            // brick (top-right) — clicking it closes the menu.
             if (blurProgress > 0.01f) {
-                val brickHeight = maxHeight * 0.20f
+                val brickHeight = maxHeight * 0.38f
                 val brickShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+                // Smoothstep scrim parameters — matches Coral's smoothScrimBrush.
+                // Above fadeStart: full frost. From fadeStart→fadeEnd: smoothstep
+                // ramp that ends with the frost color fully subtracted (transparent).
+                val fadeStart = 0.55f
+                val fadeEnd = 1.0f
+                val fadeSteps = 32
+                val frostColor = Color.White.copy(alpha = 0.12f)
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -217,17 +229,25 @@ fun LuteaScaffold(
                                 blur(12.dp.toPx())
                             },
                             onDrawSurface = {
-                                // Whitish frost + gradient at the bottom that fades
-                                // from the frost into transparent — so the bottom edge
-                                // blends into the blur below (no hard line).
-                                drawRect(Color.White.copy(alpha = 0.12f))
+                                // Whitish frost over the whole brick.
+                                drawRect(frostColor)
+                                // Smoothstep DstOut at the bottom — frost fades
+                                // to transparent following Coral's easing curve.
+                                // The destination's frost is progressively erased
+                                // by a source gradient ramping transparent → frost
+                                // color, so at fadeEnd the brick is fully clear.
                                 drawRect(
                                     brush = Brush.verticalGradient(
-                                        colorStops = arrayOf(
-                                            0.0f to Color.Transparent,
-                                            0.60f to Color.Transparent,
-                                            1.0f to Color.White.copy(alpha = 0.12f)
-                                        )
+                                        colorStops = Array(fadeSteps + 1) { i ->
+                                            val t = i / fadeSteps.toFloat()
+                                            val position = fadeStart + (fadeEnd - fadeStart) * t
+                                            val eased = t * t * (3f - 2f * t) // smoothstep
+                                            position to androidx.compose.ui.graphics.lerp(
+                                                Color.Transparent,
+                                                frostColor,
+                                                eased
+                                            )
+                                        }
                                     ),
                                     blendMode = BlendMode.DstOut
                                 )
@@ -256,7 +276,12 @@ fun LuteaScaffold(
                             )
                     )
 
-                    // 4 black glossy pills INSIDE the brick — 2×2 grid.
+                    // ★ 4 long glossy pills INSIDE the brick — stacked ONE AFTER
+                    // ANOTHER in a single vertical column. Each pill fills the
+                    // brick's inner width, so they read as long horizontal bars
+                    // running top-to-bottom: New Playlist → Select Tag →
+                    // Favourite → Settings. The brick grew taller (38% of screen)
+                    // to fit all four comfortably with the smoothstep fade below.
                     val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
                     val pillProgress by animateFloatAsState(
                         targetValue = if (menuOpen) 1f else 0f,
@@ -266,28 +291,17 @@ fun LuteaScaffold(
                         ),
                         label = "pills"
                     )
-                    Row(
+                    Column(
                         modifier = Modifier
                             .align(Alignment.Center)
+                            .fillMaxWidth()
+                            .padding(horizontal = 22.dp)
                             .graphicsLayer { alpha = pillProgress },
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Left column
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            MenuPill(labels[0])
-                            MenuPill(labels[2])
-                        }
-                        // Right column
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            MenuPill(labels[1])
-                            MenuPill(labels[3])
+                        labels.forEach { label ->
+                            MenuPill(label, modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
@@ -413,9 +427,12 @@ fun LuteaScaffold(
 private data class CircleAnim(val restX: Dp, val restY: Dp, val targetX: Dp, val targetY: Dp)
 
 @Composable
-private fun MenuPill(text: String) {
+private fun MenuPill(
+    text: String,
+    modifier: Modifier = Modifier
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(18.dp))
             .background(
                 brush = Brush.verticalGradient(
@@ -425,7 +442,7 @@ private fun MenuPill(text: String) {
                     )
                 )
             )
-            .padding(horizontal = 14.dp, vertical = 7.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
