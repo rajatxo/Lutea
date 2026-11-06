@@ -233,16 +233,16 @@ fun LuteaScaffold(
                 }
 
                 // 4 circles — individually animated. At rest: 2×2 grid (looks like
-                // the GridCircles icon). Open: each springs to a target in the
-                // upper area. Targets are placeholders for now (you'll place them).
-                val circleData = remember {
-                    listOf(
-                        CircleAnim(9.dp, 9.dp, (-200).dp, 0.dp),
-                        CircleAnim(24.dp, 9.dp, (-200).dp, 44.dp),
-                        CircleAnim(9.dp, 24.dp, (-200).dp, 88.dp),
-                        CircleAnim(24.dp, 24.dp, (-200).dp, 132.dp),
-                    )
-                }
+                // 4 icons — New Playlist (top-left), Order (top-right),
+                // Favourites (bottom-left), Settings (bottom-right).
+                // At rest: hollow circles (2×2 grid). When open: crossfade
+                // from hollow circle → the specific icon as they fly out.
+                val iconDrawables = listOf(
+                    R.drawable.ic_menu_new_playlist,
+                    R.drawable.ic_menu_order,
+                    R.drawable.ic_menu_favourite,
+                    R.drawable.ic_menu_settings,
+                )
                 circleData.forEachIndexed { i, c ->
                     val progress by animateFloatAsState(
                         targetValue = if (menuOpen) 1f else 0f,
@@ -254,12 +254,21 @@ fun LuteaScaffold(
                     )
                     val offsetX = c.restX + (c.targetX - c.restX) * progress
                     val offsetY = c.restY + (c.targetY - c.restY) * progress
+                    // Hollow circle (rest state) — fades out as menu opens
                     Box(
                         modifier = Modifier
                             .offset(x = offsetX, y = offsetY)
                             .size(8.dp)
-                            .background(Color.White.copy(alpha = progress), CircleShape)
-                            .border(1.5.dp, Color.White, CircleShape)
+                            .border(1.5.dp, Color.White.copy(alpha = 1f - progress), CircleShape)
+                    )
+                    // Icon (open state) — fades in as menu opens, centered on the circle
+                    Icon(
+                        painter = painterResource(iconDrawables[i]),
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = progress),
+                        modifier = Modifier
+                            .offset(x = offsetX - 6.dp, y = offsetY - 6.dp)
+                            .size(20.dp)
                     )
                 }
             }
