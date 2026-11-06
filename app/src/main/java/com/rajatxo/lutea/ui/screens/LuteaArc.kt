@@ -461,15 +461,23 @@ fun LuteaArc(
                     }
                 }
 
-                // ★ Simpler: BOTH arcs thick + bright.
-                //    Advanced: ONLY the inner (small) arc — no outer arc.
+                // ★ Advanced: main arc + smaller inner arc (creates visual difference from mockup).
+                //    Simpler: BOTH original arcs.
                 drawNeedleArc(
                     radius = innerRadius,
                     maxStrokePx = with(density) { 3.5.dp.toPx() },
                     minStrokePx = with(density) { 0.5.dp.toPx() },
                     maxAlpha = 0.8f
                 )
-                if (!isAdvanced) {
+                if (isAdvanced) {
+                    // ★ Inner smaller arc — at 60% of main arc radius, thinner + dimmer
+                    drawNeedleArc(
+                        radius = innerRadius * 0.60f,
+                        maxStrokePx = with(density) { 2.dp.toPx() },
+                        minStrokePx = with(density) { 0.3.dp.toPx() },
+                        maxAlpha = 0.4f
+                    )
+                } else {
                     drawNeedleArc(
                         radius = outerRadius,
                         maxStrokePx = with(density) { 3.5.dp.toPx() },
@@ -1164,30 +1172,8 @@ fun LuteaArc(
             }
         }
 
-        // ──────────────────────────────────────────────────────────────
-        // ★ Title: small "Rotate the wheel and" + big "Choose your playlist"
-        // ──────────────────────────────────────────────────────────────
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = 24.dp, top = 16.dp, end = 80.dp)
-        ) {
-            Text(
-                text = "Choose your",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = titleFontSize.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = "playlist",
-                color = Color.White,
-                fontSize = titleFontSize.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+        // ★ Title removed — differentiating from the mockup.
+        //    Will add a new unique heading later.
     }
 }
 
