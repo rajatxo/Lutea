@@ -17,7 +17,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +46,19 @@ import com.rajatxo.lutea.ui.components.CalSansFamily
 import kotlin.math.roundToLong
 
 /**
+ * Navigation callbacks for the FullPlayer. These are wired through a
+ * CompositionLocal so the [LuteaScaffold] (which constructs FullPlayer
+ * internally) doesn't need to know about them — QuickPicksScreen provides
+ * the real handlers around the scaffold, and they're read here.
+ */
+data class PlayerNavigation(
+    val onAlbumClick: () -> Unit = {},
+    val onArtistClick: () -> Unit = {},
+)
+
+val LocalPlayerNavigation = staticCompositionLocalOf { PlayerNavigation() }
+
+/**
  * FullPlayer — full-screen player that expands from the mini player.
  *
  * - Large album art (centered, square, rounded corners)
@@ -54,14 +74,22 @@ fun FullPlayer(
     visible: Boolean,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    onAlbumClick: () -> Unit = LocalPlayerNavigation.current.onAlbumClick,
+    onArtistClick: () -> Unit = LocalPlayerNavigation.current.onArtistClick,
 ) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = slideInVertically(animationSpec = tween(400, easing = FastOutSlowInEasing)) { it } + fadeIn(),
-        exit = slideOutVertically(animationSpec = tween(400, easing = FastOutSlowInEasing)) { it } + fadeOut(),
-        modifier = modifier,
+    // Provide the (possibly overridden) callbacks so FullPlayerContent and
+    // its children can read them without explicit threading.
+    CompositionLocalProvider(
+        LocalPlayerNavigation provides PlayerNavigation(onAlbumClick, onArtistClick)
     ) {
-        FullPlayerContent(onClose = onClose)
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(animationSpec = tween(400, easing = FastOutSlowInEasing)) { it } + fadeIn(),
+            exit = slideOutVertically(animationSpec = tween(400, easing = FastOutSlowInEasing)) { it } + fadeOut(),
+            modifier = modifier,
+        ) {
+            FullPlayerContent(onClose = onClose)
+        }
     }
 }
 
@@ -72,6 +100,7 @@ private fun FullPlayerContent(onClose: () -> Unit) {
     val positionMs by PlaybackConnection.positionMs.collectAsState()
     val durationMs by PlaybackConnection.durationMs.collectAsState()
     val density = LocalDensity.current
+    val nav = LocalPlayerNavigation.current
 
     // Poll position every 500ms while the player is visible
     LaunchedEffect(Unit) {
@@ -166,7 +195,7 @@ private fun FullPlayerContent(onClose: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // Title
+                // Title (tap → open album page for the current song's album)
                 Text(
                     text = currentSong?.title ?: "Nothing playing",
                     color = Color.White,
@@ -176,9 +205,18 @@ private fun FullPlayerContent(onClose: () -> Unit) {
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            enabled = currentSong != null,
+                            onClick = { nav.onAlbumClick() },
+                        )
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
                 Spacer(Modifier.height(6.dp))
-                // Artist
+                // Artist (tap → open artist page for the current song's artist)
                 Text(
                     text = currentSong?.artist ?: "",
                     color = Color.White.copy(alpha = 0.55f),
@@ -186,6 +224,15 @@ private fun FullPlayerContent(onClose: () -> Unit) {
                     fontFamily = CalSansFamily,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            enabled = currentSong != null,
+                            onClick = { nav.onArtistClick() },
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
 
                 Spacer(Modifier.height(20.dp))

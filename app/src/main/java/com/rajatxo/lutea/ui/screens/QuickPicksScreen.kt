@@ -23,10 +23,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,12 +49,15 @@ import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.domain.model.Song
 import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
+import com.rajatxo.lutea.ui.player.LocalPlayerNavigation
+import com.rajatxo.lutea.ui.player.PlayerNavigation
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.util.LuteaTab
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -69,10 +74,37 @@ fun QuickPicksScreen(
 ) {
     var activeTab by remember { mutableStateOf(LuteaTab.Library) }
     var selectedPlaylist by remember { mutableStateOf<com.rajatxo.lutea.data.model.Playlist?>(null) }
+    var selectedAlbum by remember { mutableStateOf<Pair<String, List<Song>>?>(null) }
+    var selectedArtist by remember { mutableStateOf<Pair<String, List<Song>>?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var showStylePicker by remember { mutableStateOf(false) }
     val playlistStyle by PlaylistStyleManager.state
+
+    // ── Album page (covers the whole screen) ──
+    selectedAlbum?.let { (albumName, songs) ->
+        AlbumScreen(
+            albumName = albumName,
+            songs = songs,
+            onBack = { selectedAlbum = null },
+        )
+        return
+    }
+
+    // ── Artist page (covers the whole screen) ──
+    selectedArtist?.let { (artistName, songs) ->
+        ArtistScreen(
+            artistName = artistName,
+            songs = songs,
+            onBack = { selectedArtist = null },
+            onAlbumClick = { name, albumSongs ->
+                // Pop the artist page and push the album page instead.
+                selectedArtist = null
+                selectedAlbum = name to albumSongs
+            },
+        )
+        return
+    }
 
     if (showSettings) {
         SettingsScreen(onBackClick = { showSettings = false })
@@ -155,26 +187,62 @@ fun QuickPicksScreen(
         )
     }
 
-    LuteaScaffold(
-        title = when (activeTab) {
-            LuteaTab.Home -> ""
-            LuteaTab.Search -> ""
-            LuteaTab.Library -> ""
-        },
-        activeTab = activeTab,
-        onTabSelected = { activeTab = it },
-        onSettingsClick = { showSettings = true },
-        onNewPlaylistClick = { showCreateDialog = true },
-        onPlaylistStyleClick = { showStylePicker = true },
-        onSearchClick = { showCreateDialog = true },
-    ) {
-        when (activeTab) {
-            LuteaTab.Home -> QuickPicksContent()
-            LuteaTab.Search -> SearchContent()
-            LuteaTab.Library -> PlaylistsContent(
-                onOpenPlaylist = { selectedPlaylist = it },
-                playlistStyle = playlistStyle,
-            )
+    // ── Player navigation: tapping the song title / artist in the
+    //    FullPlayer opens the album / artist page. The FullPlayer itself
+    //    is constructed inside LuteaScaffold, so we expose the callbacks
+    //    through a CompositionLocal rather than threading new params
+    //    through LuteaScaffold. The current song is read straight off
+    //    PlaybackConnection — scanning MusicStore is fast enough to do
+    //    inline on each tap.
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val playerNav = remember {
+        PlayerNavigation(
+            onAlbumClick = {
+                val current = PlaybackConnection.currentSong.value
+                if (current != null) {
+                    coroutineScope.launch {
+                        val all = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+                        val albumSongs = all.filter { it.album == current.album }
+                        selectedAlbum = current.album to albumSongs
+                    }
+                }
+            },
+            onArtistClick = {
+                val current = PlaybackConnection.currentSong.value
+                if (current != null) {
+                    coroutineScope.launch {
+                        val all = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+                        val artistSongs = all.filter { it.artist == current.artist }
+                        selectedArtist = current.artist to artistSongs
+                    }
+                }
+            },
+        )
+    }
+
+    CompositionLocalProvider(LocalPlayerNavigation provides playerNav) {
+        LuteaScaffold(
+            title = when (activeTab) {
+                LuteaTab.Home -> ""
+                LuteaTab.Search -> ""
+                LuteaTab.Library -> ""
+            },
+            activeTab = activeTab,
+            onTabSelected = { activeTab = it },
+            onSettingsClick = { showSettings = true },
+            onNewPlaylistClick = { showCreateDialog = true },
+            onPlaylistStyleClick = { showStylePicker = true },
+            onSearchClick = { showCreateDialog = true },
+        ) {
+            when (activeTab) {
+                LuteaTab.Home -> QuickPicksContent()
+                LuteaTab.Search -> SearchContent()
+                LuteaTab.Library -> PlaylistsContent(
+                    onOpenPlaylist = { selectedPlaylist = it },
+                    playlistStyle = playlistStyle,
+                )
+            }
         }
     }
 
