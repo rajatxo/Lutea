@@ -43,6 +43,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -220,12 +221,18 @@ fun LuteaArc(
 
     val centerIndex = remember(scrollOffset.value) { indexAtOffset(scrollOffset.value) }
 
-    // Persist the wheel position whenever it changes.
-    LaunchedEffect(centerIndex, scrollOffset.value) {
-        wheelPrefs.edit()
-            .putInt("wheel_center_index", centerIndex)
-            .putFloat("wheel_scroll_offset", scrollOffset.value)
-            .apply()
+    // Persist the wheel position — debounced: only save when centerIndex changes
+    // (NOT on every scrollOffset.value frame). This prevents 60fps SharedPreferences
+    // thrashing that causes first-drag lag.
+    var lastSavedCenter by remember { mutableIntStateOf(centerIndex) }
+    LaunchedEffect(centerIndex) {
+        if (centerIndex != lastSavedCenter) {
+            lastSavedCenter = centerIndex
+            wheelPrefs.edit()
+                .putInt("wheel_center_index", centerIndex)
+                .putFloat("wheel_scroll_offset", scrollOffset.value)
+                .apply()
+        }
     }
 
     // ── Create Playlist dialog ──

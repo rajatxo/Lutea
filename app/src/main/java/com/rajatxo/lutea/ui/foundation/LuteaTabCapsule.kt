@@ -156,26 +156,12 @@ fun LuteaTabCapsule(
         FluidOrder.filter { it in tabs } + tabs.filter { it !in FluidOrder }
     }
 
-    // Tick sound (optional, safe if it has not finished loading yet).
-    val soundPool = remember {
-        SoundPool.Builder()
-            .setMaxStreams(1)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
-            .build()
-    }
-    val tickId = remember(soundPool) { soundPool.load(context, R.raw.wheel_tick, 1) }
-    DisposableEffect(soundPool) { onDispose { soundPool.release() } }
-
-    // One place that handles a tab change (tap or swipe): haptic + tick + callback.
+    // ★ No sound effects — removed SoundPool. Medium vibration only on tab change.
     val select: (LuteaTab) -> Unit = { tab ->
         if (tab != activeTab) {
+            // Medium vibration — CLOCK_TICK is a subtle haptic, not as strong as
+            // the wheel's VIRTUAL_KEY. Not too much, just enough to feel the tab change.
             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-            soundPool.play(tickId, 0.35f, 0.35f, 1, 0, 1f)
             onTabSelected(tab)
         }
     }

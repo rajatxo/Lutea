@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -416,9 +417,14 @@ fun LuteaScaffold(
                 }
 
                 // 2 ▸ LABELS — separate layer, NO gooey, so the text stays sharp. Same positions as the shapes.
-                //    Each label's Box is also CLICKABLE — taps the pill to trigger its action.
-                //    New Playlist → onNewPlaylistClick, Settings → onSettingsClick, etc.
+                //    Each label's Box is CLICKABLE — but ONLY when visible (appearProgress > 0.55).
+                //    When the menu is closed, the labels are invisible (alpha=0) AND their
+                //    clickable is disabled — so they can't intercept taps meant for other elements.
+                //    This fixes the "hidden Settings trigger" at the top-right corner.
                 pillLabels.forEachIndexed { i, label ->
+                    val labelVisible by remember {
+                        derivedStateOf { appearProgress.value > 0.55f }
+                    }
                     Box(
                         modifier = Modifier
                             .size(pillWidthDp, pillHeightDp)
@@ -432,18 +438,20 @@ fun LuteaScaffold(
                             .graphicsLayer {
                                 alpha = ((appearProgress.value - 0.55f) / 0.45f).coerceIn(0f, 1f)
                             }
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                when (label) {
-                                    "New Playlist" -> onNewPlaylistClick()
-                                    "Settings" -> onSettingsClick()
-                                    "Favourite" -> onPlaylistStyleClick()
-                                    "Select Tag" -> {}
-                                }
-                                menuOpen = false
-                            },
+                            .then(
+                                if (labelVisible) Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    when (label) {
+                                        "New Playlist" -> onNewPlaylistClick()
+                                        "Settings" -> onSettingsClick()
+                                        "Favourite" -> onPlaylistStyleClick()
+                                        "Select Tag" -> {}
+                                    }
+                                    menuOpen = false
+                                } else Modifier
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
