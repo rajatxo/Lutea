@@ -93,6 +93,10 @@ val LocalSearchTrigger = staticCompositionLocalOf<() -> Unit> {
     {}
 }
 
+val LocalSearchOpen = staticCompositionLocalOf< androidx.compose.runtime.State<Boolean>> {
+    androidx.compose.runtime.mutableStateOf(false)
+}
+
 /**
  * LuteaScaffold — ported from Coral X's CoralXScaffold.
  *
@@ -140,13 +144,16 @@ fun LuteaScaffold(
 
     var menuOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
+    val searchOpenState = remember { mutableStateOf(false) }
 
     CompositionLocalProvider(
         LocalLuteaWindowInsets provides insets,
         LocalSearchTrigger provides {
             searchOpen = true
+            searchOpenState.value = true
             menuOpen = false
-        }
+        },
+        LocalSearchOpen provides searchOpenState
     ) {
         // ★ Law 7: BoxWithConstraints at root (NEVER screenHeightDp).
         //    Works in multi-window, split-screen, floating windows, foldables.
@@ -158,7 +165,7 @@ fun LuteaScaffold(
             // ★ BackHandler — closes search first (if open), then menu, on back press.
             //    Mutually exclusive: only one can be open at a time.
             BackHandler(enabled = searchOpen || menuOpen) {
-                if (searchOpen) searchOpen = false
+                if (searchOpen) { searchOpen = false; searchOpenState.value = false }
                 else if (menuOpen) menuOpen = false
             }
 
@@ -231,11 +238,12 @@ fun LuteaScaffold(
             )
 
             // ★ Gooey metaball menu: 4 hollow dots → 4 fused capsules → liquid separation (and back)
+            // ONLY on the Library tab — menu button + pills don't show on Home/Search tabs.
             // Ported from gooey-react's SVG filter (blur + alpha threshold ColorMatrix).
             // Two sequential phases:
             //   Phase 1 (FAST, 150ms tween): dots morph into 4 capsules at the row position, gap=0 (FUSED)
             //   Phase 2 (SLOW, ~750ms bouncy spring): fused capsules separate, gooey neck stretches then snaps.
-            // Code by Claude — implemented per the gooey animation brief.
+            if (activeTab == LuteaTab.Library) {
 
             // ── Tunables ────────────────────────────────────────────────────────────────
             val gooeyBlurSigmaDp = 4.dp       // blur σ (= 12px at 3x). Neck snaps at gap ≈ 1.4σ ≈ 5.5dp; 8dp end gap stays clean
@@ -408,6 +416,8 @@ fun LuteaScaffold(
                 }
 
                 // 2 ▸ LABELS — separate layer, NO gooey, so the text stays sharp. Same positions as the shapes.
+                //    Each label's Box is also CLICKABLE — taps the pill to trigger its action.
+                //    New Playlist → onNewPlaylistClick, Settings → onSettingsClick, etc.
                 pillLabels.forEachIndexed { i, label ->
                     Box(
                         modifier = Modifier
@@ -421,6 +431,18 @@ fun LuteaScaffold(
                             }
                             .graphicsLayer {
                                 alpha = ((appearProgress.value - 0.55f) / 0.45f).coerceIn(0f, 1f)
+                            }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                when (label) {
+                                    "New Playlist" -> onNewPlaylistClick()
+                                    "Settings" -> onSettingsClick()
+                                    "Favourite" -> onPlaylistStyleClick()
+                                    "Select Tag" -> {}
+                                }
+                                menuOpen = false
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -446,7 +468,7 @@ fun LuteaScaffold(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
-                        ) { menuOpen = !menuOpen; if (menuOpen) searchOpen = false }
+                        ) { menuOpen = !menuOpen; if (menuOpen) { searchOpen = false; searchOpenState.value = false } }
                 ) {
                     Box(
                         modifier = Modifier
@@ -473,6 +495,7 @@ fun LuteaScaffold(
                     )
                 }
             }
+            } // end if (activeTab == LuteaTab.Library)
 
             // ★ Search input field — appears at the SAME position as the menu pills
             // (statusBars + 92dp) when the user taps "Search" in the title text.
@@ -532,11 +555,9 @@ fun LuteaScaffold(
                 }
             }
 
-            // Bottom: nav capsule + (Library only) a same-blur circle with the
-            // sparkle-search icon beside it. Combined unit, centered. Per Law 7
-            // the capsule self-sizes to 53% of maxWidth; the circle matches the
-            // capsule height (48dp) with the same frosted blur. On entering
-            // Library the circle fuses with the capsule then liquid-separates.
+            // Bottom: nav capsule (fluid 3-circle expanding nav). Centered at
+            // the bottom. The old sparkle-search circle beside the Library tab
+            // has been removed — search is now triggered from the title text.
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -550,54 +571,6 @@ fun LuteaScaffold(
                     onTabSelected = onTabSelected,
                     backdrop = glassBackdrop,
                 )
-                if (activeTab == LuteaTab.Library) {
-                    // ★ Liquid separation: capsule + circle start FUSED (gap 0),
-                    //    then animate apart (gap → 8dp) with a bouncy spring —
-                    //    the reverse of a liquid fuse.
-                    val separation = remember { Animatable(0f) }
-                    LaunchedEffect(Unit) {
-                        separation.animateTo(
-                            targetValue = 1f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp * separation.value))
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .shadow(elevation = 3.dp, shape = CircleShape, clip = true)
-                            .drawBackdrop(
-                                backdrop = glassBackdrop, shape = { CircleShape },
-                                effects = { blur(12.dp.toPx()) },
-                                onDrawSurface = {
-                                    drawRect(
-                                        brush = Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color.White.copy(alpha = 0.55f),
-                                                Color.White.copy(alpha = 0.38f)
-                                            )
-                                        )
-                                    )
-                                }
-                            )
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onSearchClick
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_search_sparkle),
-                            contentDescription = "Search",
-                            tint = Color(0xFF1C1C1E),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
             }
         }
     }

@@ -4,8 +4,11 @@ import android.media.SoundPool
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -83,6 +86,8 @@ import com.rajatxo.lutea.data.prefs.PlaylistStyle
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.data.prefs.UserNameManager
+import com.rajatxo.lutea.ui.foundation.LocalSearchOpen
 import com.rajatxo.lutea.ui.foundation.LocalSearchTrigger
 import com.rajatxo.lutea.ui.icons.LuteaIcons
 import kotlinx.coroutines.launch
@@ -1173,50 +1178,97 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ Title "Search / Your playlist" (two-tone, big, with search icon).
-        //    Line 1: [search icon] "Search" — BIGGER font (titleFontSize + 2sp),
-        //             gray, CLICKABLE → opens search keyboard at menu pills position.
-        //    Line 2: "Your playlist" — normal titleFontSize, white.
-        //    Icon is the new ic_search_new (magnifying glass), tinted gray to match Search.
+        // ★ Title "(name), Search / Your playlists" — two-tone, big.
+        //    Normal state (search closed): TWO lines
+        //      Line 1: "(name), Search"  — "(name), " is white, "Search" is gray + CLICKABLE
+        //      Line 2: "Your playlists"  — white, normal size
+        //    When search opens: SHRINKS to ONE line
+        //      "(name), Search Your playlists" — smaller font, all on one row,
+        //      so the search capsule can appear where line 2 was.
+        //    The one-line text is constrained to end before the menu button
+        //    (maxWidth * 0.72f) so it never overlaps the menu icon.
         // ──────────────────────────────────────────────────────────────
         val onSearchTrigger = LocalSearchTrigger.current
-        val searchFontSize = (titleFontSize + 2).sp   // slightly bigger than line 2
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = 24.dp, top = 16.dp, end = 24.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_search_new),
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.size((titleFontSize + 2).dp)
-                )
+        val userName by UserNameManager.state
+        val searchOpen by LocalSearchOpen.current
+        // Big font for two-line state; smaller for one-line state.
+        val bigSize = titleFontSize.sp
+        // Animate the font size smoothly when search opens/closes.
+        val currentTitleFontSize by animateFloatAsState(
+            targetValue = if (searchOpen) (titleFontSize - 6).toFloat() else titleFontSize.toFloat(),
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "titleShrink"
+        )
+        // When search is open, show everything on ONE line. Otherwise two lines.
+        if (searchOpen) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 24.dp, top = 16.dp, end = 24.dp)
+                    .width(maxWidth * 0.72f),   // ends before the menu button
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "Search",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = searchFontSize,
+                    text = "$userName, ",
+                    color = Color.White,
+                    fontSize = currentTitleFontSize.sp,
                     fontFamily = CalSansFamily,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    modifier = Modifier
-                        .padding(start = 6.dp)
-                        .clickable(
+                )
+                Text(
+                    text = "Search Your playlists",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = currentTitleFontSize.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onSearchTrigger() }
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 24.dp, top = 16.dp, end = 24.dp)
+                    .width(maxWidth * 0.72f)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "$userName, ",
+                        color = Color.White,
+                        fontSize = bigSize,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "Search",
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = bigSize,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier.clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { onSearchTrigger() }
+                    )
+                }
+                Text(
+                    text = "Your playlists",
+                    color = Color.White,
+                    fontSize = bigSize,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
                 )
             }
-            Text(
-                text = "Your playlist",
-                color = Color.White,
-                fontSize = titleFontSize.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-            )
         }
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import com.rajatxo.lutea.data.prefs.UserNameManager
 import com.rajatxo.lutea.ui.screens.NameCardScreen
 import com.rajatxo.lutea.ui.screens.QuickPicksScreen
 
@@ -35,6 +36,8 @@ fun LuteaRoot() {
     if (!onboardingComplete) {
         NameCardScreen(
             onComplete = { displayName ->
+                // Persist the user's name so it can be read anywhere via UserNameManager.
+                UserNameManager.setName(displayName, context)
                 // Persist the flag so onboarding never shows again.
                 prefs.edit().putBoolean("onboarding_complete", true).apply()
                 onboardingComplete = true

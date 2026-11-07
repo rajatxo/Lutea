@@ -204,64 +204,74 @@ object LuteaIcons {
     }
 
     /**
-     * Material Symbols "library_music" (Apache-2.0) — filled. Two overlapping
-     * rounded albums; the front one carries a music note.
+     * New Library icon — two overlapping rounded squares (albums) each with a
+     * dot and a toggle line. Filled glyph, 24dp, from the user's SVG.
      *
-     * Path converted from SVG (viewBox 0 -960 960 960) into a 960×960 viewport
-     * with y translated by +960 so every coord is non-negative, and SVG smooth
-     * quadratics (t / T) expanded to explicit quadTo calls with reflected
-     * control points — Compose PathBuilder has no reflective-quad primitive.
-     * Windings: front outline clockwise, inner rect counter-clockwise → the
-     * rect cuts a hole (NonZero fill) so the music note shows through.
+     * SVG path (viewBox 0 0 24 24):
+     *   Front square: M18.75 8 A3.25 3.25 0 0 1 22 11.25 v7.5 A3.25 3.25 0 0 1 18.75 22 h-7.5
+     *                 A3.25 3.25 0 0 1 8 18.75 v-7.5 A3.25 3.25 0 0 1 11.25 8 z
+     *   Front dot:    m-6.25 7.5 a2 2 0 1 0 0 4 a2 2 0 0 0 0-4
+     *   Front toggle: m4.25 1.5 a.75.75 0 0 0 0 1.5 h2.5 a.75.75 0 0 0 0-1.5 z
+     *   Front dot2:   m-4.25 0 a.5.5 0 1 1 0 1 a.5.5 0 0 1 0-1
+     *   Back square:  m-.846-14.888 a3.25 3.25 0 0 1 3.98 2.298 l.694 2.591 H11.25 A4.25 4.25 0 0 0 7 11.251 v6.43
+     *                 a3.25 3.25 0 0 1-2.947-2.403 L2.11 8.034 a3.25 3.25 0 0 1 2.298-3.98 z
+     *   Back dot:     M12.5 10.5 a2 2 0 1 0 0 4 a2 2 0 0 0 0-4
+     *   Back toggle:  m4.25 1.5 a.75.75 0 0 0 0 1.5 h2.5 a.75.75 0 0 0 0-1.5 z
+     *   Back dot2:    m-4.25 0 a.5.5 0 1 1 0 1 a.5.5 0 0 1 0-1
      */
-    val Library: ImageVector = filled("Library") {
-        // Subpath 1 — music note (stem + note head)
-        moveTo(500f, 600f)
-        quadTo(542f, 600f, 571f, 571f)
-        quadTo(600f, 542f, 600f, 500f)
-        lineTo(600f, 280f)
-        lineTo(720f, 280f)
-        lineTo(720f, 200f)
-        lineTo(560f, 200f)
-        lineTo(560f, 420f)
-        quadTo(547f, 410f, 532f, 405f)
-        quadTo(517f, 400f, 500f, 400f)
-        quadTo(458f, 400f, 429f, 429f)
-        quadTo(400f, 458f, 400f, 500f)
-        quadTo(400f, 542f, 429f, 571f)
-        quadTo(458f, 600f, 500f, 600f)
+    val Library: ImageVector = filled("Library", viewportWidth = 24f, viewportHeight = 24f) {
+        // Front rounded square (18.75,8 → 22,11.25 → 22,18.75 → 18.75,22 → 11.25,22 → 8,18.75 → 8,11.25 → 11.25,8 → close)
+        moveTo(18.75f, 8f)
+        arcToRelative(3.25f, 3.25f, 0f, false, true, 3.25f, 3.25f)
+        verticalLineTo(18.75f)
+        arcToRelative(3.25f, 3.25f, 0f, false, true, -3.25f, 3.25f)
+        horizontalLineTo(11.25f)
+        arcToRelative(3.25f, 3.25f, 0f, false, true, -3.25f, -3.25f)
+        verticalLineTo(11.25f)
+        arcToRelative(3.25f, 3.25f, 0f, false, true, 3.25f, -3.25f)
         close()
-        // Subpath 2 — front album outline (clockwise → fills the frame border)
-        moveTo(320f, 720f)
-        quadTo(287f, 720f, 263.5f, 696.5f)
-        quadTo(240f, 673f, 240f, 640f)
-        lineTo(240f, 160f)
-        quadTo(240f, 127f, 263.5f, 103.5f)
-        quadTo(287f, 80f, 320f, 80f)
-        lineTo(800f, 80f)
-        quadTo(833f, 80f, 856.5f, 103.5f)
-        quadTo(880f, 127f, 880f, 160f)
-        lineTo(880f, 640f)
-        quadTo(880f, 673f, 856.5f, 696.5f)
-        quadTo(833f, 720f, 800f, 720f)
-        lineTo(320f, 720f)
+        // Front dot (relative m -6.25 7.5 → circle r=2 at (12.5, 15.5))
+        moveTo(12.5f, 15.5f)
+        arcToRelative(2f, 2f, 0f, true, false, 0f, 4f)
+        arcToRelative(2f, 2f, 0f, true, false, 0f, -4f)
         close()
-        // Subpath 3 — inner rect (counter-clockwise → cuts the hole so the note shows)
-        moveTo(320f, 640f)
-        lineTo(800f, 640f)
-        lineTo(800f, 160f)
-        lineTo(320f, 160f)
+        // Front toggle line (relative m 4.25 1.5 → rect at (16.75, 17) w=2.5 h=1.5)
+        moveTo(16.75f, 17f)
+        arcToRelative(0.75f, 0.75f, 0f, false, false, 0f, 1.5f)
+        horizontalLineToRelative(2.5f)
+        arcToRelative(0.75f, 0.75f, 0f, false, false, 0f, -1.5f)
         close()
-        // Subpath 4 — back album (peeks behind, one rounded corner)
-        moveTo(160f, 880f)
-        quadTo(127f, 880f, 103.5f, 856.5f)
-        quadTo(80f, 833f, 80f, 800f)
-        lineTo(80f, 240f)
-        lineTo(160f, 240f)
-        lineTo(160f, 800f)
-        lineTo(720f, 800f)
-        lineTo(720f, 880f)
-        lineTo(160f, 880f)
+        // Front small dot (relative m -4.25 0 → .5 circle at (12.5, 17))
+        moveTo(12.5f, 17f)
+        arcToRelative(0.5f, 0.5f, 0f, true, true, 0f, 1f)
+        arcToRelative(0.5f, 0.5f, 0f, true, true, 0f, -1f)
+        close()
+        // Back rounded square (relative m -.846 -14.888 → starts at (11.654, 2.112))
+        moveTo(11.654f, 2.112f)
+        arcToRelative(3.25f, 3.25f, 0f, false, true, 3.98f, 2.298f)
+        lineToRelative(0.694f, 2.591f)
+        horizontalLineTo(11.25f)
+        arcToRelative(4.25f, 4.25f, 0f, false, false, -4.25f, 4.25f)
+        verticalLineToRelative(6.43f)
+        arcToRelative(3.25f, 3.25f, 0f, false, true, -2.947f, -2.403f)
+        lineTo(2.11f, 8.034f)
+        arcToRelative(3.25f, 3.25f, 0f, false, true, 2.298f, -3.98f)
+        close()
+        // Back dot (M12.5 10.5 → circle r=2)
+        moveTo(12.5f, 10.5f)
+        arcToRelative(2f, 2f, 0f, true, false, 0f, 4f)
+        arcToRelative(2f, 2f, 0f, true, false, 0f, -4f)
+        close()
+        // Back toggle line (relative m 4.25 1.5 → rect at (16.75, 12) w=2.5 h=1.5)
+        moveTo(16.75f, 12f)
+        arcToRelative(0.75f, 0.75f, 0f, false, false, 0f, 1.5f)
+        horizontalLineToRelative(2.5f)
+        arcToRelative(0.75f, 0.75f, 0f, false, false, 0f, -1.5f)
+        close()
+        // Back small dot (relative m -4.25 0 → .5 circle at (12.5, 12))
+        moveTo(12.5f, 12f)
+        arcToRelative(0.5f, 0.5f, 0f, true, true, 0f, 1f)
+        arcToRelative(0.5f, 0.5f, 0f, true, true, 0f, -1f)
         close()
     }
 

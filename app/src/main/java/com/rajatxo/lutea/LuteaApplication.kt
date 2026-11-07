@@ -2,6 +2,7 @@ package com.rajatxo.lutea
 
 import android.app.Application
 import com.rajatxo.lutea.data.prefs.PlaylistStyleManager
+import com.rajatxo.lutea.data.prefs.UserNameManager
 import com.rajatxo.lutea.data.store.PlaylistStore
 
 class LuteaApplication : Application() {
@@ -9,5 +10,6 @@ class LuteaApplication : Application() {
         super.onCreate()
         PlaylistStore.init(this)
         PlaylistStyleManager.init(this)
+        UserNameManager.init(this)
     }
 }
