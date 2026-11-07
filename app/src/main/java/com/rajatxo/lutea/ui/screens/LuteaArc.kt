@@ -148,6 +148,11 @@ fun LuteaArc(
     val playlists by PlaylistStore.playlists.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
 
+    // ── Search state (hoisted so the wheel can filter playlists) ──
+    var searchQuery by remember { mutableStateOf("") }
+    val searchHistory = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    val searchOpenState by LocalSearchOpen.current
+
     // ── Wheel rotation state (Animatable for physics fling + spring snap) ──
     val wheelPrefs = remember { context.getSharedPreferences("lutea_wheel", android.content.Context.MODE_PRIVATE) }
     // ★ Save RAW scroll value (float) — remembers exact thumb position on restart.
@@ -233,6 +238,53 @@ fun LuteaArc(
                 .putFloat("wheel_scroll_offset", scrollOffset.value)
                 .apply()
         }
+    }
+
+    // ── Search: when query changes, rotate wheel to first match ──
+    //    On first letter: rotate one full cycle (for animation flourish) then
+    //    settle on the first matching playlist. Non-matching items get alpha=0
+    //    in the text overlay (eliminated from view).
+    LaunchedEffect(searchQuery, playlists) {
+        if (searchQuery.isNotBlank() && playlists.isNotEmpty()) {
+            val query = searchQuery.trim()
+            val firstMatch = playlists.indexOfFirst {
+                it.name.startsWith(query, ignoreCase = true)
+            }
+            if (firstMatch >= 0) {
+                val cycleLength = playlists.size * pxPerItem
+                val targetOffset = firstMatch * pxPerItem
+                // Add one full cycle so the wheel visually rotates once before settling
+                val animatedTarget = targetOffset + cycleLength
+                scrollOffset.animateTo(
+                    targetValue = animatedTarget,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
+                )
+            }
+        }
+    }
+
+    // ── When search closes, save query to history ──
+    LaunchedEffect(searchOpenState) {
+        if (!searchOpenState && searchQuery.isNotBlank()) {
+            val query = searchQuery.trim()
+            if (query !in searchHistory) {
+                searchHistory.add(0, query)  // most recent first
+                // Keep max 8 history items
+                while (searchHistory.size > 8) {
+                    searchHistory.removeAt(searchHistory.lastIndex)
+                }
+            }
+            searchQuery = ""  // clear query when search closes
+        }
+    }
+
+    // Helper: does a playlist match the current search query?
+    fun matchesSearch(name: String): Boolean {
+        if (searchQuery.isBlank()) return true
+        return name.startsWith(searchQuery.trim(), ignoreCase = true)
     }
 
     // ── Create Playlist dialog ──
@@ -705,7 +757,7 @@ fun LuteaArc(
                     absOffset < 4.5f -> lerp(0.80f, 0.70f, (absOffset - 3.5f))    // position 5: 70%
                     absOffset < 5.5f -> lerp(0.70f, 0.61f, (absOffset - 4.5f))    // position 6: 61%
                     else -> lerp(0.61f, 0f, (absOffset - 5.5f).coerceIn(0f, 1f))
-                }.coerceIn(0f, 1f)
+                }.coerceIn(0f, 1f) * if (matchesSearch(playlist.name)) 1f else 0f  // ★ hide non-matching when searching
                 if (alpha < 0.02f) continue
 
                 // ★ Scale — gentler shrink for a more uniform circular arrangement.
@@ -1092,7 +1144,7 @@ fun LuteaArc(
                     // ★ Top 5 texts (absOffset < 2.5) are clickable → opens playlist
                     val isClickable = absOffset < 2.5f
                     val displayText = if (isActive) playlist.name.uppercase() else playlist.name.lowercase()
-                    val alpha = alphaFor(absOffset)
+                    val alpha = alphaFor(absOffset) * if (matchesSearch(playlist.name)) 1f else 0f  // ★ hide non-matching when searching
                     val blurRadius = blurFor(absOffset)
                     val blurEffect = getBlurEffect(blurRadius)
 
@@ -1255,7 +1307,7 @@ fun LuteaArc(
         )
 
         val searchFocusRequester = remember { FocusRequester() }
-        var searchQuery by remember { mutableStateOf("") }
+        // searchQuery is hoisted to the function level — shared with the wheel.
         LaunchedEffect(searchOpen) {
             if (searchOpen) {
                 kotlinx.coroutines.delay(200)
@@ -1348,6 +1400,71 @@ fun LuteaArc(
                             }
                         }
                     )
+                }
+
+                // ── Search history pills ── below the search capsule.
+                //    Each pill: white/grey gradient, text + black circle with white cross.
+                //    Tap pill → re-run that search. Tap cross → remove from history.
+                if (searchProgress > 0.5f && searchHistory.isNotEmpty()) {
+                    val capsuleH = with(arcDensity) { 34.dp.toPx() }
+                    val historyY = line2Ypx + capsuleH + with(arcDensity) { 8.dp.toPx() }
+                    Row(
+                        modifier = Modifier
+                            .offset { IntOffset(0, historyY.roundToInt()) }
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = searchProgress },
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        searchHistory.forEach { entry ->
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.White.copy(alpha = 0.95f),
+                                                Color(0xFFB0B0B0).copy(alpha = 0.85f)
+                                            )
+                                        )
+                                    )
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { searchQuery = entry }
+                                    .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = entry,
+                                    color = Color(0xFF1C1C1E),
+                                    fontSize = 12.sp,
+                                    fontFamily = CalSansFamily,
+                                    maxLines = 1,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                // Black circle with white cross
+                                Box(
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(Color(0xFF1C1C1E))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) { searchHistory.remove(entry) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_close_circle),
+                                        contentDescription = "Remove",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
