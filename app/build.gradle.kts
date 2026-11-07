@@ -105,6 +105,7 @@ dependencies {
     implementation("androidx.media3:media3-session:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.media3:media3-decoder:1.5.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0")
 
     // ★ Coil3 — image loading (album art)
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
