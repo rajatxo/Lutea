@@ -204,13 +204,16 @@ fun LuteaScaffold(
             // ★ Morph animation — one bouncy spring drives the whole menu-open
             // morph. It is read by BOTH the hollow circles in the menu button
             // (fade out) AND the morphing pills overlay below (fade in + translate
-            // + scale from circle position to pill row position). Bouncy damping
-            // gives the springy "separation" feel matching the reference video.
+            // + scale from circle position to pill row position). StiffnessLow
+            // gives a slower, more visible morph (~0.7s settle) so the user
+            // clearly sees the circles morphing into pills + the gooey fading
+            // out as they separate. MediumBouncy damping for the satisfying
+            // overshoot "snap" matching the reference video.
             val morphProgress by animateFloatAsState(
                 targetValue = if (menuOpen) 1f else 0f,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
+                    stiffness = Spring.StiffnessLow
                 ),
                 label = "morph"
             )
@@ -324,36 +327,46 @@ fun LuteaScaffold(
                 }
             }
 
-            // ★ Gooey metaball RenderEffect — ported from gooey-react's SVG filter
-            // (https://github.com/luukdv/gooey-react). The filter is a chain of:
-            //   1. Gaussian blur (stdDeviation = 12)
-            //   2. ColorMatrix that boosts alpha ×72 then shifts -36 — equivalent
-            //      to thresholding alpha at 0.5. The blur bleeds adjacent shapes'
-            //      alphas into each other; the threshold snaps the merged region
-            //      back to opaque, creating the liquid "metaball bridge" between
-            //      close shapes. When shapes are far apart, the blur doesn't reach
-            //      between them and the threshold leaves them sharp and separate —
-            //      same effect as the reference video's fused→separated animation.
-            //      API 31+ (Android 12) only; falls back to no effect on older.
-            val gooeyEffect = remember {
+            // ★ Precomputed gooey RenderEffects at 15 blur levels (0..14) — ported
+            // from gooey-react's SVG filter (https://github.com/luukdv/gooey-react).
+            // Each is a chain of Gaussian blur → ColorMatrix threshold. We use a
+            // SOFTER threshold than the original (multiplier=18, shift=-8 →
+            // threshold at alpha 0.44) because Android's RenderEffect blur is a
+            // box blur, not a true Gaussian — the original ×72 / -36 values
+            // produce jagged binary edges on Android. Softer threshold = smooth
+            // anti-aliased edges while still forming the metaball bridge.
+            //
+            // Why 15 levels? The gooey strength must FADE as the pills separate,
+            // otherwise the blur reaches across the 8dp gap and keeps them merged
+            // even at morphProgress=1 ("just connected together"). At level 14
+            // (strongest) the gooey is deep — pills fuse as one blob. At level 0
+            // there's no effect — clean separate pills. graphicsLayer picks the
+            // level from (1 - morphProgress) × 14, so the gooey smoothly fades
+            // out as the pills separate — that's the "neck stretching then
+            // snapping" effect. API 31+ only; empty list on older devices.
+            val gooeyEffects = remember {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val blur = android.graphics.RenderEffect.createBlurEffect(
-                        12f, 12f, android.graphics.Shader.TileMode.CLAMP
-                    )
-                    val matrix = android.graphics.ColorMatrix(floatArrayOf(
-                        1f, 0f, 0f, 0f, 0f,
-                        0f, 1f, 0f, 0f, 0f,
-                        0f, 0f, 1f, 0f, 0f,
-                        0f, 0f, 0f, 72f, -36f,
-                    ))
-                    val threshold = android.graphics.RenderEffect.createColorFilterEffect(
-                        android.graphics.ColorMatrixColorFilter(matrix)
-                    )
-                    // createChainEffect(outer, inner) — inner is applied first
-                    // (blur), then outer (threshold). So blur-then-threshold.
-                    val androidEffect = android.graphics.RenderEffect.createChainEffect(threshold, blur)
-                    androidEffect.asComposeRenderEffect()
-                } else null
+                    (0..14).map { level ->
+                        if (level == 0) null
+                        else {
+                            val blurRadius = level.toFloat()
+                            val blur = android.graphics.RenderEffect.createBlurEffect(
+                                blurRadius, blurRadius, android.graphics.Shader.TileMode.CLAMP
+                            )
+                            val matrix = android.graphics.ColorMatrix(floatArrayOf(
+                                1f, 0f, 0f, 0f, 0f,
+                                0f, 1f, 0f, 0f, 0f,
+                                0f, 0f, 1f, 0f, 0f,
+                                0f, 0f, 0f, 18f, -8f,
+                            ))
+                            val threshold = android.graphics.RenderEffect.createColorFilterEffect(
+                                android.graphics.ColorMatrixColorFilter(matrix)
+                            )
+                            android.graphics.RenderEffect.createChainEffect(threshold, blur)
+                                .asComposeRenderEffect()
+                        }
+                    }
+                } else emptyList()
             }
 
             // ★ Morphing pills overlay — 4 white/grey gradient pills that morph
@@ -389,7 +402,19 @@ fun LuteaScaffold(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                if (gooeyEffect != null) renderEffect = gooeyEffect
+                                // Gooey strength fades as morphProgress → 1: level 14
+                                // (strongest) at progress=0, level 0 (no effect) at
+                                // progress=1. This is what makes the pills actually
+                                // SEPARATE at the end — without this fade, the blur
+                                // would keep reaching across the 8dp gap and the
+                                // pills would stay visually merged ("just connected
+                                // together"). The fade-out of the gooey IS the
+                                // "neck snapping" moment.
+                                if (gooeyEffects.isNotEmpty()) {
+                                    val level = ((1f - morphProgress) * 14f)
+                                        .roundToInt().coerceIn(0, 14)
+                                    renderEffect = gooeyEffects[level]
+                                }
                             }
                     ) {
                         labels.forEachIndexed { i, _ ->
