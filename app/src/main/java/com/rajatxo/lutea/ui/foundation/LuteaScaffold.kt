@@ -146,6 +146,7 @@ fun LuteaScaffold(
     var menuOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     val searchOpenState = remember { mutableStateOf(false) }
+    var playerVisible by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(
         LocalLuteaWindowInsets provides insets,
@@ -558,10 +559,20 @@ fun LuteaScaffold(
 
             // ★ Mini player — above the nav bar. Only visible when a song is playing.
             //    Slide-up animation when a song starts, slide-down when stopped.
+            //    Tapping the mini player expands to the full player.
             com.rajatxo.lutea.ui.player.MiniPlayer(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = effBottomDp + 56.dp),
+                onExpand = { playerVisible = true },
+            )
+
+            // ★ Full player — overlays the entire screen when expanded.
+            //    Slide-up from bottom. Swipe down or tap close to collapse.
+            com.rajatxo.lutea.ui.player.FullPlayer(
+                visible = playerVisible,
+                onClose = { playerVisible = false },
+                modifier = Modifier.fillMaxSize(),
             )
 
             // Bottom: nav capsule (fluid 3-circle expanding nav). Centered at
