@@ -2,6 +2,7 @@ package com.rajatxo.lutea.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -50,25 +51,35 @@ object PlaybackConnection {
                         controller = future.get()
                         controller?.addListener(object : Player.Listener {
                             override fun onIsPlayingChanged(playing: Boolean) {
-                                _isPlaying.value = playing
+                                try {
+                                    _isPlaying.value = playing
+                                } catch (e: Exception) {
+                                    Log.e("PlaybackConnection", "onIsPlayingChanged failed", e)
+                                }
                             }
 
                             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                                val songId = mediaItem?.mediaId?.toLongOrNull()
-                                _currentSong.value = queue.firstOrNull { it.id == songId }
-                                _positionMs.value = 0L
-                                _durationMs.value = 0L
+                                try {
+                                    val songId = mediaItem?.mediaId?.toLongOrNull()
+                                    _currentSong.value = queue.firstOrNull { it.id == songId }
+                                    _positionMs.value = 0L
+                                    _durationMs.value = 0L
+                                } catch (e: Exception) {
+                                    Log.e("PlaybackConnection", "onMediaItemTransition failed", e)
+                                }
+                            }
+
+                            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                                Log.e("PlaybackConnection", "Player error: ${error.errorCodeName}", error)
                             }
                         })
                     } catch (e: Exception) {
-                        // Service connection failed — don't crash the app.
-                        // Playback won't work until the service is fixed.
-                        android.util.Log.e("PlaybackConnection", "Failed to connect to playback service", e)
+                        Log.e("PlaybackConnection", "Failed to connect to playback service", e)
                     }
                 }, Runnable::run)
             }
         } catch (e: Exception) {
-            android.util.Log.e("PlaybackConnection", "Failed to start MediaController builder", e)
+            Log.e("PlaybackConnection", "Failed to start MediaController builder", e)
         }
     }
 
@@ -94,12 +105,16 @@ object PlaybackConnection {
                 MediaItem.Builder()
                     .setUri(s.uri)
                     .setMediaId(s.id.toString())
+                    .setCustomCacheKey(s.id.toString())
                     .setMediaMetadata(
                         MediaMetadata.Builder()
                             .setTitle(s.title)
                             .setArtist(s.artist)
                             .setAlbumTitle(s.album)
                             .setArtworkUri(s.albumArtUri)
+                            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                            .setIsBrowsable(false)
+                            .setIsPlayable(true)
                             .build()
                     )
                     .build()
