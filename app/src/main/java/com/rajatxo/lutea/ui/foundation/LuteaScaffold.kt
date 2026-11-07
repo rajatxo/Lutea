@@ -497,63 +497,9 @@ fun LuteaScaffold(
             }
             } // end if (activeTab == LuteaTab.Library)
 
-            // ★ Search input field — appears at the SAME position as the menu pills
-            // (statusBars + 92dp) when the user taps "Search" in the title text.
-            // Auto-focuses via FocusRequester to show the keyboard. Mutually
-            // exclusive with the menu — tapping "Search" closes the menu, tapping
-            // the menu button closes the search.
-            if (searchOpen) {
-                val searchFocusRequester = remember { FocusRequester() }
-                var searchQuery by remember { mutableStateOf("") }
-                LaunchedEffect(Unit) {
-                    searchFocusRequester.requestFocus()
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(top = 92.dp)
-                        .padding(horizontal = 16.dp)
-                        .height(34.dp)
-                        .clip(RoundedCornerShape(17.dp))
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = 0.95f),
-                                    Color(0xFFB0B0B0).copy(alpha = 0.85f)
-                                )
-                            )
-                        )
-                        .padding(horizontal = 12.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(searchFocusRequester),
-                        singleLine = true,
-                        textStyle = TextStyle(
-                            color = Color(0xFF1C1C1E),
-                            fontSize = 14.sp,
-                            fontFamily = CalSansFamily,
-                        ),
-                        decorationBox = { innerTextField ->
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = "Type to search...",
-                                    color = Color(0xFF1C1C1E).copy(alpha = 0.5f),
-                                    fontSize = 14.sp,
-                                    fontFamily = CalSansFamily,
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-                }
-            }
+            // ★ Search input field is now in LuteaArc.kt (inside the title area)
+            //    so it can coordinate with the per-word title animation. The
+            //    searchOpen state + BackHandler stay here in the scaffold.
 
             // Bottom: nav capsule (fluid 3-circle expanding nav). Centered at
             // the bottom. The old sparkle-search circle beside the Library tab

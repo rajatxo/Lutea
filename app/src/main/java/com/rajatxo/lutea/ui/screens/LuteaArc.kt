@@ -75,6 +75,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -1178,96 +1182,176 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ Title "(name), Search / Your playlists" — two-tone, big.
-        //    Normal state (search closed): TWO lines
-        //      Line 1: "(name), Search"  — "(name), " is white, "Search" is gray + CLICKABLE
-        //      Line 2: "Your playlists"  — white, normal size
-        //    When search opens: SHRINKS to ONE line
-        //      "(name), Search Your playlists" — smaller font, all on one row,
-        //      so the search capsule can appear where line 2 was.
-        //    The one-line text is constrained to end before the menu button
-        //    (maxWidth * 0.72f) so it never overlaps the menu icon.
+        // ★ Title — EACH WORD IS A SEPARATE LAYER so they can animate
+        //    independently. When search opens:
+        //      1. All words SHRINK (font size animates 28sp → 22sp).
+        //      2. Line 2 words ("Your" + "playlists") SLIDE UP to line 1,
+        //         positioning themselves after "Search" — all on one row.
+        //      3. The search capsule APPEARS at line 2's old Y position
+        //         (the space vacated by "Your playlists").
+        //    Words are positioned via animated offsets computed from
+        //    TextMeasurer measurements at both font sizes.
         // ──────────────────────────────────────────────────────────────
         val onSearchTrigger = LocalSearchTrigger.current
         val userName by UserNameManager.state
         val searchOpen by LocalSearchOpen.current
-        // Big font for two-line state; smaller for one-line state.
-        val bigSize = titleFontSize.sp
-        // Animate the font size smoothly when search opens/closes.
-        val currentTitleFontSize by animateFloatAsState(
-            targetValue = if (searchOpen) (titleFontSize - 6).toFloat() else titleFontSize.toFloat(),
-            animationSpec = tween(300, easing = FastOutSlowInEasing),
-            label = "titleShrink"
+
+        // 4 words, each its own layer
+        val words = remember(userName) { listOf("$userName,", " Search", " Your", " playlists") }
+        val wordColors = listOf(
+            Color.White,                           // "(name),"
+            Color.White.copy(alpha = 0.5f),        // "Search" — gray, clickable
+            Color.White,                           // "Your"
+            Color.White,                           // "playlists"
         )
-        // When search is open, show everything on ONE line. Otherwise two lines.
-        if (searchOpen) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(start = 24.dp, top = 16.dp, end = 24.dp)
-                    .fillMaxWidth(0.72f),   // ends before the menu button
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+
+        val bigFontSize = titleFontSize.toFloat()
+        val smallFontSize = (titleFontSize - 6).toFloat()
+
+        // Animated font size (all words shrink together)
+        val currentFontSize by animateFloatAsState(
+            targetValue = if (searchOpen) smallFontSize else bigFontSize,
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "titleSize"
+        )
+        // searchProgress: 0 = closed (two lines), 1 = open (one line)
+        val searchProgress by animateFloatAsState(
+            targetValue = if (searchOpen) 1f else 0f,
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "searchProgress"
+        )
+
+        // Measure each word at BOTH font sizes (for position interpolation)
+        val textMeasurer = rememberTextMeasurer()
+        val baseStyle = TextStyle(fontFamily = CalSansFamily, fontWeight = FontWeight.Bold)
+        val measuredBig = remember(titleFontSize, userName) {
+            words.map { textMeasurer.measure(it, baseStyle.copy(fontSize = bigFontSize.sp)) }
+        }
+        val measuredSmall = remember(titleFontSize, userName) {
+            words.map { textMeasurer.measure(it, baseStyle.copy(fontSize = smallFontSize.sp)) }
+        }
+
+        // Line positions (px) — line 2 Y is fixed at the big-font line height
+        val arcDensity = LocalDensity.current
+        val line1Ypx = 0f
+        val line2Ypx = with(arcDensity) { (titleFontSize + 6).dp.toPx() }
+
+        // State A (closed, big font, TWO lines):
+        //   Word 0 "(name),"  → (0, line1Y)
+        //   Word 1 " Search"  → (word0width, line1Y)
+        //   Word 2 " Your"    → (0, line2Y)
+        //   Word 3 " playlists" → (word2width, line2Y)
+        val posA = listOf(
+            Offset(0f, line1Ypx),
+            Offset(measuredBig[0].size.width.toFloat(), line1Ypx),
+            Offset(0f, line2Ypx),
+            Offset(measuredBig[2].size.width.toFloat(), line2Ypx),
+        )
+
+        // State B (open, small font, ONE line):
+        //   All words on line 1, left to right
+        val s0 = measuredSmall[0].size.width.toFloat()
+        val s1 = measuredSmall[1].size.width.toFloat()
+        val s2 = measuredSmall[2].size.width.toFloat()
+        val posB = listOf(
+            Offset(0f, line1Ypx),
+            Offset(s0, line1Ypx),
+            Offset(s0 + s1, line1Ypx),
+            Offset(s0 + s1 + s2, line1Ypx),
+        )
+
+        // Search capsule state (focus + query) — kept alive even when capsule is fading
+        val searchFocusRequester = remember { FocusRequester() }
+        var searchQuery by remember { mutableStateOf("") }
+        LaunchedEffect(searchOpen) {
+            if (searchOpen) {
+                kotlinx.coroutines.delay(100) // wait for the text field to appear
+                runCatching { searchFocusRequester.requestFocus() }
+            }
+        }
+
+        // Title container — holds the 4 word layers + the search capsule
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 24.dp, top = 16.dp, end = 24.dp)
+                .fillMaxWidth(0.72f)   // ends before the menu button
+        ) {
+            // ── 4 word layers ── each positioned via animated offset
+            words.forEachIndexed { i, word ->
+                val ax = posA[i].x
+                val ay = posA[i].y
+                val bx = posB[i].x
+                val by = posB[i].y
+                val px = lerp(ax, bx, searchProgress)
+                val py = lerp(ay, by, searchProgress)
                 Text(
-                    text = "$userName, ",
-                    color = Color.White,
-                    fontSize = currentTitleFontSize.sp,
+                    text = word,
+                    color = wordColors[i],
+                    fontSize = currentFontSize.sp,
                     fontFamily = CalSansFamily,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                )
-                Text(
-                    text = "Search Your playlists",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = currentTitleFontSize.sp,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    modifier = Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onSearchTrigger() }
+                    modifier = Modifier
+                        .offset { IntOffset(px.roundToInt(), py.roundToInt()) }
+                        .then(
+                            if (i == 1) Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onSearchTrigger() }
+                            else Modifier
+                        )
                 )
             }
-        } else {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(start = 24.dp, top = 16.dp, end = 24.dp)
-                    .fillMaxWidth(0.72f)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "$userName, ",
-                        color = Color.White,
-                        fontSize = bigSize,
-                        fontFamily = CalSansFamily,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = "Search",
-                        color = Color.White.copy(alpha = 0.5f),
-                        fontSize = bigSize,
-                        fontFamily = CalSansFamily,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        modifier = Modifier.clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { onSearchTrigger() }
+
+            // ── Search capsule ── appears at line 2's old Y position
+            //    (the space vacated by "Your playlists" when it slides up).
+            //    Fades in as searchProgress → 1.
+            if (searchProgress > 0.01f) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(0, line2Ypx.roundToInt()) }
+                        .fillMaxWidth()
+                        .height(34.dp)
+                        .graphicsLayer { alpha = searchProgress }
+                        .clip(RoundedCornerShape(17.dp))
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.95f),
+                                    Color(0xFFB0B0B0).copy(alpha = 0.85f)
+                                )
+                            )
+                        )
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(searchFocusRequester),
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = Color(0xFF1C1C1E),
+                            fontSize = 14.sp,
+                            fontFamily = CalSansFamily,
+                        ),
+                        decorationBox = { innerTextField ->
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Type to search...",
+                                    color = Color(0xFF1C1C1E).copy(alpha = 0.5f),
+                                    fontSize = 14.sp,
+                                    fontFamily = CalSansFamily,
+                                )
+                            }
+                            innerTextField()
+                        }
                     )
                 }
-                Text(
-                    text = "Your playlists",
-                    color = Color.White,
-                    fontSize = bigSize,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
             }
         }
     }
