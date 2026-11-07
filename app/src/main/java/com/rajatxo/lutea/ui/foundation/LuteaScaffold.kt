@@ -81,7 +81,17 @@ import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.icons.LuteaIcons
 import com.rajatxo.lutea.ui.util.LuteaTab
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextStyle
 import com.rajatxo.lutea.ui.util.consistentNavBottomPadding
+
+val LocalSearchTrigger = staticCompositionLocalOf<() -> Unit> {
+    {}
+}
 
 /**
  * LuteaScaffold — ported from Coral X's CoralXScaffold.
@@ -128,7 +138,16 @@ fun LuteaScaffold(
         drawContent()
     }
 
-    CompositionLocalProvider(LocalLuteaWindowInsets provides insets) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var searchOpen by remember { mutableStateOf(false) }
+
+    CompositionLocalProvider(
+        LocalLuteaWindowInsets provides insets,
+        LocalSearchTrigger provides {
+            searchOpen = true
+            menuOpen = false
+        }
+    ) {
         // ★ Law 7: BoxWithConstraints at root (NEVER screenHeightDp).
         //    Works in multi-window, split-screen, floating windows, foldables.
         BoxWithConstraints(
@@ -136,7 +155,12 @@ fun LuteaScaffold(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            var menuOpen by remember { mutableStateOf(false) }
+            // ★ BackHandler — closes search first (if open), then menu, on back press.
+            //    Mutually exclusive: only one can be open at a time.
+            BackHandler(enabled = searchOpen || menuOpen) {
+                if (searchOpen) searchOpen = false
+                else if (menuOpen) menuOpen = false
+            }
 
             // Content — fills the WHOLE screen
             Box(
@@ -422,7 +446,7 @@ fun LuteaScaffold(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
-                        ) { menuOpen = !menuOpen }
+                        ) { menuOpen = !menuOpen; if (menuOpen) searchOpen = false }
                 ) {
                     Box(
                         modifier = Modifier
@@ -446,6 +470,64 @@ fun LuteaScaffold(
                             .align(Alignment.Center)
                             .size(24.dp)
                             .graphicsLayer { alpha = closeIconAlpha }
+                    )
+                }
+            }
+
+            // ★ Search input field — appears at the SAME position as the menu pills
+            // (statusBars + 92dp) when the user taps "Search" in the title text.
+            // Auto-focuses via FocusRequester to show the keyboard. Mutually
+            // exclusive with the menu — tapping "Search" closes the menu, tapping
+            // the menu button closes the search.
+            if (searchOpen) {
+                val searchFocusRequester = remember { FocusRequester() }
+                var searchQuery by remember { mutableStateOf("") }
+                LaunchedEffect(Unit) {
+                    searchFocusRequester.requestFocus()
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(top = 92.dp)
+                        .padding(horizontal = 16.dp)
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(17.dp))
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.95f),
+                                    Color(0xFFB0B0B0).copy(alpha = 0.85f)
+                                )
+                            )
+                        )
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(searchFocusRequester),
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = Color(0xFF1C1C1E),
+                            fontSize = 14.sp,
+                            fontFamily = CalSansFamily,
+                        ),
+                        decorationBox = { innerTextField ->
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Type to search...",
+                                    color = Color(0xFF1C1C1E).copy(alpha = 0.5f),
+                                    fontSize = 14.sp,
+                                    fontFamily = CalSansFamily,
+                                )
+                            }
+                            innerTextField()
+                        }
                     )
                 }
             }

@@ -83,6 +83,7 @@ import com.rajatxo.lutea.data.prefs.PlaylistStyle
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.foundation.LocalSearchTrigger
 import com.rajatxo.lutea.ui.icons.LuteaIcons
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -1172,24 +1173,51 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ Title "Rotate the Playlist wheel" (two-tone, big).
+        // ★ Title "Search your Playlist here" (two-tone, big, with search icon).
+        //    "Search" is gray (same as the old "Rotate the") and CLICKABLE —
+        //    tapping it opens the search keyboard at the menu pills position.
+        //    "your" and "Playlist here" are white. The search icon matches the
+        //    one beside the nav (ic_search_sparkle), tinted gray to match Search.
         // ──────────────────────────────────────────────────────────────
+        val onSearchTrigger = LocalSearchTrigger.current
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
                 .padding(start = 24.dp, top = 16.dp, end = 24.dp)
         ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_search_sparkle),
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(titleFontSize.dp)
+                )
+                Text(
+                    text = "Search",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = titleFontSize.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onSearchTrigger() }
+                )
+                Text(
+                    text = " your",
+                    color = Color.White,
+                    fontSize = titleFontSize.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
             Text(
-                text = "Rotate the",
-                color = Color.White.copy(alpha = 0.5f),
-                fontSize = titleFontSize.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-            )
-            Text(
-                text = "Playlist wheel",
+                text = "Playlist here",
                 color = Color.White,
                 fontSize = titleFontSize.sp,
                 fontFamily = CalSansFamily,
