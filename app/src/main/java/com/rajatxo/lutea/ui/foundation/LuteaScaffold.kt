@@ -62,7 +62,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
@@ -198,11 +200,77 @@ fun LuteaScaffold(
                     )
             )
 
-            // ★ Menu button (top-right) — 4 hollow circles in a 2×2 grid at rest,
-            //    crossfading to an X icon when the menu opens. The 4 menu PILLS
-            //    no longer live here — they now appear in their own row below the
-            //    screen's top title (see pills row further down). Clicking the
-            //    40dp target toggles menuOpen.
+            // ★ Morph animation — one bouncy spring drives the whole menu-open
+            // morph. It is read by BOTH the hollow circles in the menu button
+            // (fade out) AND the morphing pills overlay below (fade in + translate
+            // + scale from circle position to pill row position). Bouncy damping
+            // gives the springy "separation" feel matching the reference video.
+            val morphProgress by animateFloatAsState(
+                targetValue = if (menuOpen) 1f else 0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
+                label = "morph"
+            )
+
+            // ★ Pre-computed morph geometry. The 4 pills morph FROM the 4 hollow
+            // circles in the menu button (2×2 grid, 8dp circles spaced 15dp apart)
+            // TO the 4 pills in a row below the top title. We compute every pill's
+            // final row position and its corresponding circle's position, then the
+            // per-pill delta from one to the other. graphicsLayer applies that delta
+            // × (1 - morphProgress) as translation, so at progress=0 each pill sits
+            // exactly on its circle, and at progress=1 it sits at its row slot.
+            val density = LocalDensity.current
+            val pillHeightDp = 34.dp
+            val pillGapDp = 8.dp
+            val sidePadDp = 16.dp
+            val pillWidthDp = (maxWidth - sidePadDp * 2 - pillGapDp * 3) / 4
+            val pillWidthPx = with(density) { pillWidthDp.toPx() }
+            val pillHeightPx = with(density) { pillHeightDp.toPx() }
+            val pillGapPx = with(density) { pillGapDp.toPx() }
+            val sidePadPx = with(density) { sidePadDp.toPx() }
+            val circleSizePx = with(density) { 8.dp.toPx() }
+            val menuBtnSizePx = with(density) { 40.dp.toPx() }
+            // Menu button box position (align TopEnd + statusBarsPadding +
+            // padding(end = maxWidth*0.08, top = 8.dp))
+            val menuBtnRightPx = with(density) { (maxWidth - maxWidth * 0.08f).toPx() }
+            val menuBtnTopPx = with(density) { (effTopDp + 8.dp).toPx() }
+            val menuBtnLeftPx = menuBtnRightPx - menuBtnSizePx
+            // 4 circle centers in the menu button's 2×2 grid (offsets 9,9 / 24,9 /
+            // 9,24 / 24,24 within the 40dp target; circle is 8dp so center at +4)
+            val circleCentersPx = remember(menuBtnLeftPx, menuBtnTopPx, density) {
+                listOf(
+                    Offset(menuBtnLeftPx + with(density) { 13.dp.toPx() }, menuBtnTopPx + with(density) { 13.dp.toPx() }),
+                    Offset(menuBtnLeftPx + with(density) { 28.dp.toPx() }, menuBtnTopPx + with(density) { 13.dp.toPx() }),
+                    Offset(menuBtnLeftPx + with(density) { 13.dp.toPx() }, menuBtnTopPx + with(density) { 28.dp.toPx() }),
+                    Offset(menuBtnLeftPx + with(density) { 28.dp.toPx() }, menuBtnTopPx + with(density) { 28.dp.toPx() }),
+                )
+            }
+            // Pill row Y center (statusBarsPadding + padding(top=92) + half height)
+            val pillRowTopPx = with(density) { (effTopDp + 92.dp).toPx() }
+            val pillRowCenterYPx = pillRowTopPx + pillHeightPx / 2
+            // 4 pill centers in the row (sidePad + i×(pillWidth+gap) + pillWidth/2)
+            val pillCentersPx = remember(sidePadPx, pillWidthPx, pillGapPx, pillRowCenterYPx) {
+                (0..3).map { i ->
+                    Offset(sidePadPx + i * (pillWidthPx + pillGapPx) + pillWidthPx / 2, pillRowCenterYPx)
+                }
+            }
+            // Per-pill delta from row position to circle position (px)
+            val pillToCircleDeltasPx = remember(circleCentersPx, pillCentersPx) {
+                (0..3).map { i ->
+                    Offset(
+                        circleCentersPx[i].x - pillCentersPx[i].x,
+                        circleCentersPx[i].y - pillCentersPx[i].y,
+                    )
+                }
+            }
+
+            // ★ Menu button (top-right) — 40dp click target + X icon (fades in when
+            //    open) + 4 hollow circles in 2×2 grid (the menu icon at rest).
+            //    The circles now use morphProgress (shared with the pills overlay)
+            //    so their fade-out stays perfectly in sync with the pills morphing
+            //    in from these exact positions.
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -235,8 +303,8 @@ fun LuteaScaffold(
                     )
                 }
 
-                // 4 hollow circles in 2×2 grid (the menu icon). When the menu
-                // opens they simply fade out in place — no scatter anymore.
+                // 4 hollow circles in 2×2 grid (the menu icon). Fade out via the
+                // shared morphProgress as the pills morph in FROM these positions.
                 val circlePos = remember {
                     listOf(
                         9.dp to 9.dp,
@@ -246,66 +314,61 @@ fun LuteaScaffold(
                     )
                 }
                 circlePos.forEachIndexed { i, (cx, cy) ->
-                    val progress by animateFloatAsState(
-                        targetValue = if (menuOpen) 1f else 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        ),
-                        label = "circle$i"
-                    )
                     Box(
                         modifier = Modifier
                             .offset(x = cx, y = cy)
                             .size(8.dp)
-                            .border(1.5.dp, Color.White.copy(alpha = 1f - progress), CircleShape)
+                            .border(1.5.dp, Color.White.copy(alpha = 1f - morphProgress), CircleShape)
                     )
                 }
             }
 
-            // ★ Menu pills row — 4 white/grey gradient pills SIDE BY SIDE in a
-            // single horizontal row. Each pill is weighted equally so the row
-            // fits any screen width. Positioned JUST BELOW the screen's big top
-            // text: the wheel screen's two-line title "Rotate the Playlist wheel"
-            // (28sp × 2 lines) sits at statusBars + 16dp top padding and ends at
-            // roughly statusBars + 84dp; pills at statusBars + 92dp leave an 8dp
-            // gap below the title. Other tabs' titles sit slightly lower, so the
-            // pills never overlap. Pills fade in with a bouncy spring on menu
-            // open.
-            if (menuOpen) {
-                val pillProgress by animateFloatAsState(
-                    targetValue = if (menuOpen) 1f else 0f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    ),
-                    label = "pills"
-                )
+            // ★ Morphing pills overlay — 4 white/grey gradient pills that morph
+            // FROM the 4 hollow circles at the menu button (rest, fused as the
+            // menu icon) TO 4 separate pills in a horizontal row below the top
+            // title (open, separated by 8dp gaps). Each pill's graphicsLayer
+            // interpolates translation (circle position → pill row position) and
+            // scale (8dp circle → full pill size), driven by morphProgress. This
+            // is what makes it FEEL like the circles turn into the capsules and
+            // then SEPARATE — same spring as the reference video.
+            if (morphProgress > 0.01f) {
                 val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
                 // 4 slightly different white/grey vertical gradients — "random
-                // gradient" feel so each pill reads distinct instead of uniform.
+                // gradient" feel so each pill reads distinct.
                 val gradients = listOf(
                     listOf(Color.White.copy(alpha = 0.95f), Color(0xFFB0B0B0).copy(alpha = 0.85f)),
                     listOf(Color(0xFFD8D8D8).copy(alpha = 0.92f), Color.White.copy(alpha = 0.78f)),
                     listOf(Color.White.copy(alpha = 0.82f), Color(0xFF9A9A9A).copy(alpha = 0.72f)),
                     listOf(Color(0xFFC8C8C8).copy(alpha = 0.88f), Color(0xFFE8E8E8).copy(alpha = 0.78f)),
                 )
-                Row(
+                Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(top = 92.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .graphicsLayer { alpha = pillProgress },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .align(Alignment.TopStart)
+                        .fillMaxSize()
                 ) {
                     labels.forEachIndexed { i, label ->
                         Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp)
+                                .offset {
+                                    IntOffset(
+                                        (pillCentersPx[i].x - pillWidthPx / 2).roundToInt(),
+                                        (pillCentersPx[i].y - pillHeightPx / 2).roundToInt(),
+                                    )
+                                }
+                                .size(width = pillWidthDp, height = pillHeightDp)
+                                .graphicsLayer {
+                                    // Translate from circle position (morphProgress=0)
+                                    // to pill row position (morphProgress=1)
+                                    translationX = pillToCircleDeltasPx[i].x * (1f - morphProgress)
+                                    translationY = pillToCircleDeltasPx[i].y * (1f - morphProgress)
+                                    // Scale from 8dp circle (morphProgress=0) to
+                                    // full pill size (morphProgress=1)
+                                    val startScaleX = circleSizePx / pillWidthPx
+                                    val startScaleY = circleSizePx / pillHeightPx
+                                    scaleX = startScaleX + (1f - startScaleX) * morphProgress
+                                    scaleY = startScaleY + (1f - startScaleY) * morphProgress
+                                    alpha = morphProgress
+                                }
                                 .clip(RoundedCornerShape(17.dp))
                                 .background(brush = Brush.verticalGradient(colors = gradients[i]))
                                 .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(17.dp)),
@@ -319,6 +382,11 @@ fun LuteaScaffold(
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 textAlign = TextAlign.Center,
+                                modifier = Modifier.graphicsLayer {
+                                    // Text fades in over the last 60% of the morph so
+                                    // the shape change reads first, then labels appear
+                                    alpha = ((morphProgress - 0.4f) / 0.6f).coerceIn(0f, 1f)
+                                }
                             )
                         }
                     }
