@@ -1206,7 +1206,7 @@ fun LuteaArc(
                     .align(Alignment.TopStart)
                     .statusBarsPadding()
                     .padding(start = 24.dp, top = 16.dp, end = 24.dp)
-                    .width(maxWidth * 0.72f),   // ends before the menu button
+                    .fillMaxWidth(0.72f),   // ends before the menu button
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -1236,7 +1236,7 @@ fun LuteaArc(
                     .align(Alignment.TopStart)
                     .statusBarsPadding()
                     .padding(start = 24.dp, top = 16.dp, end = 24.dp)
-                    .width(maxWidth * 0.72f)
+                    .fillMaxWidth(0.72f)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
