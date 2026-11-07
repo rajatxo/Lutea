@@ -139,13 +139,14 @@ fun LuteaScaffold(
                 content()
             }
 
-            // ★ Blur overlay — fades in when the menu opens (animated blur radius +
-            // a top→bottom gradient tint), fades out slowly on close. Samples the
-            // content via the glassBackdrop (kyant). Studied Mochy's ProgressiveBlur;
-            // this is a lighter uniform-blur + gradient-tint version.
+            // ★ Blur overlay — full mechanism preserved but INTENTIONALLY
+            // DISCONNECTED from the menu icon for now (will be re-wired to a
+            // different trigger later). blurProgress stays at 0 so opening the
+            // menu no longer blurs the background. The drawBackdrop / kyant
+            // pipeline below remains intact for the future re-wire.
             val blurProgress by animateFloatAsState(
-                targetValue = if (menuOpen) 1f else 0f,
-                animationSpec = tween(durationMillis = if (menuOpen) 400 else 700),
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 700),
                 label = "menuBlur"
             )
             if (blurProgress > 0.01f) {
@@ -197,10 +198,11 @@ fun LuteaScaffold(
                     )
             )
 
-            // ★ Menu button (top-right) — 4 manually-drawn circles in a 2×2 grid.
-            //    Click → circles animate apart (to the upper area) + an X icon
-            //    fades in at the menu spot. Click again → X fades out + circles
-            //    spring back to the grid. Same 40dp spot, same position as before.
+            // ★ Menu button (top-right) — 4 hollow circles in a 2×2 grid at rest,
+            //    crossfading to an X icon when the menu opens. The 4 menu PILLS
+            //    no longer live here — they now appear in their own row below the
+            //    screen's top title (see pills row further down). Clicking the
+            //    40dp target toggles menuOpen.
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -233,21 +235,17 @@ fun LuteaScaffold(
                     )
                 }
 
-                // 4 black glossy pills — 2×2 grid on the left when open.
-                // New Playlist (top-left), Select Tag (top-right),
-                // Favourite (bottom-left), Settings (bottom-right).
-                // At rest: hollow circles (2×2 grid = menu icon). When open:
-                // crossfade from hollow circle → black glossy pill with text.
-                val circleData = remember {
+                // 4 hollow circles in 2×2 grid (the menu icon). When the menu
+                // opens they simply fade out in place — no scatter anymore.
+                val circlePos = remember {
                     listOf(
-                        CircleAnim(9.dp, 9.dp, (-255).dp, 0.dp),
-                        CircleAnim(24.dp, 9.dp, (-100).dp, 0.dp),
-                        CircleAnim(9.dp, 24.dp, (-255).dp, 56.dp),
-                        CircleAnim(24.dp, 24.dp, (-100).dp, 56.dp),
+                        9.dp to 9.dp,
+                        24.dp to 9.dp,
+                        9.dp to 24.dp,
+                        24.dp to 24.dp,
                     )
                 }
-                val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
-                circleData.forEachIndexed { i, c ->
+                circlePos.forEachIndexed { i, (cx, cy) ->
                     val progress by animateFloatAsState(
                         targetValue = if (menuOpen) 1f else 0f,
                         animationSpec = spring(
@@ -256,45 +254,71 @@ fun LuteaScaffold(
                         ),
                         label = "circle$i"
                     )
-                    val offsetX = c.restX + (c.targetX - c.restX) * progress
-                    val offsetY = c.restY + (c.targetY - c.restY) * progress
-                    // Hollow circle (rest state) — fades out as menu opens
                     Box(
                         modifier = Modifier
-                            .offset(x = offsetX, y = offsetY)
+                            .offset(x = cx, y = cy)
                             .size(8.dp)
                             .border(1.5.dp, Color.White.copy(alpha = 1f - progress), CircleShape)
                     )
-                    // Black glossy pill with text (open state) — wrapped in
-                    // size(0.dp) so it doesn't expand the outer menu Box.
-                    Box(
-                        modifier = Modifier
-                            .size(0.dp)
-                            .offset(x = offsetX - 10.dp, y = offsetY - 10.dp)
-                            .graphicsLayer { alpha = progress }
-                    ) {
+                }
+            }
+
+            // ★ Menu pills row — 4 white/grey gradient pills SIDE BY SIDE in a
+            // single horizontal row. Each pill is weighted equally so the row
+            // fits any screen width. Positioned JUST BELOW the screen's big top
+            // text: the wheel screen's two-line title "Rotate the Playlist wheel"
+            // (28sp × 2 lines) sits at statusBars + 16dp top padding and ends at
+            // roughly statusBars + 84dp; pills at statusBars + 92dp leave an 8dp
+            // gap below the title. Other tabs' titles sit slightly lower, so the
+            // pills never overlap. Pills fade in with a bouncy spring on menu
+            // open.
+            if (menuOpen) {
+                val pillProgress by animateFloatAsState(
+                    targetValue = if (menuOpen) 1f else 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "pills"
+                )
+                val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
+                // 4 slightly different white/grey vertical gradients — "random
+                // gradient" feel so each pill reads distinct instead of uniform.
+                val gradients = listOf(
+                    listOf(Color.White.copy(alpha = 0.95f), Color(0xFFB0B0B0).copy(alpha = 0.85f)),
+                    listOf(Color(0xFFD8D8D8).copy(alpha = 0.92f), Color.White.copy(alpha = 0.78f)),
+                    listOf(Color.White.copy(alpha = 0.82f), Color(0xFF9A9A9A).copy(alpha = 0.72f)),
+                    listOf(Color(0xFFC8C8C8).copy(alpha = 0.88f), Color(0xFFE8E8E8).copy(alpha = 0.78f)),
+                )
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 92.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .graphicsLayer { alpha = pillProgress },
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    labels.forEachIndexed { i, label ->
                         Box(
                             modifier = Modifier
-                                .wrapContentSize(align = Alignment.TopStart, unbounded = true)
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(
-                                    brush = Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color(0xFF2C2C2C),
-                                            Color(0xFF181818),
-                                        )
-                                    )
-                                )
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                                .weight(1f)
+                                .height(34.dp)
+                                .clip(RoundedCornerShape(17.dp))
+                                .background(brush = Brush.verticalGradient(colors = gradients[i]))
+                                .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(17.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = labels[i],
-                                color = Color.White,
-                                fontSize = 14.sp,
+                                text = label,
+                                color = Color(0xFF1C1C1E),
+                                fontSize = 11.sp,
                                 fontFamily = CalSansFamily,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
+                                textAlign = TextAlign.Center,
                             )
                         }
                     }
@@ -372,4 +396,3 @@ fun LuteaScaffold(
     }
 }
 
-private data class CircleAnim(val restX: Dp, val restY: Dp, val targetX: Dp, val targetY: Dp)
