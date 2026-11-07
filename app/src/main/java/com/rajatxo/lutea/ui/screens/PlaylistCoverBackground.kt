@@ -1,234 +1,256 @@
 package com.rajatxo.lutea.ui.screens
 
-import android.graphics.Bitmap
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
+import android.os.Build
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.imageLoader
+import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
-import coil3.request.allowHardware
-import coil3.toBitmap
+import coil3.request.crossfade
 import com.rajatxo.lutea.ui.util.LuteaColorExtractor
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
-/**
- * Light box blur on a bitmap (3 passes of H+V box blur) — used for the soft copy.
- */
-private fun boxBlur(input: Bitmap, radius: Int): Bitmap {
-    if (radius <= 0) return input
-    val w = input.width; val h = input.height
-    if (w == 0 || h == 0) return input
-    val pixels = IntArray(w * h)
-    input.getPixels(pixels, 0, w, 0, 0, w, h)
-    repeat(3) {
-        // Horizontal pass
-        val row = IntArray(w)
-        for (y in 0 until h) {
-            val s = y * w; for (x in 0 until w) row[x] = pixels[s + x]
-            for (x in 0 until w) {
-                var a=0;var r=0;var g=0;var b=0;var c=0
-                for (i in (x-radius).coerceAtLeast(0)..(x+radius).coerceAtMost(w-1)) {
-                    val v=row[i];a+=v ushr 24;r+=v ushr 16 and 0xFF;g+=v ushr 8 and 0xFF;b+=v and 0xFF;c++
-                }
-                pixels[s+x]=((a/c)shl 24)or((r/c)shl 16)or((g/c)shl 8)or(b/c)
-            }
-        }
-        // Vertical pass
-        val col = IntArray(h)
-        for (x in 0 until w) {
-            for (y in 0 until h) col[y] = pixels[y*w+x]
-            for (y in 0 until h) {
-                var a=0;var r=0;var g=0;var b=0;var c=0
-                for (i in (y-radius).coerceAtLeast(0)..(y+radius).coerceAtMost(h-1)) {
-                    val v=col[i];a+=v ushr 24;r+=v ushr 16 and 0xFF;g+=v ushr 8 and 0xFF;b+=v and 0xFF;c++
-                }
-                pixels[y*w+x]=((a/c)shl 24)or((r/c)shl 16)or((g/c)shl 8)or(b/c)
-            }
-        }
-    }
-    val out = Bitmap.createBitmap(w, h, input.config ?: Bitmap.Config.ARGB_8888)
-    out.setPixels(pixels, 0, w, 0, 0, w, h)
-    return out
-}
+// ------------------------------------------------------------------ tunables (brief's cheat sheet)
 
-private fun smoothstep(edge0: Float, edge1: Float, x: Float): Float {
-    val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
+// Blend gradient: clear until 0.56, 78% background at 0.84, solid background at 1.0
+private const val BLEND_CLEAR_UNTIL = 0.56f
+private const val BLEND_MID_AT = 0.84f
+private const val BLEND_MID_ALPHA = 0.78f
+private const val BLEND_JOIN_SLOPE = 1.5f // slope at the 0.84 join, keeps the ramp smooth (C1)
+private const val BLEND_STEPS = 8
+
+// Top scrim for status-bar legibility: black 34% at the top, gone by 0.24
+private const val SCRIM_ALPHA = 0.34f
+private const val SCRIM_END = 0.24f
+
+// Scroll choreography
+private const val SCROLL_TRAVEL = 0.8f   // cover rides up at 80% of scroll speed
+private const val ZOOM_ON_SCROLL = 0.22f // Ken Burns zoom
+private const val DIM_ON_SCROLL = 0.22f  // black overlay
+private const val FADE_FROM = 0.20f
+private const val FADE_TO = 0.85f
+private const val DISSOLVE_TO = 0.90f
+private const val DISSOLVE_BAND = 0.35f  // softness of the bottom-up dissolve edge
+private const val BLUR_IN_FROM = 0.08f
+private const val BLUR_IN_TO = 0.75f
+private val BlurRadius = 28.dp
+private val ZoomOrigin = TransformOrigin(0.5f, 0.35f)
+
+private val TopScrimBrush: Brush = Brush.verticalGradient(
+    0f to Color.Black.copy(alpha = SCRIM_ALPHA),
+    SCRIM_END to Color.Black.copy(alpha = 0f),
+    1f to Color.Black.copy(alpha = 0f),
+)
+
+/** Hermite smoothstep (C1). The one easing curve used for every ramp on the detail screen. */
+internal fun luteaSmoothstep(from: Float, to: Float, x: Float): Float {
+    val t = ((x - from) / (to - from)).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }
 
 /**
- * PlaylistCoverBackground — Mochy-inspired. SHARP cover on top, crossfades to
- * a SOFT (blurred) copy as you scroll. Color gradient blends into the page.
+ * The cover image at the top of the playlist screen.
  *
- * Technique (exactly like Mochy's PlaylistCoverBackdrop):
- *  1. SHARP cover (full size) — alpha = 1 - smoothstep(0, 0.55, scroll)
- *     → fades out as you scroll
- *  2. SOFT cover (192px + box blur) — alpha = 0 → 1 as you scroll
- *     → fades in underneath
- *  3. Color gradient: cover color → transparent (top) + transparent → bg (bottom)
- *     so cover blends into the page
- *  4. Parallax: cover slides up at 0.8× scroll rate
+ * Layers, bottom to top (all inside one box so they move/fade/dissolve together):
+ *  1. placeholder gradient (shown when there is no cover, or while it loads)
+ *  2. sharp cover (Coil AsyncImage, Crop)
+ *  3. blurred copy of the cover, crossfaded in as you scroll (API 31+ only)
+ *  4. dim overlay, black x 0.22 x progress
+ *  5. blend gradient: cover -> [backgroundColor], bottom edge is exactly the background (no seam)
+ *  6. top scrim
  *
- * NO heavy blur on the stationary image — you see the SHARP cover at rest,
- * and only when you scroll does it crossfade to the blurred version.
+ * The whole box is then transformed: translation, zoom, fade, and a DstIn mask that eats the
+ * cover from the bottom up.
+ *
+ * [scrollProgress] and [backgroundColor] are lambdas on purpose: they are only read in the
+ * graphicsLayer / draw phase, so scrolling and the 600 ms colour fade never recompose this.
+ *
+ * @param scrollProgress 0f..1f = how far the list has scrolled, relative to the cover height.
  */
 @Composable
 fun PlaylistCoverBackground(
-    albumArtUri: android.net.Uri?,
+    coverUri: String?,
+    backgroundColor: () -> Color,
+    coverHeight: Dp,
     scrollProgress: () -> Float,
     modifier: Modifier = Modifier,
-    coverHeight: Dp = 320.dp,
+    placeholderSeed: String = "",
 ) {
     val context = LocalContext.current
-    val density = LocalDensity.current
-    var sharpBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var softBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var extractedColor by remember { mutableStateOf<Color?>(null) }
-
-    LaunchedEffect(albumArtUri) {
-        if (albumArtUri == null) return@LaunchedEffect
-        withContext(Dispatchers.IO) {
-            try {
-                // SHARP copy — load at larger size (192px) for crisp display
-                val sharpReq = ImageRequest.Builder(context)
-                    .data(albumArtUri)
-                    .size(192)
-                    .allowHardware(false)
-                    .build()
-                val sharp = context.imageLoader.execute(sharpReq).image?.toBitmap()
-
-                // SOFT copy — load at 192px and blur it (for the scroll crossfade)
-                val softReq = ImageRequest.Builder(context)
-                    .data(albumArtUri)
-                    .size(192)
-                    .allowHardware(false)
-                    .build()
-                val softRaw = context.imageLoader.execute(softReq).image?.toBitmap()
-                val soft = softRaw?.let { boxBlur(it, 8) }
-
-                sharpBitmap = sharp
-                softBitmap = soft
-                if (sharp != null) {
-                    extractedColor = LuteaColorExtractor.extractDominant(sharp)
-                }
-            } catch (_: Exception) { }
+    val request = remember(coverUri) {
+        if (coverUri.isNullOrBlank()) {
+            null
+        } else {
+            ImageRequest.Builder(context).data(coverUri).crossfade(true).build()
         }
     }
+    val hue = remember(placeholderSeed) { LuteaColorExtractor.hueFor(placeholderSeed) }
+    val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    val targetColor = extractedColor ?: LuteaColorExtractor.Default
-    val animatedColor by animateColorAsState(
-        targetValue = targetColor,
-        animationSpec = tween(600),
-        label = "PlaylistBgColor",
-    )
-
-    Box(modifier = modifier.fillMaxSize()) {
-        // ── Backdrop box — pinned behind the list, slides up on scroll (parallax) ──
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(coverHeight)
+            // 1) transform + fade (layer phase, zero recomposition)
+            .graphicsLayer {
+                val p = scrollProgress().coerceIn(0f, 1f)
+                translationY = p * size.height * -SCROLL_TRAVEL
+                val s = 1f + p * ZOOM_ON_SCROLL
+                scaleX = s
+                scaleY = s
+                transformOrigin = ZoomOrigin
+                alpha = 1f - luteaSmoothstep(FADE_FROM, FADE_TO, p)
+                // needed so the DstIn mask below only eats THIS layer, not what is behind it
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            // 2) dissolve from the bottom up: DstIn gradient mask that grows as you scroll
+            .drawWithContent {
+                drawContent()
+                val dissolve = luteaSmoothstep(0f, DISSOLVE_TO, scrollProgress().coerceIn(0f, 1f))
+                if (dissolve > 0f) {
+                    val edge = (1f + DISSOLVE_BAND) * (1f - dissolve) // where alpha reaches 0
+                    val start = (edge - DISSOLVE_BAND).coerceIn(0f, 1f)
+                    val end = edge.coerceIn(0f, 1f)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Black,
+                            start to Color.Black,
+                            end to Color.Transparent,
+                            1f to Color.Transparent,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
+            },
+    ) {
+        // placeholder (also what you see if the image fails to load)
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(coverHeight)
-                .graphicsLayer {
-                    val p = scrollProgress()
-                    // Parallax: cover follows scroll at 80% rate (slides up as you scroll)
-                    translationY = -p * size.height * 0.8f
-                }
-        ) {
-            // ── Layer 1: SOFT cover (fades IN as you scroll) ──
-            softBitmap?.let { bmp ->
-                androidx.compose.foundation.Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            // Alpha goes 0 → 1 as scroll progresses
-                            this.alpha = if (scrollProgress() > 0f) 1f else 0f
-                        }
-                )
-            }
-
-            // ── Layer 2: SHARP cover (fades OUT as you scroll) ──
-            sharpBitmap?.let { bmp ->
-                androidx.compose.foundation.Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            // Crossfade: sharp fades out as soft fades in
-                            this.alpha = 1f - smoothstep(0f, 0.55f, scrollProgress())
-                            this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
-                        }
-                )
-            }
-
-            // ── Layer 3: gradient overlay — blends cover into page color ──
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawWithCache {
-                        val bg = animatedColor
-                        // Top: subtle dark for status bar contrast
-                        val top = Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.34f),
-                            1f to Color.Transparent,
-                            endY = size.height * 0.24f,
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.hsl(hue, 0.55f, 0.42f),
+                            Color.hsl(hue, 0.50f, 0.20f),
                         )
-                        // Bottom: transparent → color (seamless blend into page)
-                        val bottom = Brush.verticalGradient(
-                            0.56f to Color.Transparent,
-                            0.84f to bg.copy(alpha = 0.78f),
-                            1f to bg,
-                        )
-                        onDrawBehind {
-                            drawRect(top, size = Size(size.width, size.height * 0.24f))
-                            drawRect(bottom)
-                        }
-                    }
+                    )
+                ),
+        )
+
+        if (request != null) {
+            // sharp cover
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
             )
+
+            // progressive blur: sharp -> blurred crossfade. API 31+ only; below that we just
+            // rely on the fade + dim (Modifier.blur is a no-op there, so we don't compose it).
+            if (canBlur) {
+                AsyncImage(
+                    model = request,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            alpha = luteaSmoothstep(BLUR_IN_FROM, BLUR_IN_TO, scrollProgress())
+                        }
+                        .blur(BlurRadius, BlurredEdgeTreatment.Rectangle),
+                )
+            }
         }
 
-        // ── Full-screen color tint below the cover (page background) ──
-        // Fades from the extracted color at the cover's bottom edge to black.
+        // dim: black x 0.22 x progress (under the blend so the background colour stays pure)
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .matchParentSize()
+                .drawBehind {
+                    val p = scrollProgress().coerceIn(0f, 1f)
+                    if (p > 0f) drawRect(Color.Black, alpha = DIM_ON_SCROLL * p)
+                },
+        )
+
+        // blend: cover -> background colour. Cached; only rebuilt while the colour animates.
+        Box(
+            modifier = Modifier
+                .matchParentSize()
                 .drawWithCache {
-                    val gradient = Brush.verticalGradient(
-                        0f to Color.Transparent,           // cover area is untouched
-                        0.30f to Color.Transparent,        // still cover
-                        0.45f to animatedColor.copy(alpha = 0.5f),  // color starts
-                        0.70f to animatedColor.copy(alpha = 0.15f),
-                        1f to Color.Black,                 // solid black at bottom
-                    )
-                    onDrawBehind { drawRect(gradient) }
-                }
+                    val brush = Brush.verticalGradient(*blendStops(backgroundColor()))
+                    onDrawBehind { drawRect(brush) }
+                },
+        )
+
+        // top scrim (status bar legibility)
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .drawBehind { drawRect(TopScrimBrush) },
         )
     }
+}
+
+/**
+ * Vertical stops for the cover -> background blend.
+ *
+ *   0.00 -> clear
+ *   0.56 -> clear
+ *   0.84 -> background @ 78%
+ *   1.00 -> background @ 100%
+ *
+ * Same stops as the brief, but the ramp between them is a smooth (C1) curve instead of two
+ * straight lines, so there is no faint "edge" where the fade starts. The clear stops use the
+ * background RGB at alpha 0 (not transparent black) so the gradient never passes through grey.
+ */
+private fun blendStops(bg: Color): Array<Pair<Float, Color>> {
+    val clear = bg.copy(alpha = 0f)
+    val stops = ArrayList<Pair<Float, Color>>(2 + BLEND_STEPS * 2)
+    stops.add(0f to clear)
+    stops.add(BLEND_CLEAR_UNTIL to clear)
+
+    val firstLen = BLEND_MID_AT - BLEND_CLEAR_UNTIL
+    for (i in 1..BLEND_STEPS) {
+        val t = i / BLEND_STEPS.toFloat()
+        val a = hermite(t, 0f, 0f, BLEND_MID_ALPHA, BLEND_JOIN_SLOPE * firstLen)
+        stops.add((BLEND_CLEAR_UNTIL + firstLen * t) to bg.copy(alpha = a.coerceIn(0f, 1f)))
+    }
+
+    val secondLen = 1f - BLEND_MID_AT
+    for (i in 1..BLEND_STEPS) {
+        val t = i / BLEND_STEPS.toFloat()
+        val a = hermite(t, BLEND_MID_ALPHA, BLEND_JOIN_SLOPE * secondLen, 1f, 0f)
+        stops.add((BLEND_MID_AT + secondLen * t) to bg.copy(alpha = a.coerceIn(0f, 1f)))
+    }
+    return stops.toTypedArray()
+}
+
+/** Cubic Hermite. m0 / m1 are slopes already multiplied by the segment length. */
+private fun hermite(t: Float, p0: Float, m0: Float, p1: Float, m1: Float): Float {
+    val t2 = t * t
+    val t3 = t2 * t
+    return (2f * t3 - 3f * t2 + 1f) * p0 +
+        (t3 - 2f * t2 + t) * m0 +
+        (-2f * t3 + 3f * t2) * p1 +
+        (t3 - t2) * m1
 }

@@ -46,6 +46,7 @@ import com.rajatxo.lutea.data.scanner.MusicScanner
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.domain.model.Song
 import com.rajatxo.lutea.playback.PlaybackConnection
+import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.util.LuteaTab
@@ -77,9 +78,26 @@ fun QuickPicksScreen(
     }
 
     selectedPlaylist?.let { playlist ->
+        val context = LocalContext.current
+        var songs by remember(playlist) { mutableStateOf<List<Song>>(emptyList()) }
+        LaunchedEffect(playlist) {
+            val allSongs = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+            songs = allSongs.filter { it.id in playlist.songIds }
+        }
         PlaylistDetailScreen(
             playlist = playlist,
-            onBackClick = { selectedPlaylist = null },
+            songs = songs,
+            onBack = { selectedPlaylist = null },
+            onPlayAll = {
+                songs.firstOrNull()?.let { PlaybackConnection.playSong(it, songs) }
+            },
+            onShuffle = {
+                val shuffled = songs.shuffled()
+                shuffled.firstOrNull()?.let { PlaybackConnection.playSong(it, shuffled) }
+            },
+            onSongClick = { _, song -> PlaybackConnection.playSong(song, songs) },
+            songArt = { it.albumArtUri },
+            insets = LocalLuteaWindowInsets.current,
         )
         return
     }
