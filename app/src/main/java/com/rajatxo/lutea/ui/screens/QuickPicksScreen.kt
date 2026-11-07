@@ -47,6 +47,8 @@ import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.domain.model.Song
 import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.util.LuteaTab
@@ -97,7 +99,9 @@ fun QuickPicksScreen(
             },
             onSongClick = { _, song -> PlaybackConnection.playSong(song, songs) },
             songArt = { it.albumArtUri },
-            insets = LocalLuteaWindowInsets.current,
+            // Use system bars directly — PlaylistDetailScreen is shown before LuteaScaffold,
+            // so LocalLuteaWindowInsets isn't provided yet (that was the crash cause).
+            insets = WindowInsets.systemBars,
         )
         return
     }
