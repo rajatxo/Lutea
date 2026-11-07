@@ -8,15 +8,16 @@ import com.rajatxo.lutea.domain.model.Song
 
 /**
  * Scans the device for local audio files using MediaStore.
- * Ported from Coral X's MusicScanner.kt.
+ *
+ * Supports folder-based scanning — pass a folder path to scan only that
+ * folder (and subfolders). Pass null to scan the whole device.
  *
  * Fast scan — no MediaExtractor, no codec reading. Just MediaStore
  * query for metadata (title, artist, album, duration, etc.).
- * Returns in ~200-500ms for a typical library.
  */
 object MusicScanner {
 
-    fun scanMusic(context: Context): List<Song> {
+    fun scanMusic(context: Context, folderPath: String? = null): List<Song> {
         val contentResolver = context.contentResolver
         val songs = mutableListOf<Song>()
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -27,13 +28,21 @@ object MusicScanner {
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.DATE_ADDED
+            MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.DATA
         )
 
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+        // Folder filter: if folderPath is set, only return songs whose file path
+        // starts with the folder path. This scans ONLY the selected folder + subfolders.
+        val selection = if (folderPath != null) {
+            "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DATA} LIKE ?"
+        } else {
+            "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+        }
+        val selectionArgs = if (folderPath != null) arrayOf("$folderPath/%") else null
         val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
 
-        contentResolver.query(collection, projection, selection, null, sortOrder)?.use { cursor ->
+        contentResolver.query(collection, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)

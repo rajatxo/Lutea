@@ -556,6 +556,14 @@ fun LuteaScaffold(
             //    so it can coordinate with the per-word title animation. The
             //    searchOpen state + BackHandler stay here in the scaffold.
 
+            // ★ Mini player — above the nav bar. Only visible when a song is playing.
+            //    Slide-up animation when a song starts, slide-down when stopped.
+            com.rajatxo.lutea.ui.player.MiniPlayer(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = effBottomDp + 56.dp),
+            )
+
             // Bottom: nav capsule (fluid 3-circle expanding nav). Centered at
             // the bottom. The old sparkle-search circle beside the Library tab
             // has been removed — search is now triggered from the title text.
