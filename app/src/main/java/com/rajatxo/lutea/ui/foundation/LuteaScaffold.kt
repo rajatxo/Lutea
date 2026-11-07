@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -350,7 +351,8 @@ fun LuteaScaffold(
                     )
                     // createChainEffect(outer, inner) — inner is applied first
                     // (blur), then outer (threshold). So blur-then-threshold.
-                    android.graphics.RenderEffect.createChainEffect(threshold, blur)
+                    val androidEffect = android.graphics.RenderEffect.createChainEffect(threshold, blur)
+                    androidEffect.asComposeRenderEffect()
                 } else null
             }
 
