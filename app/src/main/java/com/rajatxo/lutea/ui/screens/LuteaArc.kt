@@ -1162,7 +1162,7 @@ fun LuteaArc(
                         //    On 411dp phone: main=57sp, secondary=~45sp
                         //    On 480dp phone: main=60sp (clamped), secondary=49sp (clamped)
                         val mainTextSp = (maxWidth.value * 0.15f).coerceIn(50f, 60f)
-                        val secondaryTextSp = (maxWidth.value * 0.11f).coerceIn(38f, 49f)  // ★ increased from 0.10/35-45 to 0.11/38-49
+                        val secondaryTextSp = (maxWidth.value * 0.105f).coerceIn(36f, 46f)  // ★ was 0.11/38-49, now 0.105/36-46 (only ~1sp increase from original)
                         var actualFontSize = if (isActive) mainTextSp else secondaryTextSp
                         val textLayoutResult = textMeasurer.measure(
                             text = AnnotatedString(displayText),
