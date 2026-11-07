@@ -323,14 +323,50 @@ fun LuteaScaffold(
                 }
             }
 
+            // ★ Gooey metaball RenderEffect — ported from gooey-react's SVG filter
+            // (https://github.com/luukdv/gooey-react). The filter is a chain of:
+            //   1. Gaussian blur (stdDeviation = 12)
+            //   2. ColorMatrix that boosts alpha ×72 then shifts -36 — equivalent
+            //      to thresholding alpha at 0.5. The blur bleeds adjacent shapes'
+            //      alphas into each other; the threshold snaps the merged region
+            //      back to opaque, creating the liquid "metaball bridge" between
+            //      close shapes. When shapes are far apart, the blur doesn't reach
+            //      between them and the threshold leaves them sharp and separate —
+            //      same effect as the reference video's fused→separated animation.
+            //      API 31+ (Android 12) only; falls back to no effect on older.
+            val gooeyEffect = remember {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val blur = android.graphics.RenderEffect.createBlurEffect(
+                        12f, 12f, android.graphics.Shader.TileMode.CLAMP
+                    )
+                    val matrix = android.graphics.ColorMatrix(floatArrayOf(
+                        1f, 0f, 0f, 0f, 0f,
+                        0f, 1f, 0f, 0f, 0f,
+                        0f, 0f, 1f, 0f, 0f,
+                        0f, 0f, 0f, 72f, -36f,
+                    ))
+                    val threshold = android.graphics.RenderEffect.createColorFilterEffect(
+                        android.graphics.ColorMatrixColorFilter(matrix)
+                    )
+                    // createChainEffect(outer, inner) — inner is applied first
+                    // (blur), then outer (threshold). So blur-then-threshold.
+                    android.graphics.RenderEffect.createChainEffect(threshold, blur)
+                } else null
+            }
+
             // ★ Morphing pills overlay — 4 white/grey gradient pills that morph
-            // FROM the 4 hollow circles at the menu button (rest, fused as the
-            // menu icon) TO 4 separate pills in a horizontal row below the top
-            // title (open, separated by 8dp gaps). Each pill's graphicsLayer
-            // interpolates translation (circle position → pill row position) and
-            // scale (8dp circle → full pill size), driven by morphProgress. This
-            // is what makes it FEEL like the circles turn into the capsules and
-            // then SEPARATE — same spring as the reference video.
+            // FROM the 4 hollow circles at the menu button (rest, fused as one
+            // blob via the gooey filter) TO 4 separate pills in a horizontal row
+            // below the top title (open, separated cleanly once the gap exceeds
+            // the blur radius). The liquid "neck stretching then snapping" between
+            // adjacent pills during the morph IS the gooey metaball effect.
+            //
+            // Two layers:
+            //  • Shape layer — 4 rounded-rect gradients with the gooey RenderEffect
+            //    applied. Blurred+thresholded as a group so adjacent shapes merge
+            //    when close. (Border is omitted — the threshold would eat it.)
+            //  • Text layer — 4 labels at the same morphed positions, NO gooey so
+            //    text stays crisp. Fades in over the last 60% of the morph.
             if (morphProgress > 0.01f) {
                 val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
                 // 4 slightly different white/grey vertical gradients — "random
@@ -346,6 +382,44 @@ fun LuteaScaffold(
                         .align(Alignment.TopStart)
                         .fillMaxSize()
                 ) {
+                    // ── Shape layer (with gooey) ──
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                if (gooeyEffect != null) renderEffect = gooeyEffect
+                            }
+                    ) {
+                        labels.forEachIndexed { i, _ ->
+                            Box(
+                                modifier = Modifier
+                                    .offset {
+                                        IntOffset(
+                                            (pillCentersPx[i].x - pillWidthPx / 2).roundToInt(),
+                                            (pillCentersPx[i].y - pillHeightPx / 2).roundToInt(),
+                                        )
+                                    }
+                                    .size(width = pillWidthDp, height = pillHeightDp)
+                                    .graphicsLayer {
+                                        // Translate from circle position (morphProgress=0)
+                                        // to pill row position (morphProgress=1)
+                                        translationX = pillToCircleDeltasPx[i].x * (1f - morphProgress)
+                                        translationY = pillToCircleDeltasPx[i].y * (1f - morphProgress)
+                                        // Scale from 8dp circle (morphProgress=0) to
+                                        // full pill size (morphProgress=1)
+                                        val startScaleX = circleSizePx / pillWidthPx
+                                        val startScaleY = circleSizePx / pillHeightPx
+                                        scaleX = startScaleX + (1f - startScaleX) * morphProgress
+                                        scaleY = startScaleY + (1f - startScaleY) * morphProgress
+                                        alpha = morphProgress
+                                    }
+                                    .clip(RoundedCornerShape(17.dp))
+                                    .background(brush = Brush.verticalGradient(colors = gradients[i]))
+                            )
+                        }
+                    }
+
+                    // ── Text layer (no gooey — sharp labels on top) ──
                     labels.forEachIndexed { i, label ->
                         Box(
                             modifier = Modifier
@@ -357,21 +431,17 @@ fun LuteaScaffold(
                                 }
                                 .size(width = pillWidthDp, height = pillHeightDp)
                                 .graphicsLayer {
-                                    // Translate from circle position (morphProgress=0)
-                                    // to pill row position (morphProgress=1)
+                                    // Same morph as the shape layer (translation + scale)
                                     translationX = pillToCircleDeltasPx[i].x * (1f - morphProgress)
                                     translationY = pillToCircleDeltasPx[i].y * (1f - morphProgress)
-                                    // Scale from 8dp circle (morphProgress=0) to
-                                    // full pill size (morphProgress=1)
                                     val startScaleX = circleSizePx / pillWidthPx
                                     val startScaleY = circleSizePx / pillHeightPx
                                     scaleX = startScaleX + (1f - startScaleX) * morphProgress
                                     scaleY = startScaleY + (1f - startScaleY) * morphProgress
-                                    alpha = morphProgress
-                                }
-                                .clip(RoundedCornerShape(17.dp))
-                                .background(brush = Brush.verticalGradient(colors = gradients[i]))
-                                .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(17.dp)),
+                                    // Text fades in over the last 60% of the morph so
+                                    // the shape change reads first, then labels appear
+                                    alpha = ((morphProgress - 0.4f) / 0.6f).coerceIn(0f, 1f)
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -382,11 +452,6 @@ fun LuteaScaffold(
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.graphicsLayer {
-                                    // Text fades in over the last 60% of the morph so
-                                    // the shape change reads first, then labels appear
-                                    alpha = ((morphProgress - 0.4f) / 0.6f).coerceIn(0f, 1f)
-                                }
                             )
                         }
                     }
