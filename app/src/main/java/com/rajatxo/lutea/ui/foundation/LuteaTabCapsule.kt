@@ -1,45 +1,50 @@
 package com.rajatxo.lutea.ui.foundation
 
+import android.media.AudioAttributes
 import android.media.SoundPool
 import android.view.HapticFeedbackConstants
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.LayerBackdrop
@@ -49,24 +54,91 @@ import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.icons.LuteaIcons
 import com.rajatxo.lutea.ui.util.LuteaTab
+import kotlin.math.roundToInt
 
-/**
- * LuteaTabCapsule — frosted floating nav bar, Coral-style single-tab display.
+/*
+ * =============================================================================
+ *  LuteaTabCapsule.kt  —  FLUID NAV  (3 expanding frosted-glass circles)
+ * =============================================================================
  *
- *   ONE OUTER capsule — blurs the background (kyant drawBackdrop) + a white
- *   gradient overlay (frosted white gradient: brighter at top, fading down).
- *   53% of screen width, subtle dark shadow.
+ *  WHAT IT DOES
+ *   - 3 separate glass circles in a row, left to right: Home, Search, Library.
+ *   - The active tab is a wide pill (icon + label). The other two stay circles
+ *     (icon only). Items never merge: it is a plain width animation, NOT gooey.
+ *   - Tap a circle (or swipe the bar): it springs open, the old pill springs
+ *     shut, the row reflows and the whole bar stays centred.
+ *   - Glass look: backdrop blur + white tint + soft drop shadow + thin bright rim.
+ *   - Glossy text: the icon/label get a light reflection on their top half, and
+ *     a light glint sweeps across them every time a tab opens.
  *
- *   Inside: only the ACTIVE tab is shown at a time — icon + CalSans label,
- *   centered. Swipe left/right to change tabs; the content slides in the
- *   swipe direction (AnimatedContent + slideInHorizontally/slideOutHorizontally).
- *   Tabs wrap around (past Library → Home). No black pill, no per-slot layout.
+ *  FITS ANY PHONE SCREEN  (Universal Layout Laws)
+ *   1. No insets in this file. LuteaScaffold positions the bar
+ *      (LocalLuteaWindowInsets) and applies effBottomDp itself.
+ *   2. Root is BoxWithConstraints. Every size is derived from maxWidth /
+ *      maxHeight. No screenHeightDp, no LocalConfiguration, no fixed screen sizes.
+ *   3. No bottom padding in here. The caller owns it.
+ *   4. The pill width is MEASURED from the real label (never guessed). The label
+ *      ellipsises before the bar can pass 80% of the width (leaves room for the
+ *      optional search circle), circles shrink on narrow screens, and the
+ *      system font scale is capped at 1.15x for the label.
  *
- * Pattern ported from Coral's TabCapsule.kt (swipe + AnimatedContent slide).
+ *  NOT IN THIS FILE
+ *   The tab shown at app start. Keep the initial activeTab in LuteaScaffold /
+ *   MainActivity as LuteaTab.Home so Home is the first page.
  *
- * Universal Layout Laws:
- *  - Law 7: BoxWithConstraints at root. Width = 53% of maxWidth, clamped.
+ *  EASY TUNING: change the constants just below, nothing else.
+ * =============================================================================
  */
+
+// ----------------------------- tunables --------------------------------------
+
+/** Icon + label colour (dark on white glass). */
+private val FluidInk = Color(0xFF1C1C1E)
+
+/** White glass tint, top edge → bottom edge (higher = whiter, less see-through). */
+private const val FluidGlassTopAlpha = 0.80f
+private const val FluidGlassBottomAlpha = 0.64f
+
+/** Background blur behind each circle / pill. */
+private val FluidGlassBlur = 16.dp
+
+/** Soft shadow under every circle / pill. */
+private val FluidShadow = 6.dp
+
+/** Left → right order of the bar: Home first, Search in the middle, Library last. */
+private val FluidOrder = listOf(LuteaTab.Home, LuteaTab.Search, LuteaTab.Library)
+
+// ------------------------------ brushes --------------------------------------
+
+/** Opaque white → grey, used only when no backdrop is available. */
+private val FluidFallbackSurface = Brush.verticalGradient(
+    colors = listOf(Color.White, Color(0xFFD8D8DC))
+)
+
+/** Soft sheen across the top of the glass. */
+private val FluidSurfaceSheen = Brush.verticalGradient(
+    0f to Color.White.copy(alpha = 0.30f),
+    0.55f to Color.Transparent,
+    1f to Color.Transparent,
+)
+
+/** Thin bright rim: light catches the top edge, fades, faint bounce at the bottom. */
+private val FluidRimLight = Brush.verticalGradient(
+    0f to Color.White.copy(alpha = 0.95f),
+    0.5f to Color.White.copy(alpha = 0.18f),
+    1f to Color.White.copy(alpha = 0.55f),
+)
+
+/** Glossy reflection painted ONLY over the dark glyphs (BlendMode.SrcAtop). */
+private val FluidTextReflection = Brush.verticalGradient(
+    0f to Color.White.copy(alpha = 0.44f),
+    0.49f to Color.White.copy(alpha = 0.22f),
+    0.53f to Color.Transparent,
+    1f to Color.Transparent,
+)
+
+// ------------------------------ public API -----------------------------------
+
 @Composable
 fun LuteaTabCapsule(
     tabs: List<LuteaTab>,
@@ -75,163 +147,325 @@ fun LuteaTabCapsule(
     modifier: Modifier = Modifier,
     backdrop: LayerBackdrop? = null,
 ) {
-    val view = LocalView.current
     val context = LocalContext.current
-    val activeIndex = tabs.indexOf(activeTab).coerceAtLeast(0)
+    val view = LocalView.current
+    val density = LocalDensity.current
 
-    // SoundPool for tick sound
-    val soundPool = remember { SoundPool.Builder().setMaxStreams(1).build() }
-    val tickSoundId = remember { mutableIntStateOf(0) }
-    DisposableEffect(Unit) {
-        tickSoundId.value = soundPool.load(context, R.raw.wheel_tick, 1)
-        onDispose { soundPool.release() }
-    }
-    val doTick: () -> Unit = {
-        view.performHapticFeedback(
-            HapticFeedbackConstants.VIRTUAL_KEY,
-            HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING or
-                HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
-        )
-        if (tickSoundId.value != 0) {
-            soundPool.play(tickSoundId.value, 0.5f, 0.5f, 1, 0, 1f)
-        }
+    // Always Home -> Search -> Library, whatever order the caller passes in.
+    val orderedTabs = remember(tabs) {
+        FluidOrder.filter { it in tabs } + tabs.filter { it !in FluidOrder }
     }
 
-    // Swipe state — ported from Coral's TabCapsule.
-    var slideDirection by remember { mutableIntStateOf(1) }   // 1 = forward (left swipe), -1 = back
-    var dragAccumulator by remember { mutableFloatStateOf(0f) }
-    val dragThreshold = 60f
+    // Tick sound (optional, safe if it has not finished loading yet).
+    val soundPool = remember {
+        SoundPool.Builder()
+            .setMaxStreams(1)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .build()
+    }
+    val tickId = remember(soundPool) { soundPool.load(context, R.raw.wheel_tick, 1) }
+    DisposableEffect(soundPool) { onDispose { soundPool.release() } }
 
-    // Palette
-    val contentColor = Color(0xFF1C1C1E)   // dark icon+label on the white frosted surface
-    // Frosted white gradient overlay — alpha varies top→bottom for the gradient.
-    val frostWhiteTop = 0.55f
-    val frostWhiteBottom = 0.38f
-    // Backdrop blur radius (Coral-matched 12dp).
-    val blurDp = 12.dp
-
-    BoxWithConstraints(modifier = modifier) {
-        val outerHeight: Dp = 48.dp
-        // ★ Law 7: 53% of available width, clamped. On the Library tab the
-        //    sparkle-search circle (= outerHeight) + 8dp gap sits beside the
-        //    capsule in the scaffold — shrink the capsule so the combined
-        //    [capsule + gap + circle] width equals the full 53% (same width
-        //    as the capsule on the other tabs).
-        val outerWidth: Dp = if (activeTab == LuteaTab.Library) {
-            ((maxWidth * 0.53f) - outerHeight - 8.dp).coerceIn(140.dp, 300.dp)
-        } else {
-            (maxWidth * 0.53f).coerceIn(200.dp, 360.dp)
+    // One place that handles a tab change (tap or swipe): haptic + tick + callback.
+    val select: (LuteaTab) -> Unit = { tab ->
+        if (tab != activeTab) {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            soundPool.play(tickId, 0.35f, 0.35f, 1, 0, 1f)
+            onTabSelected(tab)
         }
-        val outerShape: Shape = RoundedCornerShape(outerHeight / 2)
+    }
 
-        // OUTER capsule surface — blurs the background + white gradient overlay.
-        val outerModifier = if (backdrop != null) {
-            Modifier
-                .shadow(elevation = 3.dp, shape = outerShape, clip = true)
-                .drawBackdrop(
-                    backdrop = backdrop, shape = { outerShape },
-                    effects = {
-                        blur(blurDp.toPx())
-                    },
-                    onDrawSurface = {
-                        // Frosted white gradient — brighter at top, fading down.
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = frostWhiteTop),
-                                    Color.White.copy(alpha = frostWhiteBottom)
-                                )
-                            )
-                        )
-                    }
-                )
-        } else {
-            // Fallback: opaque white→grey gradient when no backdrop is supplied.
-            Modifier
-                .shadow(elevation = 3.dp, shape = outerShape, clip = true)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color(0xFFFCFCFC), Color(0xFFE2E2E2))
-                    )
-                )
-        }
+    // Latest values for the long-lived swipe detector below.
+    val latestSelect by rememberUpdatedState(select)
+    val latestTabs by rememberUpdatedState(orderedTabs)
+    val latestActive by rememberUpdatedState(activeTab)
+    val swipeThresholdPx = with(density) { 28.dp.toPx() }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .width(outerWidth)
-                .height(outerHeight)
-                .then(outerModifier)
-                // ★ Swipe to change tabs (Coral pattern). Wraps around.
-                .pointerInput(tabs, activeTab) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            dragAccumulator = 0f
-                        },
-                        onHorizontalDrag = { _, dragAmount ->
-                            dragAccumulator += dragAmount
-                            if (dragAccumulator < -dragThreshold) {
-                                // Swiped left → next tab
-                                slideDirection = 1
-                                val nextIndex = (activeIndex + 1) % tabs.size
-                                onTabSelected(tabs[nextIndex])
-                                doTick()
-                                dragAccumulator = 0f
-                            } else if (dragAccumulator > dragThreshold) {
-                                // Swiped right → previous tab (wrap to last)
-                                slideDirection = -1
-                                val prevIndex = if (activeIndex - 1 < 0) tabs.size - 1 else activeIndex - 1
-                                onTabSelected(tabs[prevIndex])
-                                doTick()
-                                dragAccumulator = 0f
-                            }
+    BoxWithConstraints(
+        modifier = modifier.pointerInput(swipeThresholdPx) {
+            var travel = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { travel = 0f },
+                onDragCancel = { travel = 0f },
+                onDragEnd = {
+                    val list = latestTabs
+                    val index = list.indexOf(latestActive)
+                    if (list.size > 1 && index >= 0) {
+                        // Swipe left = next tab, swipe right = previous (wraps around).
+                        if (travel <= -swipeThresholdPx) {
+                            latestSelect(list[(index + 1) % list.size])
+                        } else if (travel >= swipeThresholdPx) {
+                            latestSelect(list[(index - 1 + list.size) % list.size])
                         }
-                    )
-                }
-        ) {
-            // ★ Only the active tab is shown at a time — icon + label, centered.
-            //    Slides in the swipe direction on tab change (Coral's AnimatedContent pattern).
-            AnimatedContent(
-                targetState = activeTab,
-                transitionSpec = {
-                    if (slideDirection == 1) {
-                        slideInHorizontally(animationSpec = tween(250)) { fullWidth -> fullWidth } togetherWith
-                            slideOutHorizontally(animationSpec = tween(250)) { fullWidth -> -fullWidth }
-                    } else {
-                        slideInHorizontally(animationSpec = tween(250)) { fullWidth -> -fullWidth } togetherWith
-                            slideOutHorizontally(animationSpec = tween(250)) { fullWidth -> fullWidth }
                     }
+                    travel = 0f
                 },
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-                label = "tabContent"
-            ) { tab ->
-                val icon = when (tab) {
-                    LuteaTab.Home -> LuteaIcons.Home
-                    LuteaTab.Search -> LuteaIcons.Search
-                    LuteaTab.Library -> LuteaIcons.Library
-                }
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = tab.label,
-                        tint = contentColor,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = tab.label,
-                        color = contentColor,
-                        fontSize = 16.sp,
-                        fontFamily = CalSansFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
+                onHorizontalDrag = { change, dragAmount ->
+                    change.consume()
+                    travel += dragAmount
+                },
+            )
+        },
+    ) {
+        val metrics = fluidNavMetrics(
+            maxWidth = maxWidth,
+            maxHeight = maxHeight,
+            tabCount = orderedTabs.size,
+            fontScale = density.fontScale,
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(metrics.itemGap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            orderedTabs.forEach { tab ->
+                key(tab) {
+                    FluidNavItem(
+                        tab = tab,
+                        isActive = tab == activeTab,
+                        metrics = metrics,
+                        backdrop = backdrop,
+                        onClick = { select(tab) },
                     )
                 }
             }
         }
     }
 }
+
+// ------------------------------- sizing --------------------------------------
+
+/** Every size the bar needs, derived once from the space the caller gives us. */
+@Immutable
+private class FluidNavMetrics(
+    val diameter: Dp,
+    val itemGap: Dp,
+    val iconSize: Dp,
+    val iconLabelGap: Dp,
+    val endPadding: Dp,
+    val maxLabelWidth: Dp,
+    val labelSize: TextUnit,
+)
+
+private fun fluidNavMetrics(
+    maxWidth: Dp,
+    maxHeight: Dp,
+    tabCount: Int,
+    fontScale: Float,
+): FluidNavMetrics {
+    // Guard: a parent could (rarely) hand us unbounded space.
+    val w = if (maxWidth == Dp.Infinity) 360.dp else maxWidth
+    val h = if (maxHeight == Dp.Infinity) 800.dp else maxHeight
+
+    // Circle diameter: 48dp normally, smaller on very narrow screens, a bit larger
+    // on tablets/foldables, and never taller than 13% of the available height
+    // (keeps landscape phones tidy). Never below 40dp.
+    val byWidth = if (w >= 600.dp) 56.dp else minOf(48.dp, w * 0.14f)
+    val diameter = maxOf(40.dp, minOf(byWidth, h * 0.13f))
+
+    // Everything else scales from the diameter (designed at 48dp).
+    val s = diameter / 48.dp
+    val itemGap = 8.dp * s
+    val iconSize = 22.dp * s
+    val iconLabelGap = 10.dp * s
+    val endPadding = 20.dp * s
+    val startPadding = (diameter - iconSize) / 2f
+
+    // Label size ignores user font scale above 1.15x so the bar can never blow up.
+    val cappedScale = minOf(fontScale, 1.15f)
+    val labelSize = (17f * s * cappedScale / fontScale).sp
+
+    // The widest the label may be so that the bar stays within 80% of the width.
+    val others = (tabCount - 1).coerceAtLeast(0)
+    val budget = w * 0.80f
+    val fixed = (diameter + itemGap) * others + startPadding + iconSize + iconLabelGap + endPadding
+    val maxLabelWidth = maxOf(diameter, budget - fixed)
+
+    return FluidNavMetrics(
+        diameter = diameter,
+        itemGap = itemGap,
+        iconSize = iconSize,
+        iconLabelGap = iconLabelGap,
+        endPadding = endPadding,
+        maxLabelWidth = maxLabelWidth,
+        labelSize = labelSize,
+    )
+}
+
+// -------------------------------- item ---------------------------------------
+
+@Composable
+private fun FluidNavItem(
+    tab: LuteaTab,
+    isActive: Boolean,
+    metrics: FluidNavMetrics,
+    backdrop: LayerBackdrop?,
+    onClick: () -> Unit,
+) {
+    val shape: Shape = CircleShape
+
+    // 0 = circle, 1 = full pill. The spring gives the slight overshoot.
+    val expand = animateFloatAsState(
+        targetValue = if (isActive) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
+        label = "fluidTabExpand",
+    )
+
+    // Tiny press-in feedback.
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val press = animateFloatAsState(
+        targetValue = if (pressed) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+        label = "fluidTabPress",
+    )
+
+    // Glint that sweeps over the glyphs each time this tab opens (1 = finished).
+    val glint = remember { Animatable(1f) }
+    LaunchedEffect(isActive) {
+        if (isActive) {
+            glint.snapTo(0f)
+            glint.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 900,
+                    delayMillis = 120,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+        } else {
+            glint.snapTo(1f)
+        }
+    }
+
+    // Frosted glass when a backdrop exists, opaque white -> grey otherwise.
+    val surface: Modifier = if (backdrop != null) {
+        Modifier.drawBackdrop(
+            backdrop = backdrop,
+            shape = { shape },
+            effects = { blur(FluidGlassBlur.toPx()) },
+            onDrawSurface = {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = FluidGlassTopAlpha),
+                            Color.White.copy(alpha = FluidGlassBottomAlpha),
+                        )
+                    )
+                )
+                drawRect(brush = FluidSurfaceSheen)
+            },
+        )
+    } else {
+        Modifier.background(brush = FluidFallbackSurface, shape = shape)
+    }
+
+    Layout(
+        content = {
+            Icon(
+                imageVector = fluidTabIcon(tab),
+                contentDescription = null,
+                tint = FluidInk,
+                modifier = Modifier.size(metrics.iconSize),
+            )
+            Text(
+                text = tab.label,
+                color = FluidInk,
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.Medium,
+                fontSize = metrics.labelSize,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.graphicsLayer {
+                    // Label fades in as the pill widens; invisible while it is a circle.
+                    alpha = ((expand.value - 0.3f) / 0.7f).coerceIn(0f, 1f)
+                },
+            )
+        },
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = press.value
+                scaleY = press.value
+            }
+            .shadow(elevation = FluidShadow, shape = shape, clip = true)
+            .then(surface)
+            .border(width = 0.8.dp, brush = FluidRimLight, shape = shape)
+            .fluidGloss { glint.value }
+            .selectable(
+                selected = isActive,
+                interactionSource = interaction,
+                indication = null,
+                role = Role.Tab,
+                onClick = onClick,
+            ),
+    ) { measurables, _ ->
+        val d = metrics.diameter.roundToPx()
+        val iconPx = metrics.iconSize.roundToPx()
+        val gapPx = metrics.iconLabelGap.roundToPx()
+        val endPadPx = metrics.endPadding.roundToPx()
+        val startPadPx = (d - iconPx) / 2
+
+        val iconPlaceable = measurables[0].measure(Constraints.fixed(iconPx, iconPx))
+        val labelPlaceable = measurables[1].measure(
+            Constraints(maxWidth = metrics.maxLabelWidth.roundToPx())
+        )
+
+        // Pill width follows the real label width, so nothing is ever clipped.
+        val pillWidth = startPadPx + iconPx + gapPx + labelPlaceable.width + endPadPx
+        val t = expand.value.coerceIn(0f, 1.25f)
+        val width = (d + (pillWidth - d) * t).roundToInt().coerceAtLeast(d)
+
+        layout(width, d) {
+            // The icon never moves: it sits where it is centred in the circle.
+            iconPlaceable.placeRelative(startPadPx, (d - iconPlaceable.height) / 2)
+            // The label is simply revealed (clipped) as the pill grows.
+            labelPlaceable.placeRelative(
+                startPadPx + iconPx + gapPx,
+                (d - labelPlaceable.height) / 2,
+            )
+        }
+    }
+}
+
+// ------------------------------- helpers -------------------------------------
+
+private fun fluidTabIcon(tab: LuteaTab): ImageVector = when (tab) {
+    LuteaTab.Home -> LuteaIcons.Home
+    LuteaTab.Search -> LuteaIcons.Search
+    LuteaTab.Library -> LuteaIcons.Library
+}
+
+/**
+ * Glossy look for everything drawn inside (icon + label):
+ *  1. a light reflection over the top half of the glyphs,
+ *  2. a diagonal glint that sweeps across while [glint] goes 0 -> 1.
+ * Both are painted with SrcAtop inside an offscreen layer, so they only ever
+ * touch the glyph pixels, never the glass behind them.
+ */
+private fun Modifier.fluidGloss(glint: () -> Float): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        drawRect(brush = FluidTextReflection, blendMode = BlendMode.SrcAtop)
+
+        val t = glint()
+        if (t < 1f) {
+            val band = size.height * 1.1f
+            val startX = -band + (size.width + band) * t
+            drawRect(
+                brush = Brush.linearGradient(
+                    0f to Color.Transparent,
+                    0.5f to Color.White.copy(alpha = 0.9f),
+                    1f to Color.Transparent,
+                    start = Offset(startX, 0f),
+                    end = Offset(startX + band, size.height * 0.6f),
+                ),
+                blendMode = BlendMode.SrcAtop,
+            )
+        }
+    }
