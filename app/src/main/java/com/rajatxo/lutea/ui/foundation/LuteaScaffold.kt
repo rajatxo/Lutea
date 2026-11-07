@@ -460,20 +460,34 @@ fun LuteaScaffold(
                 }
 
                 // 3 ▸ MENU BUTTON — 40dp click target: 4 hollow dots (fade out) + close icon (fades in)
+                //    When SEARCH is open: the entire menu button FADES OUT and a CROSS
+                //    icon fades in at the same position — tapping the cross closes the search
+                //    (acts as a back button). When search closes: cross fades out, menu fades back in.
+                val menuButtonAlpha by animateFloatAsState(
+                    targetValue = if (searchOpen) 0f else 1f,
+                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                    label = "menuButtonFade"
+                )
+                val searchCloseIconAlpha by animateFloatAsState(
+                    targetValue = if (searchOpen) 1f else 0f,
+                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                    label = "searchCloseIconFade"
+                )
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(end = menuEndPadDp, top = menuTopPadDp)
                         .size(menuBoxDp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { menuOpen = !menuOpen; if (menuOpen) { searchOpen = false; searchOpenState.value = false } }
                 ) {
+                    // Menu button (hollow circles + X icon) — fades out when search opens
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = 1f - appearProgress.value }
+                            .graphicsLayer { alpha = menuButtonAlpha * (1f - appearProgress.value) }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { menuOpen = !menuOpen; if (menuOpen) { searchOpen = false; searchOpenState.value = false } }
                     ) {
                         dotOffsetsDp.forEach { (dx, dy) ->
                             Box(
@@ -484,6 +498,7 @@ fun LuteaScaffold(
                             )
                         }
                     }
+                    // Menu's X icon (for when menu is open) — also fades with menuButtonAlpha
                     Icon(
                         painter = painterResource(R.drawable.ic_close_circle),
                         contentDescription = "Close menu",
@@ -491,7 +506,22 @@ fun LuteaScaffold(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .size(24.dp)
-                            .graphicsLayer { alpha = closeIconAlpha }
+                            .graphicsLayer { alpha = menuButtonAlpha * closeIconAlpha }
+                    )
+                    // ★ Search close cross icon — fades in when search is open.
+                    //    Tapping it closes the search (acts as back button).
+                    Icon(
+                        painter = painterResource(R.drawable.ic_close_circle),
+                        contentDescription = "Close search",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(24.dp)
+                            .graphicsLayer { alpha = searchCloseIconAlpha }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { searchOpen = false; searchOpenState.value = false }
                     )
                 }
             }

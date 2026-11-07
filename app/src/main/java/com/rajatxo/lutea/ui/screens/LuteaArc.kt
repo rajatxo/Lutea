@@ -1183,58 +1183,39 @@ fun LuteaArc(
 
         // ──────────────────────────────────────────────────────────────
         // ★ Title — EACH WORD IS A SEPARATE LAYER. When search opens:
-        //   1. Username "(name)," BLURS OUT (RenderEffect blur → invisible).
-        //   2. "here" word BLURS OUT too.
-        //   3. Remaining words SHRINK (28sp → 22sp) + slide to one line:
-        //      "Search your playlist" (no username, no "here").
-        //   4. Search capsule APPEARS at line 2's old Y, FULL WIDTH.
-        //   Every removal and every movement uses BLUR OUT animation.
+        //   1. Username "(name)," + "here" FADE OUT (alpha → 0).
+        //   2. Remaining words SHRINK + slide to one line: "Search your playlist".
+        //   3. Search capsule FADES IN at line 2's Y + 6dp gap, full width.
+        //   The menu button (in LuteaScaffold) fades out and a cross icon
+        //   fades in at its position — tapping the cross closes the search.
         // ──────────────────────────────────────────────────────────────
         val onSearchTrigger = LocalSearchTrigger.current
         val userName by UserNameManager.state
         val searchOpen by LocalSearchOpen.current
 
-        // 5 words, each its own layer:
-        //   0: "(name),"     — white, BLURS OUT on search
-        //   1: " Search"     — gray, clickable
-        //   2: " your"       — white, lowercase
-        //   3: " playlist"   — white
-        //   4: " here"       — white, BLURS OUT on search
         val words = remember(userName) {
             listOf("$userName,", " Search", " your", " playlist", " here")
         }
         val wordColors = listOf(
-            Color.White,                           // "(name),"
-            Color.White.copy(alpha = 0.5f),        // "Search" — gray
-            Color.White,                           // "your"
-            Color.White,                           // "playlist"
-            Color.White,                           // "here"
+            Color.White, Color.White.copy(alpha = 0.5f), Color.White, Color.White, Color.White,
         )
 
         val bigFontSize = titleFontSize.toFloat()
         val smallFontSize = (titleFontSize - 6).toFloat()
 
-        // Animated font size (all words shrink together)
         val currentFontSize by animateFloatAsState(
             targetValue = if (searchOpen) smallFontSize else bigFontSize,
-            animationSpec = tween(300, easing = FastOutSlowInEasing),
-            label = "titleSize"
+            animationSpec = tween(300, easing = FastOutSlowInEasing), label = "titleSize"
         )
-        // searchProgress: 0 = closed (two lines), 1 = open (one line)
         val searchProgress by animateFloatAsState(
             targetValue = if (searchOpen) 1f else 0f,
-            animationSpec = tween(300, easing = FastOutSlowInEasing),
-            label = "searchProgress"
+            animationSpec = tween(400, easing = FastOutSlowInEasing), label = "searchProgress"
         )
-        // Blur-out progress for username (word 0) and "here" (word 4).
-        // 0 = sharp/visible, 1 = fully blurred/invisible.
-        val blurProgress by animateFloatAsState(
-            targetValue = if (searchOpen) 1f else 0f,
-            animationSpec = tween(300, easing = FastOutSlowInEasing),
-            label = "blurProgress"
+        val fadeProgress by animateFloatAsState(
+            targetValue = if (searchOpen) 0f else 1f,
+            animationSpec = tween(300, easing = FastOutSlowInEasing), label = "fadeProgress"
         )
 
-        // Measure each word at BOTH font sizes
         val textMeasurer = rememberTextMeasurer()
         val baseStyle = TextStyle(fontFamily = CalSansFamily, fontWeight = FontWeight.Bold)
         val measuredBig = remember(titleFontSize, userName) {
@@ -1244,62 +1225,48 @@ fun LuteaArc(
             words.map { textMeasurer.measure(it, baseStyle.copy(fontSize = smallFontSize.sp)) }
         }
 
-        // Line positions — line 2 Y = measured text height
+        val arcDensity = LocalDensity.current
         val line1Ypx = 0f
-        val line2Ypx = measuredBig[0].size.height.toFloat()
+        val line2Ypx = measuredBig[0].size.height.toFloat() + with(arcDensity) { 6.dp.toPx() }
 
-        // State A (closed, big font, TWO lines):
-        //   Line 1: "(name)," " Search"
-        //   Line 2: " your" " playlist" " here"
         val posA = listOf(
-            Offset(0f, line1Ypx),                                          // word 0
-            Offset(measuredBig[0].size.width.toFloat(), line1Ypx),         // word 1
-            Offset(0f, line2Ypx),                                          // word 2
-            Offset(measuredBig[2].size.width.toFloat(), line2Ypx),         // word 3
-            Offset(measuredBig[2].size.width + measuredBig[3].size.width.toFloat(), line2Ypx), // word 4
+            Offset(0f, line1Ypx),
+            Offset(measuredBig[0].size.width.toFloat(), line1Ypx),
+            Offset(0f, line2Ypx),
+            Offset(measuredBig[2].size.width.toFloat(), line2Ypx),
+            Offset(measuredBig[2].size.width + measuredBig[3].size.width.toFloat(), line2Ypx),
         )
-
-        // State B (open, small font, ONE line — username + "here" BLURRED OUT):
-        //   "Search your playlist" — words 1, 2, 3 from X=0
         val s1 = measuredSmall[1].size.width.toFloat()
         val s2 = measuredSmall[2].size.width.toFloat()
         val posB = listOf(
-            Offset(0f, line1Ypx),              // word 0: stays, blurred out
-            Offset(0f, line1Ypx),              // word 1: starts from left
-            Offset(s1, line1Ypx),              // word 2: after word 1
-            Offset(s1 + s2, line1Ypx),         // word 3: after word 2
-            Offset(0f, line2Ypx),              // word 4: stays on line 2, blurred out
+            Offset(0f, line1Ypx),
+            Offset(0f, line1Ypx),
+            Offset(s1, line1Ypx),
+            Offset(s1 + s2, line1Ypx),
+            Offset(0f, line2Ypx),
         )
 
-        // Search capsule state
         val searchFocusRequester = remember { FocusRequester() }
         var searchQuery by remember { mutableStateOf("") }
         LaunchedEffect(searchOpen) {
             if (searchOpen) {
-                kotlinx.coroutines.delay(100)
+                kotlinx.coroutines.delay(200)
                 runCatching { searchFocusRequester.requestFocus() }
             }
         }
 
-        // Title container — FULL WIDTH (no fillMaxWidth(0.72f) constraint)
-        // so the search capsule can fit to screen.
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
                 .padding(start = 24.dp, top = 16.dp, end = 24.dp)
-                .fillMaxWidth()   // full width — search bar fits to screen
+                .fillMaxWidth()
         ) {
-            // ── 5 word layers ── each positioned via animated offset
+            // ── 5 word layers ──
             words.forEachIndexed { i, word ->
-                val ax = posA[i].x
-                val ay = posA[i].y
-                val bx = posB[i].x
-                val by = posB[i].y
-                val px = lerp(ax, bx, searchProgress)
-                val py = lerp(ay, by, searchProgress)
-                // Words 0 (username) and 4 ("here") BLUR OUT on search open.
-                val isBlurWord = (i == 0 || i == 4)
+                val px = lerp(posA[i].x, posB[i].x, searchProgress)
+                val py = lerp(posA[i].y, posB[i].y, searchProgress)
+                val wordAlpha = if (i == 0 || i == 4) fadeProgress else 1f
                 Text(
                     text = word,
                     color = wordColors[i],
@@ -1308,18 +1275,7 @@ fun LuteaArc(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     modifier = Modifier
-                        .graphicsLayer {
-                            // Blur out: apply increasing blur radius as blurProgress → 1
-                            if (isBlurWord && blurProgress > 0.01f) {
-                                val blurPx = blurProgress * 20f  // up to 20px blur
-                                renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                                    blurPx, blurPx,
-                                    android.graphics.Shader.TileMode.CLAMP
-                                )?.asComposeRenderEffect()
-                                // Also fade alpha so the blurred text disappears fully
-                                alpha = (1f - blurProgress).coerceIn(0f, 1f)
-                            }
-                        }
+                        .graphicsLayer { alpha = wordAlpha }
                         .offset { IntOffset(px.roundToInt(), py.roundToInt()) }
                         .then(
                             if (i == 1) Modifier.clickable(
@@ -1331,7 +1287,7 @@ fun LuteaArc(
                 )
             }
 
-            // ── Search capsule ── FULL WIDTH, at line 2's old Y position.
+            // ── Search capsule ── full width, at line 2's Y + 6dp gap.
             //    Fades in as searchProgress → 1.
             if (searchProgress > 0.01f) {
                 Box(
