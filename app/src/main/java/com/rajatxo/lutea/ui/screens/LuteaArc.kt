@@ -1173,13 +1173,14 @@ fun LuteaArc(
         }
 
         // ──────────────────────────────────────────────────────────────
-        // ★ Title "Search your Playlist here" (two-tone, big, with search icon).
-        //    "Search" is gray (same as the old "Rotate the") and CLICKABLE —
-        //    tapping it opens the search keyboard at the menu pills position.
-        //    "your" and "Playlist here" are white. The search icon matches the
-        //    one beside the nav (ic_search_sparkle), tinted gray to match Search.
+        // ★ Title "Search / Your playlist" (two-tone, big, with search icon).
+        //    Line 1: [search icon] "Search" — BIGGER font (titleFontSize + 2sp),
+        //             gray, CLICKABLE → opens search keyboard at menu pills position.
+        //    Line 2: "Your playlist" — normal titleFontSize, white.
+        //    Icon is the new ic_search_new (magnifying glass), tinted gray to match Search.
         // ──────────────────────────────────────────────────────────────
         val onSearchTrigger = LocalSearchTrigger.current
+        val searchFontSize = (titleFontSize + 2).sp   // slightly bigger than line 2
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -1188,15 +1189,15 @@ fun LuteaArc(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_search_sparkle),
+                    painter = painterResource(R.drawable.ic_search_new),
                     contentDescription = null,
                     tint = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.size(titleFontSize.dp)
+                    modifier = Modifier.size((titleFontSize + 2).dp)
                 )
                 Text(
                     text = "Search",
                     color = Color.White.copy(alpha = 0.5f),
-                    fontSize = titleFontSize.sp,
+                    fontSize = searchFontSize,
                     fontFamily = CalSansFamily,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -1207,17 +1208,9 @@ fun LuteaArc(
                             indication = null
                         ) { onSearchTrigger() }
                 )
-                Text(
-                    text = " your",
-                    color = Color.White,
-                    fontSize = titleFontSize.sp,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
             }
             Text(
-                text = "Playlist here",
+                text = "Your playlist",
                 color = Color.White,
                 fontSize = titleFontSize.sp,
                 fontFamily = CalSansFamily,
