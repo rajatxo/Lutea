@@ -1184,13 +1184,12 @@ fun LuteaArc(
         // ──────────────────────────────────────────────────────────────
         // ★ Title — EACH WORD IS A SEPARATE LAYER so they can animate
         //    independently. When search opens:
-        //      1. All words SHRINK (font size animates 28sp → 22sp).
-        //      2. Line 2 words ("Your" + "playlists") SLIDE UP to line 1,
-        //         positioning themselves after "Search" — all on one row.
-        //      3. The search capsule APPEARS at line 2's old Y position
-        //         (the space vacated by "Your playlists").
-        //    Words are positioned via animated offsets computed from
-        //    TextMeasurer measurements at both font sizes.
+        //      1. Username ("(name),") FADES OUT (alpha → 0) to free space.
+        //      2. Remaining words SHRINK (font 28sp → 22sp) and slide to
+        //         one line: "Search Your playlists" starting from X=0.
+        //      3. Search capsule APPEARS at line 2's old Y position.
+        //    When search closes (back press): username fades back in,
+        //    words grow back and slide to two lines.
         // ──────────────────────────────────────────────────────────────
         val onSearchTrigger = LocalSearchTrigger.current
         val userName by UserNameManager.state
@@ -1220,6 +1219,13 @@ fun LuteaArc(
             animationSpec = tween(300, easing = FastOutSlowInEasing),
             label = "searchProgress"
         )
+        // Username fades out when search opens → frees space so the one-line
+        // "Search Your playlists" fits before the menu button.
+        val userNameAlpha by animateFloatAsState(
+            targetValue = if (searchOpen) 0f else 1f,
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "userNameAlpha"
+        )
 
         // Measure each word at BOTH font sizes (for position interpolation)
         val textMeasurer = rememberTextMeasurer()
@@ -1231,15 +1237,15 @@ fun LuteaArc(
             words.map { textMeasurer.measure(it, baseStyle.copy(fontSize = smallFontSize.sp)) }
         }
 
-        // Line positions (px) — line 2 Y is fixed at the big-font line height
-        val arcDensity = LocalDensity.current
+        // Line positions — line 2 Y = actual measured text height (matches old
+        // Column spacing, tighter than the previous titleFontSize + 6dp).
         val line1Ypx = 0f
-        val line2Ypx = with(arcDensity) { (titleFontSize + 6).dp.toPx() }
+        val line2Ypx = measuredBig[0].size.height.toFloat()
 
         // State A (closed, big font, TWO lines):
-        //   Word 0 "(name),"  → (0, line1Y)
-        //   Word 1 " Search"  → (word0width, line1Y)
-        //   Word 2 " Your"    → (0, line2Y)
+        //   Word 0 "(name),"    → (0, line1Y)
+        //   Word 1 " Search"    → (word0width, line1Y)
+        //   Word 2 " Your"      → (0, line2Y)
         //   Word 3 " playlists" → (word2width, line2Y)
         val posA = listOf(
             Offset(0f, line1Ypx),
@@ -1248,16 +1254,16 @@ fun LuteaArc(
             Offset(measuredBig[2].size.width.toFloat(), line2Ypx),
         )
 
-        // State B (open, small font, ONE line):
-        //   All words on line 1, left to right
-        val s0 = measuredSmall[0].size.width.toFloat()
+        // State B (open, small font, ONE line — username INVISIBLE):
+        //   Word 0 stays at (0,0) but faded out.
+        //   Words 1-3 start from X=0: "Search Your playlists"
         val s1 = measuredSmall[1].size.width.toFloat()
         val s2 = measuredSmall[2].size.width.toFloat()
         val posB = listOf(
-            Offset(0f, line1Ypx),
-            Offset(s0, line1Ypx),
-            Offset(s0 + s1, line1Ypx),
-            Offset(s0 + s1 + s2, line1Ypx),
+            Offset(0f, line1Ypx),                    // word 0: stays, fades out
+            Offset(0f, line1Ypx),                    // word 1: starts from left
+            Offset(s1, line1Ypx),                    // word 2: after word 1
+            Offset(s1 + s2, line1Ypx),               // word 3: after word 2
         )
 
         // Search capsule state (focus + query) — kept alive even when capsule is fading
@@ -1286,6 +1292,8 @@ fun LuteaArc(
                 val by = posB[i].y
                 val px = lerp(ax, bx, searchProgress)
                 val py = lerp(ay, by, searchProgress)
+                // Word 0 (username) fades out when search opens; others stay full alpha.
+                val wordAlpha = if (i == 0) userNameAlpha else 1f
                 Text(
                     text = word,
                     color = wordColors[i],
@@ -1294,6 +1302,7 @@ fun LuteaArc(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     modifier = Modifier
+                        .graphicsLayer { alpha = wordAlpha }
                         .offset { IntOffset(px.roundToInt(), py.roundToInt()) }
                         .then(
                             if (i == 1) Modifier.clickable(
