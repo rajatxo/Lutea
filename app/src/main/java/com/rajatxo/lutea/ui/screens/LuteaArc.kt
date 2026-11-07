@@ -187,29 +187,25 @@ fun LuteaArc(
     }
 
     fun tickHaptic() {
-        var hapticPerformed = false
+        // ★ Uses Vibrator API directly with createOneShot — works on ALL devices.
+        //    10ms one-shot = very light vibration, less than the nav bar's 25ms.
+        //    performHapticFeedback was unreliable (CLOCK_TICK not supported on
+        //    some devices, returning false and producing no vibration at all).
         try {
-            // ★ Decreased vibration — CLOCK_TICK instead of VIRTUAL_KEY.
-            //    Lighter haptic, less intense.
-            hapticPerformed = view.performHapticFeedback(
-                HapticFeedbackConstants.CLOCK_TICK,
-                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING or
-                    HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
-            )
-        } catch (_: Exception) { }
-        if (!hapticPerformed) {
-            try {
-                vibrator?.let { v ->
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        // ★ Lighter predefined effect — EFFECT_TICK instead of EFFECT_CLICK
-                        v.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_TICK))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        v.vibrate(15)  // ★ Reduced from 30ms to 15ms
-                    }
+            vibrator?.let { v ->
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    v.vibrate(
+                        android.os.VibrationEffect.createOneShot(
+                            10,
+                            android.os.VibrationEffect.DEFAULT_AMPLITUDE
+                        )
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    v.vibrate(10)
                 }
-            } catch (_: Exception) { }
-        }
+            }
+        } catch (_: Exception) { }
         // ★ Tick sound temporarily DISABLED — uncomment to re-enable
         // if (soundLoaded) {
         //     try { soundPool.play(tickSoundId, 0.6f, 0.6f, 1, 0, 1f) } catch (_: Exception) { }

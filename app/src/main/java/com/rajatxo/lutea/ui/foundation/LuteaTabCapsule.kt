@@ -156,16 +156,27 @@ fun LuteaTabCapsule(
         FluidOrder.filter { it in tabs } + tabs.filter { it !in FluidOrder }
     }
 
-    // ★ No sound effects. Vibration on tab change — KEYBOARD_TAP is noticeable
-    //    but not as strong as VIRTUAL_KEY. Flags force it even if view settings
-    //    disable haptics. CLOCK_TICK was too subtle (no vibration on some devices).
+    // ★ No sound effects. Vibration on tab change — uses the Vibrator API
+    //    directly (createOneShot) which works on ALL devices, bypassing
+    //    performHapticFeedback's view/window dependency that was producing
+    //    no vibration at all.
+    val navVibrator = remember {
+        context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+    }
     val select: (LuteaTab) -> Unit = { tab ->
         if (tab != activeTab) {
-            view.performHapticFeedback(
-                HapticFeedbackConstants.KEYBOARD_TAP,
-                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING or
-                    HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
-            )
+            // 25ms one-shot vibration — medium intensity, noticeable but not too strong
+            if (navVibrator != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                navVibrator.vibrate(
+                    android.os.VibrationEffect.createOneShot(
+                        25,
+                        android.os.VibrationEffect.DEFAULT_AMPLITUDE
+                    )
+                )
+            } else {
+                // Fallback for older APIs or no vibrator — use performHapticFeedback
+                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
             onTabSelected(tab)
         }
     }
