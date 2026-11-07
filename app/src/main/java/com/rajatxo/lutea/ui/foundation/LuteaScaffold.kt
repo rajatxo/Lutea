@@ -2,6 +2,7 @@ package com.rajatxo.lutea.ui.foundation
 
 import android.os.Build
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -201,30 +202,52 @@ fun LuteaScaffold(
                     )
             )
 
-            // ★ Morph animation — one bouncy spring drives the whole menu-open
-            // morph. It is read by BOTH the hollow circles in the menu button
-            // (fade out) AND the morphing pills overlay below (fade in + translate
-            // + scale from circle position to pill row position). StiffnessLow
-            // gives a slower, more visible morph (~0.7s settle) so the user
-            // clearly sees the circles morphing into pills + the gooey fading
-            // out as they separate. MediumBouncy damping for the satisfying
-            // overshoot "snap" matching the reference video.
-            val morphProgress by animateFloatAsState(
-                targetValue = if (menuOpen) 1f else 0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessLow
-                ),
-                label = "morph"
-            )
+            // ★ Two-phase menu-open animation — SEQUENTIAL, not simultaneous:
+            //   Phase 1 (FAST, 150ms tween): morph the 4 hollow circles at the
+            //      menu button INTO 4 pills at the row position below the title,
+            //      with gap=0 (fused as one shape via the gooey filter). This is
+            //      the "at the very fast I see all four capsules fused together"
+            //      moment the user asked for.
+            //   Phase 2 (SLOW, ~700ms bouncy spring): the fused pills SLOWLY
+            //      separate — gap grows from 0 to 8dp. The static gooey
+            //      RenderEffect creates the metaball bridge that stretches thin
+            //      then SNAPS as the gap exceeds the blur radius. This is the
+            //      separation animation from the gooey-react reference video.
+            // Closing reverses the phases: merge first, then morph back.
+            val appearProgress = remember { Animatable(0f) }
+            val separationProgress = remember { Animatable(0f) }
+            LaunchedEffect(menuOpen) {
+                if (menuOpen) {
+                    appearProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                    )
+                    separationProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    )
+                } else {
+                    separationProgress.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    )
+                    appearProgress.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                    )
+                }
+            }
 
-            // ★ Pre-computed morph geometry. The 4 pills morph FROM the 4 hollow
-            // circles in the menu button (2×2 grid, 8dp circles spaced 15dp apart)
-            // TO the 4 pills in a row below the top title. We compute every pill's
-            // final row position and its corresponding circle's position, then the
-            // per-pill delta from one to the other. graphicsLayer applies that delta
-            // × (1 - morphProgress) as translation, so at progress=0 each pill sits
-            // exactly on its circle, and at progress=1 it sits at its row slot.
+            // ★ Pre-computed geometry — pill sizes and the 4 hollow-circle centers
+            // at the menu button. The pills' row positions are computed INLINE in
+            // the offset lambda (because they vary with separationProgress as the
+            // gap grows from 0 to 8dp), so we don't pre-compute pillCentersPx.
             val density = LocalDensity.current
             val pillHeightDp = 34.dp
             val pillGapDp = 8.dp
@@ -254,21 +277,6 @@ fun LuteaScaffold(
             // Pill row Y center (statusBarsPadding + padding(top=92) + half height)
             val pillRowTopPx = with(density) { (effTopDp + 92.dp).toPx() }
             val pillRowCenterYPx = pillRowTopPx + pillHeightPx / 2
-            // 4 pill centers in the row (sidePad + i×(pillWidth+gap) + pillWidth/2)
-            val pillCentersPx = remember(sidePadPx, pillWidthPx, pillGapPx, pillRowCenterYPx) {
-                (0..3).map { i ->
-                    Offset(sidePadPx + i * (pillWidthPx + pillGapPx) + pillWidthPx / 2, pillRowCenterYPx)
-                }
-            }
-            // Per-pill delta from row position to circle position (px)
-            val pillToCircleDeltasPx = remember(circleCentersPx, pillCentersPx) {
-                (0..3).map { i ->
-                    Offset(
-                        circleCentersPx[i].x - pillCentersPx[i].x,
-                        circleCentersPx[i].y - pillCentersPx[i].y,
-                    )
-                }
-            }
 
             // ★ Menu button (top-right) — 40dp click target + X icon (fades in when
             //    open) + 4 hollow circles in 2×2 grid (the menu icon at rest).
@@ -322,67 +330,63 @@ fun LuteaScaffold(
                         modifier = Modifier
                             .offset(x = cx, y = cy)
                             .size(8.dp)
-                            .border(1.5.dp, Color.White.copy(alpha = 1f - morphProgress), CircleShape)
+                            .border(1.5.dp, Color.White.copy(alpha = 1f - appearProgress.value), CircleShape)
                     )
                 }
             }
 
-            // ★ Precomputed gooey RenderEffects at 15 blur levels (0..14) — ported
-            // from gooey-react's SVG filter (https://github.com/luukdv/gooey-react).
-            // Each is a chain of Gaussian blur → ColorMatrix threshold. We use a
-            // SOFTER threshold than the original (multiplier=18, shift=-8 →
-            // threshold at alpha 0.44) because Android's RenderEffect blur is a
-            // box blur, not a true Gaussian — the original ×72 / -36 values
-            // produce jagged binary edges on Android. Softer threshold = smooth
-            // anti-aliased edges while still forming the metaball bridge.
+            // ★ Static gooey RenderEffect — ported from gooey-react's SVG filter
+            // (https://github.com/luukdv/gooey-react). Chain of Gaussian blur
+            // (stdDeviation=12) → ColorMatrix threshold (multiplier=18, shift=-8 →
+            // threshold at alpha 0.44). Softer than the original ×72/-36 because
+            // Android's RenderEffect uses box blur — the sharp threshold produces
+            // jagged binary edges. Softer threshold = smooth anti-aliased edges.
             //
-            // Why 15 levels? The gooey strength must FADE as the pills separate,
-            // otherwise the blur reaches across the 8dp gap and keeps them merged
-            // even at morphProgress=1 ("just connected together"). At level 14
-            // (strongest) the gooey is deep — pills fuse as one blob. At level 0
-            // there's no effect — clean separate pills. graphicsLayer picks the
-            // level from (1 - morphProgress) × 14, so the gooey smoothly fades
-            // out as the pills separate — that's the "neck stretching then
-            // snapping" effect. API 31+ only; empty list on older devices.
-            val gooeyEffects = remember {
+            // STATIC (no level switching) because the gooey strength is now
+            // controlled by the GAP between pills, which grows from 0 to 8dp via
+            // separationProgress. When gap < 2×blur (24px) the blurred halos
+            // overlap → metaball bridge forms. When gap > 24px the halos can't
+            // reach → bridge snaps, pills are clean and separate. The natural
+            // physics of the blur radius vs gap IS the separation animation.
+            // API 31+ only; null on older devices.
+            val gooeyEffect = remember {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    (0..14).map { level ->
-                        if (level == 0) null
-                        else {
-                            val blurRadius = level.toFloat()
-                            val blur = android.graphics.RenderEffect.createBlurEffect(
-                                blurRadius, blurRadius, android.graphics.Shader.TileMode.CLAMP
-                            )
-                            val matrix = android.graphics.ColorMatrix(floatArrayOf(
-                                1f, 0f, 0f, 0f, 0f,
-                                0f, 1f, 0f, 0f, 0f,
-                                0f, 0f, 1f, 0f, 0f,
-                                0f, 0f, 0f, 18f, -8f,
-                            ))
-                            val threshold = android.graphics.RenderEffect.createColorFilterEffect(
-                                android.graphics.ColorMatrixColorFilter(matrix)
-                            )
-                            android.graphics.RenderEffect.createChainEffect(threshold, blur)
-                                .asComposeRenderEffect()
-                        }
-                    }
-                } else emptyList()
+                    val blur = android.graphics.RenderEffect.createBlurEffect(
+                        12f, 12f, android.graphics.Shader.TileMode.CLAMP
+                    )
+                    val matrix = android.graphics.ColorMatrix(floatArrayOf(
+                        1f, 0f, 0f, 0f, 0f,
+                        0f, 1f, 0f, 0f, 0f,
+                        0f, 0f, 1f, 0f, 0f,
+                        0f, 0f, 0f, 18f, -8f,
+                    ))
+                    val threshold = android.graphics.RenderEffect.createColorFilterEffect(
+                        android.graphics.ColorMatrixColorFilter(matrix)
+                    )
+                    android.graphics.RenderEffect.createChainEffect(threshold, blur)
+                        .asComposeRenderEffect()
+                } else null
             }
 
-            // ★ Morphing pills overlay — 4 white/grey gradient pills that morph
-            // FROM the 4 hollow circles at the menu button (rest, fused as one
-            // blob via the gooey filter) TO 4 separate pills in a horizontal row
-            // below the top title (open, separated cleanly once the gap exceeds
-            // the blur radius). The liquid "neck stretching then snapping" between
-            // adjacent pills during the morph IS the gooey metaball effect.
+            // ★ Morphing pills overlay — 4 white/grey gradient pills. Two SEQUENTIAL
+            // phases driven by appearProgress + separationProgress:
+            //   Phase 1 (FAST, 150ms tween): morph FROM the 4 hollow circles at the
+            //      menu button INTO 4 pills at the row position below the title,
+            //      with gap=0 (FUSED as one shape via the gooey filter). The user
+            //      sees "all four capsules fused together like one capsule".
+            //   Phase 2 (SLOW, ~700ms bouncy spring): the fused pills SLOWLY
+            //      separate — gap grows from 0 to 8dp. The static gooey RenderEffect
+            //      creates the metaball bridge that stretches thin then SNAPS as
+            //      the gap exceeds 2×blur (24px ≈ 6dp). This IS the separation
+            //      animation from the gooey-react reference video.
             //
             // Two layers:
-            //  • Shape layer — 4 rounded-rect gradients with the gooey RenderEffect
-            //    applied. Blurred+thresholded as a group so adjacent shapes merge
-            //    when close. (Border is omitted — the threshold would eat it.)
-            //  • Text layer — 4 labels at the same morphed positions, NO gooey so
-            //    text stays crisp. Fades in over the last 60% of the morph.
-            if (morphProgress > 0.01f) {
+            //  • Shape layer — 4 rounded-rect gradients with the static gooey
+            //    RenderEffect applied. Blurred+thresholded as a group so adjacent
+            //    pills merge when close and separate cleanly when far apart.
+            //  • Text layer — 4 labels at the same positions, NO gooey so text
+            //    stays crisp. Fades in over the last 60% of phase 1.
+            if (appearProgress.value > 0.01f) {
                 val labels = listOf("New Playlist", "Select Tag", "Favourite", "Settings")
                 // 4 slightly different white/grey vertical gradients — "random
                 // gradient" feel so each pill reads distinct.
@@ -397,48 +401,42 @@ fun LuteaScaffold(
                         .align(Alignment.TopStart)
                         .fillMaxSize()
                 ) {
-                    // ── Shape layer (with gooey) ──
+                    // ── Shape layer (with static gooey) ──
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                // Gooey strength fades as morphProgress → 1: level 14
-                                // (strongest) at progress=0, level 0 (no effect) at
-                                // progress=1. This is what makes the pills actually
-                                // SEPARATE at the end — without this fade, the blur
-                                // would keep reaching across the 8dp gap and the
-                                // pills would stay visually merged ("just connected
-                                // together"). The fade-out of the gooey IS the
-                                // "neck snapping" moment.
-                                if (gooeyEffects.isNotEmpty()) {
-                                    val level = ((1f - morphProgress) * 14f)
-                                        .roundToInt().coerceIn(0, 14)
-                                    renderEffect = gooeyEffects[level]
-                                }
+                                if (gooeyEffect != null) renderEffect = gooeyEffect
                             }
                     ) {
                         labels.forEachIndexed { i, _ ->
                             Box(
                                 modifier = Modifier
                                     .offset {
+                                        // Base X = row slot with CURRENT gap (varies with
+                                        // separationProgress: 0 at start, 8dp at end)
+                                        val currentGap = pillGapPx * separationProgress.value
+                                        val baseX = sidePadPx + i * (pillWidthPx + currentGap) + pillWidthPx / 2
+                                        val baseY = pillRowCenterYPx
+                                        // Morph translation: from circle position
+                                        // (appearProgress=0) to base position (appearProgress=1)
+                                        val morphT = 1f - appearProgress.value
+                                        val x = baseX + (circleCentersPx[i].x - baseX) * morphT
+                                        val y = baseY + (circleCentersPx[i].y - baseY) * morphT
                                         IntOffset(
-                                            (pillCentersPx[i].x - pillWidthPx / 2).roundToInt(),
-                                            (pillCentersPx[i].y - pillHeightPx / 2).roundToInt(),
+                                            (x - pillWidthPx / 2).roundToInt(),
+                                            (y - pillHeightPx / 2).roundToInt(),
                                         )
                                     }
                                     .size(width = pillWidthDp, height = pillHeightDp)
                                     .graphicsLayer {
-                                        // Translate from circle position (morphProgress=0)
-                                        // to pill row position (morphProgress=1)
-                                        translationX = pillToCircleDeltasPx[i].x * (1f - morphProgress)
-                                        translationY = pillToCircleDeltasPx[i].y * (1f - morphProgress)
-                                        // Scale from 8dp circle (morphProgress=0) to
-                                        // full pill size (morphProgress=1)
+                                        // Scale from 8dp circle (appearProgress=0) to
+                                        // full pill size (appearProgress=1)
                                         val startScaleX = circleSizePx / pillWidthPx
                                         val startScaleY = circleSizePx / pillHeightPx
-                                        scaleX = startScaleX + (1f - startScaleX) * morphProgress
-                                        scaleY = startScaleY + (1f - startScaleY) * morphProgress
-                                        alpha = morphProgress
+                                        scaleX = startScaleX + (1f - startScaleX) * appearProgress.value
+                                        scaleY = startScaleY + (1f - startScaleY) * appearProgress.value
+                                        alpha = appearProgress.value
                                     }
                                     .clip(RoundedCornerShape(17.dp))
                                     .background(brush = Brush.verticalGradient(colors = gradients[i]))
@@ -450,25 +448,29 @@ fun LuteaScaffold(
                     labels.forEachIndexed { i, label ->
                         Box(
                             modifier = Modifier
-                                .offset {
-                                    IntOffset(
-                                        (pillCentersPx[i].x - pillWidthPx / 2).roundToInt(),
-                                        (pillCentersPx[i].y - pillHeightPx / 2).roundToInt(),
-                                    )
-                                }
-                                .size(width = pillWidthDp, height = pillHeightDp)
-                                .graphicsLayer {
-                                    // Same morph as the shape layer (translation + scale)
-                                    translationX = pillToCircleDeltasPx[i].x * (1f - morphProgress)
-                                    translationY = pillToCircleDeltasPx[i].y * (1f - morphProgress)
-                                    val startScaleX = circleSizePx / pillWidthPx
-                                    val startScaleY = circleSizePx / pillHeightPx
-                                    scaleX = startScaleX + (1f - startScaleX) * morphProgress
-                                    scaleY = startScaleY + (1f - startScaleY) * morphProgress
-                                    // Text fades in over the last 60% of the morph so
-                                    // the shape change reads first, then labels appear
-                                    alpha = ((morphProgress - 0.4f) / 0.6f).coerceIn(0f, 1f)
-                                },
+                            .offset {
+                                val currentGap = pillGapPx * separationProgress.value
+                                val baseX = sidePadPx + i * (pillWidthPx + currentGap) + pillWidthPx / 2
+                                val baseY = pillRowCenterYPx
+                                val morphT = 1f - appearProgress.value
+                                val x = baseX + (circleCentersPx[i].x - baseX) * morphT
+                                val y = baseY + (circleCentersPx[i].y - baseY) * morphT
+                                IntOffset(
+                                    (x - pillWidthPx / 2).roundToInt(),
+                                    (y - pillHeightPx / 2).roundToInt(),
+                                )
+                            }
+                            .size(width = pillWidthDp, height = pillHeightDp)
+                            .graphicsLayer {
+                                // Same morph as the shape layer (scale)
+                                val startScaleX = circleSizePx / pillWidthPx
+                                val startScaleY = circleSizePx / pillHeightPx
+                                scaleX = startScaleX + (1f - startScaleX) * appearProgress.value
+                                scaleY = startScaleY + (1f - startScaleY) * appearProgress.value
+                                // Text fades in over the last 60% of phase 1 so
+                                // the shape change reads first, then labels appear
+                                alpha = ((appearProgress.value - 0.4f) / 0.6f).coerceIn(0f, 1f)
+                            },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
