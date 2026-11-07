@@ -220,7 +220,7 @@ fun LuteaArc(
     fun indexAtOffset(offset: Float): Int {
         if (playlists.isEmpty()) return 0
         val raw = (offset / pxPerItem).roundToInt()
-        val mod = raw % playlists.size
+        val mod = raw % playlists.size.coerceAtLeast(1)
         return if (mod < 0) mod + playlists.size else mod
     }
 
@@ -402,7 +402,7 @@ fun LuteaArc(
                                         scrollOffset.snapTo(newValue)
                                     }
                                     velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                    val currentIdx = ((scrollOffset.value / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
+                                    val currentIdx = ((scrollOffset.value / pxPerItem).roundToInt() % playlists.size.coerceAtLeast(1)).let { if (it < 0) it + playlists.size else it }
                                     if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
                                     change.consume()
                                 }
@@ -481,6 +481,7 @@ fun LuteaArc(
             // ★ Guard: only render the arc + slider when playlists exist.
             //    Prevents crash (% playlists.size = division by zero) and hides
             //    the arc/slider on empty state.
+            if (playlists.isNotEmpty()) {
             if (playlists.isNotEmpty()) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
@@ -577,7 +578,7 @@ fun LuteaArc(
 
                     for (offset in -visibleSpan..visibleSpan) {
                         val rawIdx = (rotationItems.roundToInt() - offset)
-                        val modIdx = ((rawIdx % playlists.size) + playlists.size) % playlists.size
+                        val modIdx = ((rawIdx % playlists.size.coerceAtLeast(1)) + playlists.size) % playlists.size.coerceAtLeast(1)
                         val playlist = playlists[modIdx]
 
                         val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
@@ -737,7 +738,7 @@ fun LuteaArc(
 
             for (offset in -visibleSpan..visibleSpan) {
                 val rawIdx = (rotationItems.roundToInt() - offset)
-                val modIdx = ((rawIdx % playlists.size) + playlists.size) % playlists.size
+                val modIdx = ((rawIdx % playlists.size.coerceAtLeast(1)) + playlists.size) % playlists.size.coerceAtLeast(1)
                 val playlist = playlists[modIdx]
 
                 val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
@@ -969,7 +970,7 @@ fun LuteaArc(
                                         val nearest = (targetScroll / pxPerItem).roundToInt()
                                         scrollOffset.animateTo(nearest * pxPerItem, spring(Spring.DampingRatioNoBouncy, Spring.StiffnessLow))
                                     }
-                                    val currentIdx = ((targetScroll / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
+                                    val currentIdx = ((targetScroll / pxPerItem).roundToInt() % playlists.size.coerceAtLeast(1)).let { if (it < 0) it + playlists.size else it }
                                     if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
                                 }
                             )
@@ -984,7 +985,7 @@ fun LuteaArc(
                                 val fraction = (y / trackHeightPx).coerceIn(0f, 1f)
                                 val targetScroll = fraction * maxSc
                                 coroutineScope.launch { scrollOffset.snapTo(targetScroll) }
-                                val currentIdx = ((targetScroll / pxPerItem).roundToInt() % playlists.size).let { if (it < 0) it + playlists.size else it }
+                                val currentIdx = ((targetScroll / pxPerItem).roundToInt() % playlists.size.coerceAtLeast(1)).let { if (it < 0) it + playlists.size else it }
                                 if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
                             }
 
@@ -1143,7 +1144,7 @@ fun LuteaArc(
                 for (offset in -4..4) {
                     // ★ Modulo wrap — every playlist appears 3 times across the full slider range.
                     val rawIdx = (rotationItems.roundToInt() - offset)
-                    val modIdx = ((rawIdx % playlists.size) + playlists.size) % playlists.size
+                    val modIdx = ((rawIdx % playlists.size.coerceAtLeast(1)) + playlists.size) % playlists.size.coerceAtLeast(1)
                     val playlist = playlists[modIdx]
                     val fractionalOffset = rotationItems - rotationItems.roundToInt() + offset
                     val absOffset = abs(fractionalOffset)
@@ -1248,6 +1249,8 @@ fun LuteaArc(
                 }
             }
         }
+
+            } // end if (playlists.isNotEmpty()) — arc + slider
 
             } // end if (playlists.isNotEmpty()) — arc + slider
 
