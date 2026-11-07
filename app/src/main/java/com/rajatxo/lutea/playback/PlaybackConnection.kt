@@ -14,7 +14,6 @@ import com.rajatxo.lutea.service.LuteaPlaybackService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.suspendCoroutine
 
 /**
  * PlaybackConnection — copied from Coral's pattern.
@@ -48,57 +47,45 @@ object PlaybackConnection {
 
     private var queue: List<Song> = emptyList()
 
-    suspend fun connect(context: Context) {
+    fun connect(context: Context) {
         if (controller != null) return
         try {
             val token = SessionToken(context, ComponentName(context, LuteaPlaybackService::class.java))
             controllerFuture = MediaController.Builder(context, token).buildAsync()
-            // Convert ListenableFuture to suspend call (no guava dependency needed)
-            val c = suspendCoroutine<MediaController> { cont ->
-                controllerFuture!!.addListener(
-                    { try { cont.resume(controllerFuture!!.get()) } catch (e: Exception) { cont.resumeWithException(e) } },
-                    Runnable::run
-                )
-            }
-            controller = c
-
-            c.addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(playing: Boolean) {
-                    _isPlaying.value = playing
-                    if (playing) {
-                        c.volume = 1f
-                    }
-                }
-
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    val songId = mediaItem?.mediaId?.toLongOrNull()
-                    _currentSong.value = queue.firstOrNull { it.id == songId }
-                    _positionMs.value = 0L
-                    _durationMs.value = 0L
-                    // Auto-play on transition (like Coral)
-                    if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
-                        if (!c.isPlaying) {
-                            c.play()
+            controllerFuture!!.addListener({
+                try {
+                    val c = controllerFuture!!.get()
+                    controller = c
+                    c.addListener(object : Player.Listener {
+                        override fun onIsPlayingChanged(playing: Boolean) {
+                            _isPlaying.value = playing
+                            if (playing) { c.volume = 1f }
                         }
-                    }
-                }
 
-                override fun onPlayerErrorChanged(error: androidx.media3.common.PlaybackException?) {
-                    if (error != null) {
-                        Log.e("PlaybackConnection", "Playback error: ${error.errorCodeName}", error)
-                        // Skip to next instead of crashing
-                        try {
-                            c.seekToNextMediaItem()
-                            c.prepare()
-                            c.play()
-                        } catch (e: Exception) {
-                            Log.e("PlaybackConnection", "Skip after error failed", e)
+                        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                            val songId = mediaItem?.mediaId?.toLongOrNull()
+                            _currentSong.value = queue.firstOrNull { it.id == songId }
+                            _positionMs.value = 0L
+                            _durationMs.value = 0L
+                            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                                if (!c.isPlaying) c.play()
+                            }
                         }
-                    }
+
+                        override fun onPlayerErrorChanged(error: androidx.media3.common.PlaybackException?) {
+                            if (error != null) {
+                                Log.e("PlaybackConnection", "Playback error: ${error.errorCodeName}", error)
+                                try { c.seekToNextMediaItem(); c.prepare(); c.play() }
+                                catch (e: Exception) { Log.e("PlaybackConnection", "Skip after error failed", e) }
+                            }
+                        }
+                    })
+                } catch (e: Exception) {
+                    Log.e("PlaybackConnection", "Failed to connect to playback service", e)
                 }
-            })
+            }, Runnable::run)
         } catch (e: Exception) {
-            Log.e("PlaybackConnection", "Failed to connect to playback service", e)
+            Log.e("PlaybackConnection", "Failed to start MediaController builder", e)
         }
     }
 
