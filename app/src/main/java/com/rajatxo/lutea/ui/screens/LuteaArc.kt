@@ -858,9 +858,9 @@ fun LuteaArc(
                 // ═══ SLIDER VALUES ═══
                 val sliderHeight = maxHeight * 0.55f
                 val trackWidth = 7.dp
-                val trackColor = Color.White.copy(alpha = 0.15f)
+                val trackColor = Color.White.copy(alpha = 0.25f)  // ★ was 0.15f, now 0.25f
                 val trackCorner = 3.dp
-                val trackPaddingEnd = maxWidth * 0.08f
+                val trackPaddingEnd = maxWidth * 0.075f  // ★ was 0.08f, now 0.075f (7.5%)
                 // ★ Thumb — 3D button: layered shadows + gradient + inner highlight
                 val thumbWidth = 20.dp
                 val thumbHeight = 60.dp
@@ -1048,15 +1048,15 @@ fun LuteaArc(
                 // ★ Max text width = screen width minus slider zone (8% + 20dp buffer)
                 val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbWidth + 10.dp).toPx() }
 
-                // Opacity: 100% → 90% → 70% → 50% → 30%
+                // Opacity: 100% → 90% → 75% → 62% → 45% → 30%
                 // Blur: 2dp on ±3, 5dp on ±4
                 fun alphaFor(absOffset: Float): Float = when {
                     absOffset < 0.5f -> 1f
                     absOffset < 1.5f -> 0.90f
-                    absOffset < 2.5f -> 0.70f
-                    absOffset < 3.5f -> 0.50f
-                    absOffset < 4.5f -> 0.30f
-                    else -> 0.10f
+                    absOffset < 2.5f -> 0.75f
+                    absOffset < 3.5f -> 0.62f
+                    absOffset < 4.5f -> 0.45f
+                    else -> 0.30f
                 }
 
                 // Progressive blur — light on ±3, heavier on ±4. Combined with fade.
@@ -1105,10 +1105,10 @@ fun LuteaArc(
                         //    Main = 15% of screen width (dp→sp), clamped 50-60.
                         //    Secondary = 10% of screen width, clamped 35-45.
                         //    On 360dp phone: main=54sp, secondary=36sp
-                        //    On 411dp phone: main=57sp (my recommended value), secondary=41sp
-                        //    On 480dp phone: main=60sp (clamped), secondary=45sp (clamped)
+                        //    On 411dp phone: main=57sp, secondary=~45sp
+                        //    On 480dp phone: main=60sp (clamped), secondary=49sp (clamped)
                         val mainTextSp = (maxWidth.value * 0.15f).coerceIn(50f, 60f)
-                        val secondaryTextSp = (maxWidth.value * 0.10f).coerceIn(35f, 45f)
+                        val secondaryTextSp = (maxWidth.value * 0.11f).coerceIn(38f, 49f)  // ★ increased from 0.10/35-45 to 0.11/38-49
                         var actualFontSize = if (isActive) mainTextSp else secondaryTextSp
                         val textLayoutResult = textMeasurer.measure(
                             text = AnnotatedString(displayText),
