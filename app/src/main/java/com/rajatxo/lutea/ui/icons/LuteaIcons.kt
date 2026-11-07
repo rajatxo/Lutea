@@ -180,26 +180,36 @@ object LuteaIcons {
         }
     }.build()
 
-    /** Lucide house icon (MIT) — exact provided SVG. Curved roof + arched door. */
-    val Home: ImageVector = stroke("Home") {
-        // Door: M15,21 v-8 a1,1 0 0 0 -1,-1 h-4 a1,1 0 0 0 -1,1 v8
-        moveTo(15f, 21f)
-        verticalLineTo(13f)
-        arcTo(1f, 1f, 0f, false, false, 14f, 12f)
-        horizontalLineTo(10f)
-        arcTo(1f, 1f, 0f, false, false, 9f, 13f)
-        verticalLineTo(21f)
-        // House outline: M3,10 a2,2 0 0 1 .709,-1.528 l7,-6 a2,2 0 0 1 2.582,0 l7,6 A2,2 0 0 1 21,10 v9 a2,2 0 0 1 -2,2 H5 a2,2 0 0 1 -2,-2 z
-        moveTo(3f, 10f)
-        arcTo(2f, 2f, 0f, false, true, 3.709f, 8.472f)
-        lineTo(10.709f, 2.472f)
-        arcTo(2f, 2f, 0f, false, true, 13.291f, 2.472f)
-        lineTo(20.291f, 8.472f)
-        arcTo(2f, 2f, 0f, false, true, 21f, 10f)
-        verticalLineTo(19f)
-        arcTo(2f, 2f, 0f, false, true, 19f, 21f)
-        horizontalLineTo(5f)
-        arcTo(2f, 2f, 0f, false, true, 3f, 19f)
+    /**
+     * New Home icon — filled house with roof chevron + body. 36x36 viewport.
+     * From the user's SVG (Clarity solid house):
+     *   Path 1 (roof): M33,19 a1,1 0 0 1 -.71,-.29 L18,4.41 L3.71,18.71 A1,1 0 0 1 2.3,17.3 l15,-15 a1,1 0 0 1 1.41,0 l15,15 A1,1 0 0 1 33,19
+     *   Path 2 (body): M18,7.79 L6,19.83 V32 a2,2 0 0 0 2,2 h7 V24 h6 v10 h7 a2,2 0 0 0 2,-2 V19.76 Z
+     */
+    val Home: ImageVector = filled("Home", viewportWidth = 36f, viewportHeight = 36f) {
+        // Roof chevron
+        moveTo(33f, 19f)
+        arcTo(1f, 1f, 0f, false, true, 32.29f, 18.71f)
+        lineTo(18f, 4.41f)
+        lineTo(3.71f, 18.71f)
+        arcTo(1f, 1f, 0f, false, true, 2.3f, 17.3f)
+        lineTo(17.3f, 2.3f)
+        arcTo(1f, 1f, 0f, false, true, 18.71f, 2.3f)
+        lineTo(33.71f, 17.3f)
+        arcTo(1f, 1f, 0f, false, true, 33f, 19f)
+        close()
+        // House body
+        moveTo(18f, 7.79f)
+        lineTo(6f, 19.83f)
+        verticalLineTo(32f)
+        arcTo(2f, 2f, 0f, false, false, 8f, 34f)
+        horizontalLineTo(15f)
+        verticalLineTo(24f)
+        horizontalLineTo(21f)
+        verticalLineTo(34f)
+        horizontalLineTo(28f)
+        arcTo(2f, 2f, 0f, false, false, 30f, 32f)
+        verticalLineTo(19.76f)
         close()
     }
 
