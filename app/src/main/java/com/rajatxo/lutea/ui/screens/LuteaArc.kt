@@ -1045,8 +1045,9 @@ fun LuteaArc(
                 //    On a 1080px screen with 0.33w radius = ~117px gap — plenty of room.
                 val angleStepDeg = 22f
                 val secondaryFontSize = 40.sp  // ★ was 35sp, now 40sp
-                // ★ Max text width = screen width minus slider zone (8% + 20dp buffer)
-                val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbWidth + 10.dp).toPx() }
+                // ★ Max text width = screen width minus slider zone (7.5% + 20dp thumb + 20dp gap buffer)
+                //    Buffer increased from 10dp to 20dp for a slightly larger gap between text and thumb.
+                val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbWidth + 20.dp).toPx() }
 
                 // Opacity: 100% → 90% → 75% → 62% → 45% → 30%
                 // Blur: 2dp on ±3, 5dp on ±4
@@ -1312,14 +1313,14 @@ fun LuteaArc(
                                 )
                             )
                         )
-                        .padding(horizontal = 12.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .padding(horizontal = 12.dp)
                 ) {
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
                         modifier = Modifier
                             .fillMaxWidth()
+                            .fillMaxHeight()  // ★ fill capsule height so cursor centers vertically
                             .focusRequester(searchFocusRequester),
                         singleLine = true,
                         textStyle = TextStyle(
@@ -1328,15 +1329,23 @@ fun LuteaArc(
                             fontFamily = CalSansFamily,
                         ),
                         decorationBox = { innerTextField ->
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = "Type to search...",
-                                    color = Color(0xFF1C1C1E).copy(alpha = 0.5f),
-                                    fontSize = 14.sp,
-                                    fontFamily = CalSansFamily,
-                                )
+                            // ★ Wrap in a Box that fills the capsule height and centers
+                            //    content vertically — fixes cursor "|" being positioned
+                            //    left + slightly up instead of centered in the capsule.
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Type to search...",
+                                        color = Color(0xFF1C1C1E).copy(alpha = 0.5f),
+                                        fontSize = 14.sp,
+                                        fontFamily = CalSansFamily,
+                                    )
+                                }
+                                innerTextField()
                             }
-                            innerTextField()
                         }
                     )
                 }
