@@ -381,7 +381,6 @@ fun LuteaArc(
                             detectVerticalDragGestures(
                                 onDragStart = { velocityTracker = VelocityTracker() },
                                 onDragEnd = {
-                                    if (playlists.isEmpty()) return@onDragEnd
                                     val velocity = velocityTracker.calculateVelocity().y
                                     coroutineScope.launch {
                                         val cycleLen = playlists.size * pxPerItem
@@ -394,7 +393,6 @@ fun LuteaArc(
                                     }
                                 },
                                 onVerticalDrag = { change, dragAmount ->
-                                    if (playlists.isEmpty()) return@onVerticalDrag
                                     coroutineScope.launch {
                                         val cycleLen = playlists.size * pxPerItem
                                         val maxSc = cycleLen * 3f
@@ -456,7 +454,6 @@ fun LuteaArc(
                                     }
                                 },
                                 onVerticalDrag = { change, dragAmount ->
-                                    if (playlists.isEmpty()) return@onVerticalDrag
                                     coroutineScope.launch { scrollOffset.snapTo(scrollOffset.value + dragAmount) }
                                     velocityTracker.addPosition(change.uptimeMillis, change.position)
                                     val currentIdx = indexAtOffset(scrollOffset.value)
@@ -478,10 +475,6 @@ fun LuteaArc(
                         }
                 )
         ) {
-            // ★ Guard: only render the arc + slider when playlists exist.
-            //    Prevents crash (% playlists.size = division by zero) and hides
-            //    the arc/slider on empty state.
-            if (playlists.isNotEmpty()) {
             if (playlists.isNotEmpty()) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
@@ -989,7 +982,6 @@ fun LuteaArc(
                                 if (currentIdx != lastSnappedIndex) { lastSnappedIndex = currentIdx; tickHaptic() }
                             }
 
-                            if (playlists.isEmpty()) return@pointerInput
                             awaitPointerEventScope {
                                 while (true) {
                                     val down = awaitFirstDown()
@@ -1249,8 +1241,6 @@ fun LuteaArc(
                 }
             }
         }
-
-            } // end if (playlists.isNotEmpty()) — arc + slider
 
             } // end if (playlists.isNotEmpty()) — arc + slider
 
