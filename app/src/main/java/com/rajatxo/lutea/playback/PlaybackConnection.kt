@@ -14,6 +14,7 @@ import com.rajatxo.lutea.service.LuteaPlaybackService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCoroutine
 
 /**
  * PlaybackConnection — copied from Coral's pattern.
@@ -52,7 +53,13 @@ object PlaybackConnection {
         try {
             val token = SessionToken(context, ComponentName(context, LuteaPlaybackService::class.java))
             controllerFuture = MediaController.Builder(context, token).buildAsync()
-            val c = controllerFuture!!.await()
+            // Convert ListenableFuture to suspend call (no guava dependency needed)
+            val c = suspendCoroutine<MediaController> { cont ->
+                controllerFuture!!.addListener(
+                    { try { cont.resume(controllerFuture!!.get()) } catch (e: Exception) { cont.resumeWithException(e) } },
+                    Runnable::run
+                )
+            }
             controller = c
 
             c.addListener(object : Player.Listener {
