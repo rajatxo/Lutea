@@ -189,8 +189,10 @@ fun LuteaArc(
     fun tickHaptic() {
         var hapticPerformed = false
         try {
+            // ★ Decreased vibration — CLOCK_TICK instead of VIRTUAL_KEY.
+            //    Lighter haptic, less intense.
             hapticPerformed = view.performHapticFeedback(
-                HapticFeedbackConstants.VIRTUAL_KEY,
+                HapticFeedbackConstants.CLOCK_TICK,
                 HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING or
                     HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
             )
@@ -199,17 +201,19 @@ fun LuteaArc(
             try {
                 vibrator?.let { v ->
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        v.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+                        // ★ Lighter predefined effect — EFFECT_TICK instead of EFFECT_CLICK
+                        v.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_TICK))
                     } else {
                         @Suppress("DEPRECATION")
-                        v.vibrate(30)
+                        v.vibrate(15)  // ★ Reduced from 30ms to 15ms
                     }
                 }
             } catch (_: Exception) { }
         }
-        if (soundLoaded) {
-            try { soundPool.play(tickSoundId, 0.6f, 0.6f, 1, 0, 1f) } catch (_: Exception) { }
-        }
+        // ★ Tick sound temporarily DISABLED — uncomment to re-enable
+        // if (soundLoaded) {
+        //     try { soundPool.play(tickSoundId, 0.6f, 0.6f, 1, 0, 1f) } catch (_: Exception) { }
+        // }
     }
 
     fun indexAtOffset(offset: Float): Int {

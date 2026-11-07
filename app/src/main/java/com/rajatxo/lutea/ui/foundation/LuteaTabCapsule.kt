@@ -156,12 +156,16 @@ fun LuteaTabCapsule(
         FluidOrder.filter { it in tabs } + tabs.filter { it !in FluidOrder }
     }
 
-    // ★ No sound effects — removed SoundPool. Medium vibration only on tab change.
+    // ★ No sound effects. Vibration on tab change — KEYBOARD_TAP is noticeable
+    //    but not as strong as VIRTUAL_KEY. Flags force it even if view settings
+    //    disable haptics. CLOCK_TICK was too subtle (no vibration on some devices).
     val select: (LuteaTab) -> Unit = { tab ->
         if (tab != activeTab) {
-            // Medium vibration — CLOCK_TICK is a subtle haptic, not as strong as
-            // the wheel's VIRTUAL_KEY. Not too much, just enough to feel the tab change.
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            view.performHapticFeedback(
+                HapticFeedbackConstants.KEYBOARD_TAP,
+                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING or
+                    HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+            )
             onTabSelected(tab)
         }
     }
