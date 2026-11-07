@@ -147,7 +147,7 @@ fun PlaylistDetailScreen(
 ) {
     DetailLightSystemBarIcons()
 
-    val themeState = rememberCoverThemeColor(playlist.coverUri, fallbackSeed = playlist.id)
+    val themeState = rememberCoverThemeColor(playlist.coverUri, fallbackSeed = playlist.id.toString())
     val listState = rememberLazyListState()
     val density = LocalDensity.current
 
@@ -199,7 +199,7 @@ fun PlaylistDetailScreen(
             coverHeight = coverHeight,
             scrollProgress = { progress.value },
             modifier = Modifier.align(Alignment.TopStart),
-            placeholderSeed = playlist.id,
+            placeholderSeed = playlist.id.toString(),
         )
 
         // layer 1: content. Top padding puts the header at the bottom of the cover's fade zone,
