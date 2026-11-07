@@ -42,72 +42,109 @@ object PlaybackConnection {
 
     fun connect(context: Context) {
         if (controller != null) return
-        val token = SessionToken(context, ComponentName(context, LuteaPlaybackService::class.java))
-        controllerFuture = MediaController.Builder(context, token).buildAsync().also { future ->
-            future.addListener({
-                controller = future.get()
-                controller?.addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(playing: Boolean) {
-                        _isPlaying.value = playing
-                    }
+        try {
+            val token = SessionToken(context, ComponentName(context, LuteaPlaybackService::class.java))
+            controllerFuture = MediaController.Builder(context, token).buildAsync().also { future ->
+                future.addListener({
+                    try {
+                        controller = future.get()
+                        controller?.addListener(object : Player.Listener {
+                            override fun onIsPlayingChanged(playing: Boolean) {
+                                _isPlaying.value = playing
+                            }
 
-                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        val songId = mediaItem?.mediaId?.toLongOrNull()
-                        _currentSong.value = queue.firstOrNull { it.id == songId }
-                        _positionMs.value = 0L
-                        _durationMs.value = 0L
+                            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                                val songId = mediaItem?.mediaId?.toLongOrNull()
+                                _currentSong.value = queue.firstOrNull { it.id == songId }
+                                _positionMs.value = 0L
+                                _durationMs.value = 0L
+                            }
+                        })
+                    } catch (e: Exception) {
+                        // Service connection failed — don't crash the app.
+                        // Playback won't work until the service is fixed.
+                        android.util.Log.e("PlaybackConnection", "Failed to connect to playback service", e)
                     }
-                })
-            }, Runnable::run)
+                }, Runnable::run)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackConnection", "Failed to start MediaController builder", e)
         }
     }
 
     fun pollPosition() {
-        controller?.let { c ->
-            _positionMs.value = c.currentPosition.coerceAtLeast(0L)
-            _durationMs.value = c.duration.coerceAtLeast(0L)
+        try {
+            controller?.let { c ->
+                _positionMs.value = c.currentPosition.coerceAtLeast(0L)
+                _durationMs.value = c.duration.coerceAtLeast(0L)
+            }
+        } catch (e: Exception) {
+            // Ignore polling errors
         }
     }
 
     fun playSong(song: Song, allSongs: List<Song>) {
         queue = allSongs
-        val controller = controller ?: return
-        val mediaItems = allSongs.map { s ->
-            MediaItem.Builder()
-                .setUri(s.uri)
-                .setMediaId(s.id.toString())
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(s.title)
-                        .setArtist(s.artist)
-                        .setAlbumTitle(s.album)
-                        .setArtworkUri(s.albumArtUri)
-                        .build()
-                )
-                .build()
+        val controller = controller ?: run {
+            android.util.Log.e("PlaybackConnection", "playSong called but controller is null — connect() not ready")
+            return
         }
-        val index = allSongs.indexOf(song).coerceAtLeast(0)
-        controller.setMediaItems(mediaItems, index, 0)
-        controller.prepare()
-        controller.play()
-        _currentSong.value = song
+        try {
+            val mediaItems = allSongs.map { s ->
+                MediaItem.Builder()
+                    .setUri(s.uri)
+                    .setMediaId(s.id.toString())
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(s.title)
+                            .setArtist(s.artist)
+                            .setAlbumTitle(s.album)
+                            .setArtworkUri(s.albumArtUri)
+                            .build()
+                    )
+                    .build()
+            }
+            val index = allSongs.indexOf(song).coerceAtLeast(0)
+            controller.setMediaItems(mediaItems, index, 0)
+            controller.prepare()
+            controller.play()
+            _currentSong.value = song
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackConnection", "playSong failed", e)
+        }
     }
 
     fun playPause() {
-        val controller = controller ?: return
-        if (controller.isPlaying) controller.pause() else controller.play()
+        try {
+            val controller = controller ?: return
+            if (controller.isPlaying) controller.pause() else controller.play()
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackConnection", "playPause failed", e)
+        }
     }
 
     fun next() {
-        controller?.seekToNextMediaItem()
+        try {
+            controller?.seekToNextMediaItem()
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackConnection", "next failed", e)
+        }
     }
 
     fun prev() {
-        controller?.seekToPreviousMediaItem()
+        try {
+            controller?.seekToPreviousMediaItem()
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackConnection", "prev failed", e)
+        }
     }
 
     fun seekTo(positionMs: Long) {
-        controller?.seekTo(positionMs)
+        try {
+            controller?.seekTo(positionMs)
+        } catch (e: Exception) {
+            android.util.Log.e("PlaybackConnection", "seekTo failed", e)
+        }
     }
 
     fun disconnect() {
