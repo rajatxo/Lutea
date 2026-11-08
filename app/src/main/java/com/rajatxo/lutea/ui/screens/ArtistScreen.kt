@@ -81,38 +81,68 @@ fun ArtistScreen(
         val screenW = maxWidth
         val horizontalPadding = screenW * 0.06f
 
-        // ★ YouTube Data API v3 — gives the SAME artist image as YouTube Music.
-        //  Falls back to Wikipedia for bio, TheAudioDB for extra.
+        // ★ Last.fm PRIMARY + YouTube/Wikipedia/TheAudioDB fallbacks.
+        //  Last.fm provides: top tracks (for smart sorting), artist image,
+        //  bio, similar artists — all from real listener data.
         var artistImageUrl by remember { mutableStateOf<String?>(null) }
         var artistBio by remember { mutableStateOf<String?>(null) }
         var loadingMetadata by remember { mutableStateOf(true) }
+        var sortedSongs by remember { mutableStateOf(songs) }
+        var similarArtists by remember { mutableStateOf<List<com.rajatxo.lutea.data.metadata.LastFmClient.SimilarArtist>>(emptyList()) }
+        var listenerCount by remember { mutableStateOf<Long?>(null) }
         val context = androidx.compose.ui.platform.LocalContext.current
         LaunchedEffect(artistName) {
             loadingMetadata = true
 
-            // 0. Check permanent cache first — if we've already downloaded this
-            //    artist's image before, load it instantly from disk (no network).
+            // 0. Check permanent cache first — instant load if cached
             val cachedFile = com.rajatxo.lutea.data.metadata.ArtistImageCache.getCachedFile(context, artistName)
             if (cachedFile != null) {
                 artistImageUrl = cachedFile.absolutePath
-                loadingMetadata = false
-                // Still fetch bio in background (fast, small text)
-                val cleanName = com.rajatxo.lutea.data.metadata.ArtistImageCache.sanitizeForSearch(artistName)
-                artistBio = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(cleanName)?.biography
-                return@LaunchedEffect
             }
 
-            // 1. YouTube Data API v3 — same image as YouTube Music
             val cleanName = com.rajatxo.lutea.data.metadata.ArtistImageCache.sanitizeForSearch(artistName)
-            val ytImage = com.rajatxo.lutea.data.metadata.YouTubeClient.getArtistImage(cleanName)
-            if (ytImage != null) {
-                // Download + permanently cache the image
-                val cached = com.rajatxo.lutea.data.metadata.ArtistImageCache.downloadAndCache(context, artistName, ytImage)
-                artistImageUrl = cached?.absolutePath ?: ytImage
+
+            // 1. Last.fm — top tracks (for smart sorting), bio, image, similar artists, listeners
+            val lfmInfo = com.rajatxo.lutea.data.metadata.LastFmClient.getArtistInfo(cleanName)
+            if (lfmInfo != null) {
+                if (artistImageUrl == null && lfmInfo.imageUrl != null) {
+                    val cached = com.rajatxo.lutea.data.metadata.ArtistImageCache.downloadAndCache(context, artistName, lfmInfo.imageUrl)
+                    artistImageUrl = cached?.absolutePath ?: lfmInfo.imageUrl
+                }
+                if (artistBio == null) artistBio = lfmInfo.bio
+                listenerCount = lfmInfo.listeners
             }
 
-            // 2. Wikipedia REST API — for biography (and image if YouTube failed)
-            if (artistImageUrl == null || artistBio == null) {
+            // Fetch top tracks + sort local songs by popularity
+            val topTracks = com.rajatxo.lutea.data.metadata.LastFmClient.getTopTracks(cleanName)
+            if (topTracks != null && topTracks.isNotEmpty()) {
+                sortedSongs = com.rajatxo.lutea.data.metadata.SmartSorter.sortByPopularity(songs, topTracks)
+            }
+
+            // Fetch similar artists (filtered to only show ones the user has locally)
+            val similar = com.rajatxo.lutea.data.metadata.LastFmClient.getSimilarArtists(cleanName)
+            if (similar != null) {
+                // Get all artist names from the local library
+                val localArtists = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.rajatxo.lutea.data.scanner.MusicScanner.scanMusic(context)
+                        .map { it.artist }
+                        .filter { it.isNotBlank() }
+                        .toSet()
+                }
+                similarArtists = com.rajatxo.lutea.data.metadata.SmartSorter.filterSimilarToLocal(similar, localArtists)
+            }
+
+            // 2. YouTube fallback for image (if Last.fm didn't have one)
+            if (artistImageUrl == null) {
+                val ytImage = com.rajatxo.lutea.data.metadata.YouTubeClient.getArtistImage(cleanName)
+                if (ytImage != null) {
+                    val cached = com.rajatxo.lutea.data.metadata.ArtistImageCache.downloadAndCache(context, artistName, ytImage)
+                    artistImageUrl = cached?.absolutePath ?: ytImage
+                }
+            }
+
+            // 3. Wikipedia fallback for bio
+            if (artistBio == null) {
                 try {
                     val wiki = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         val title = cleanName.replace(" ", "_")
@@ -125,41 +155,27 @@ fun ArtistScreen(
                         try {
                             if (conn.responseCode in 200..299) {
                                 val json = org.json.JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-                                val img = json.optJSONObject("thumbnail")?.optString("source")?.takeIf { it.isNotBlank() }
-                                val bio = json.optString("extract")?.takeIf { it.isNotBlank() }
-                                Pair(img, bio)
+                                json.optString("extract")?.takeIf { it.isNotBlank() }
                             } else null
                         } finally { conn.disconnect() }
                     }
-                    if (wiki != null) {
-                        if (artistImageUrl == null && wiki.first != null) {
-                            // Download + cache Wikipedia image too
-                            val cached = com.rajatxo.lutea.data.metadata.ArtistImageCache.downloadAndCache(context, artistName, wiki.first!!)
-                            artistImageUrl = cached?.absolutePath ?: wiki.first
-                        }
-                        if (artistBio == null) artistBio = wiki.second
-                    }
+                    if (wiki != null) artistBio = wiki
                 } catch (e: Exception) { android.util.Log.w("ArtistScreen", "Wikipedia failed", e) }
             }
 
-            // 3. TheAudioDB fallback for bio + image
-            if (artistImageUrl == null || artistBio == null) {
-                val adb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(cleanName)
-                if (artistImageUrl == null && adb?.thumbnailUrl != null) {
-                    val cached = com.rajatxo.lutea.data.metadata.ArtistImageCache.downloadAndCache(context, artistName, adb.thumbnailUrl)
-                    artistImageUrl = cached?.absolutePath ?: adb.thumbnailUrl
-                }
-                if (artistBio == null) artistBio = adb?.biography
+            // 4. TheAudioDB final fallback
+            if (artistBio == null) {
+                artistBio = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(cleanName)?.biography
             }
 
             loadingMetadata = false
         }
 
-        // Group songs by album, preserving first-seen order.
-        val albums: List<Pair<String, List<Song>>> = remember(songs) {
+        // Group SORTED songs by album (sorted by popularity, then grouped)
+        val albums: List<Pair<String, List<Song>>> = remember(sortedSongs) {
             val order = mutableListOf<String>()
             val map = linkedMapOf<String, MutableList<Song>>()
-            for (s in songs) {
+            for (s in sortedSongs) {
                 val a = s.album.ifBlank { "Unknown Album" }
                 if (!map.containsKey(a)) {
                     order.add(a)
@@ -254,7 +270,8 @@ fun ArtistScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "${songs.size} songs  •  ${albums.size} album${if (albums.size != 1) "s" else ""}",
+                        text = "${songs.size} songs  •  ${albums.size} album${if (albums.size != 1) "s" else ""}" +
+                            (listenerCount?.let { "  •  ${formatListeners(it)} listeners" } ?: ""),
                         color = Color.White.copy(alpha = 0.45f),
                         fontSize = 13.sp,
                         fontFamily = CalSansFamily,
@@ -284,7 +301,7 @@ fun ArtistScreen(
                 }
             }
 
-            // ── Album sections ──
+            // ── Album sections ── (songs sorted by Last.fm popularity)
             for ((albumName, albumSongs) in albums) {
                 item(key = "header-$albumName") {
                     ArtistAlbumHeader(
@@ -300,10 +317,59 @@ fun ArtistScreen(
                         durationMs = song.duration,
                         artUri = song.albumArtUri,
                         horizontalPadding = horizontalPadding,
-                        onClick = { PlaybackConnection.playSong(song, songs) },
+                        onClick = { PlaybackConnection.playSong(song, sortedSongs) },
                     )
                 }
                 item { Spacer(Modifier.height(16.dp)) }
+            }
+
+            // ── Similar artists in your library ──
+            if (similarArtists.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Similar artists in your library",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 16.sp,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = horizontalPadding, vertical = 12.dp),
+                    )
+                }
+                itemsIndexed(similarArtists, key = { idx, a -> "similar-$idx-${a.name}" }) { _, artist ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = horizontalPadding, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1A1A1A)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            artist.imageUrl?.let {
+                                AsyncImage(
+                                    model = it,
+                                    contentDescription = artist.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = artist.name,
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 14.sp,
+                            fontFamily = CalSansFamily,
+                        )
+                    }
+                }
+                item { Spacer(Modifier.height(40.dp)) }
             }
         }
     }
@@ -406,4 +472,12 @@ private fun formatArtistDuration(ms: Long): String {
     val minutes = totalSeconds / 60L
     val seconds = totalSeconds % 60L
     return "%d:%02d".format(minutes, seconds)
+}
+
+private fun formatListeners(count: Long): String {
+    return when {
+        count >= 1_000_000 -> "%.1fM".format(count / 1_000_000.0)
+        count >= 1_000 -> "%.1fK".format(count / 1_000.0)
+        else -> count.toString()
+    }
 }
