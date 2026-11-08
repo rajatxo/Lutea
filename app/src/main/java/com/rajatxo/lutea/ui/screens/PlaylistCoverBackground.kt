@@ -11,11 +11,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -41,14 +38,11 @@ private const val BLEND_STEPS = 8
 private const val SCRIM_ALPHA = 0.34f
 private const val SCRIM_END = 0.24f
 
-// Scroll choreography
-private const val SCROLL_TRAVEL = 0.8f   // cover rides up at 80% of scroll speed
+// Scroll choreography — the cover NEVER fades, never dissolves, never leaves the screen.
+// It parallaxes up a little and gets progressively more blurred as the list scrolls over it.
+private const val SCROLL_TRAVEL = 0.12f  // gentle parallax (was 0.8 + fade + dissolve -> cover vanished)
 private const val ZOOM_ON_SCROLL = 0.22f // Ken Burns zoom
-private const val DIM_ON_SCROLL = 0.22f  // black overlay
-private const val FADE_FROM = 0.20f
-private const val FADE_TO = 0.85f
-private const val DISSOLVE_TO = 0.90f
-private const val DISSOLVE_BAND = 0.35f  // softness of the bottom-up dissolve edge
+private const val DIM_ON_SCROLL = 0.22f  // black overlay, keeps white text readable over blurred art
 private const val BLUR_IN_FROM = 0.08f
 private const val BLUR_IN_TO = 0.75f
 private val ZoomOrigin = TransformOrigin(0.5f, 0.35f)
@@ -68,16 +62,19 @@ internal fun luteaSmoothstep(from: Float, to: Float, x: Float): Float {
 /**
  * The cover image at the top of the playlist screen.
  *
- * Layers, bottom to top (all inside one box so they move/fade/dissolve together):
- *  1. placeholder gradient (shown when there is no cover, or while it loads)
- *  2. sharp cover (Coil AsyncImage, Crop)
- *  3. blurred copy of the cover, crossfaded in as you scroll (API 31+ only)
- *  4. dim overlay, black x 0.22 x progress
- *  5. blend gradient: cover -> [backgroundColor], bottom edge is exactly the background (no seam)
- *  6. top scrim
+ * The cover NEVER disappears. The old choreography translated it 80% off-screen, faded it
+ * out (alpha 1 -> 0 over progress 0.20..0.85) and dissolved it bottom-up with a DstIn mask —
+ * so by mid-scroll the artwork was simply gone and the blur never got a chance to show.
+ * Now: the box stays pinned at the top (gentle parallax), and the artwork itself is blurred
+ * in place, radius 0 -> 32dp as progress goes 0.08 -> 0.75.
  *
- * The whole box is then transformed: translation, zoom, fade, and a DstIn mask that eats the
- * cover from the bottom up.
+ * Layers, bottom to top:
+ *  1. placeholder gradient (shown when there is no cover, or while it loads)
+ *  2. cover (Coil AsyncImage, Crop) whose RenderEffect blur radius grows with scroll (API 31+;
+ *     below S the image simply stays sharp)
+ *  3. dim overlay, black x 0.22 x progress (text legibility over the blurred art)
+ *  4. blend gradient: cover -> [backgroundColor], bottom edge is exactly the background (no seam)
+ *  5. top scrim
  *
  * [scrollProgress] and [backgroundColor] are lambdas on purpose: they are only read in the
  * graphicsLayer / draw phase, so scrolling and the 600 ms colour fade never recompose this.
@@ -113,7 +110,7 @@ fun PlaylistCoverBackground(
         modifier = modifier
             .fillMaxWidth()
             .height(coverHeight)
-            // 1) transform + fade (layer phase, zero recomposition)
+            // transform only — no alpha fade, no dissolve mask. Layer phase, zero recomposition.
             .graphicsLayer {
                 val p = scrollProgress().coerceIn(0f, 1f)
                 translationY = p * size.height * -SCROLL_TRAVEL
@@ -121,28 +118,6 @@ fun PlaylistCoverBackground(
                 scaleX = s
                 scaleY = s
                 transformOrigin = ZoomOrigin
-                alpha = 1f - luteaSmoothstep(FADE_FROM, FADE_TO, p)
-                // needed so the DstIn mask below only eats THIS layer, not what is behind it
-                compositingStrategy = CompositingStrategy.Offscreen
-            }
-            // 2) dissolve from the bottom up: DstIn gradient mask that grows as you scroll
-            .drawWithContent {
-                drawContent()
-                val dissolve = luteaSmoothstep(0f, DISSOLVE_TO, scrollProgress().coerceIn(0f, 1f))
-                if (dissolve > 0f) {
-                    val edge = (1f + DISSOLVE_BAND) * (1f - dissolve) // where alpha reaches 0
-                    val start = (edge - DISSOLVE_BAND).coerceIn(0f, 1f)
-                    val end = edge.coerceIn(0f, 1f)
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.Black,
-                            start to Color.Black,
-                            end to Color.Transparent,
-                            1f to Color.Transparent,
-                        ),
-                        blendMode = BlendMode.DstIn,
-                    )
-                }
             },
     ) {
         // placeholder (also what you see if the image fails to load)
@@ -160,31 +135,20 @@ fun PlaylistCoverBackground(
         )
 
         if (request != null) {
-            // sharp cover
+            // The ONE cover image. Its RenderEffect blur radius grows with scroll progress
+            // (0 -> 32dp over progress 0.08 -> 0.75), so the artwork visibly turns from sharp
+            // to blurred as the list rides over it — and it stays fully visible the whole way.
+            // API 31+ only (RenderEffect); below S the image simply stays sharp.
             AsyncImage(
                 model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            // Progressive blur: a second copy of the cover whose RenderEffect blur
-            // RADIUS grows with scroll progress (0 → 32dp over the first 75% of scroll).
-            // The previous version used a fixed Modifier.blur(28.dp) — the blur amount
-            // never changed, only the alpha faded in. Now the cover actually gets more
-            // blurry the further you scroll, matching Mochy's ScrollAwayCover behaviour.
-            // API 31+ only (RenderEffect); below that we rely on the fade + dim alone.
-            if (canBlur) {
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        if (canBlur) {
                             val p = scrollProgress().coerceIn(0f, 1f)
                             val blurAmount = luteaSmoothstep(BLUR_IN_FROM, BLUR_IN_TO, p)
-                            alpha = blurAmount
                             if (blurAmount > 0.01f) {
                                 val r = maxBlurPx * blurAmount
                                 renderEffect = android.graphics.RenderEffect.createBlurEffect(
@@ -193,9 +157,9 @@ fun PlaylistCoverBackground(
                             } else {
                                 renderEffect = null
                             }
-                        },
-                )
-            }
+                        }
+                    },
+            )
         }
 
         // dim: black x 0.22 x progress (under the blend so the background colour stays pure)
