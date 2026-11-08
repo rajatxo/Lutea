@@ -81,19 +81,49 @@ fun ArtistScreen(
         val screenW = maxWidth
         val horizontalPadding = screenW * 0.06f
 
-        // ★ Metadata enrichment — Deezer FIRST (fast, has artist photos),
-        //  then TheAudioDB (bios), then MusicBrainz (fallback).
+        // ★ Metadata enrichment — iTunes Search API (works in India, free, no key)
+        //  + TheAudioDB for bios + MusicBrainz as final fallback.
         var artistImageUrl by remember { mutableStateOf<String?>(null) }
         var artistBio by remember { mutableStateOf<String?>(null) }
         var loadingMetadata by remember { mutableStateOf(true) }
         LaunchedEffect(artistName) {
             loadingMetadata = true
-            // Deezer is fast + reliable + has actual artist photos (picture_xl = 1000x1000)
-            val deezer = com.rajatxo.lutea.data.metadata.DeezerClient.searchArtist(artistName)
-            if (deezer != null) {
-                artistImageUrl = deezer.imageUrl
+
+            // 1. iTunes Search API — works everywhere including India.
+            //    Search for albums by this artist → get high-res album art as artist image.
+            try {
+                val itunesUrl = "https://itunes.apple.com/search?term=" +
+                    java.net.URLEncoder.encode(artistName, "UTF-8").replace("+", "%20") +
+                    "&entity=album&limit=1"
+                val conn = (java.net.URL(itunesUrl).openConnection() as java.net.HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "Lutea/1.0")
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    instanceFollowRedirects = true
+                }
+                try {
+                    if (conn.responseCode in 200..299) {
+                        val text = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = org.json.JSONObject(text)
+                        val results = json.optJSONArray("results")
+                        if (results != null && results.length() > 0) {
+                            val album = results.optJSONObject(0)
+                            // artworkUrl100 → upgrade to 600x600bb for better quality
+                            val art = album?.optString("artworkUrl100")?.takeIf { it.isNotBlank() }
+                            if (art != null) {
+                                artistImageUrl = art.replace("100x100bb", "600x600bb")
+                            }
+                        }
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("ArtistScreen", "iTunes search failed", e)
             }
-            // TheAudioDB has bios + sometimes images
+
+            // 2. TheAudioDB for biography (and image if iTunes didn't have one)
             if (artistImageUrl == null || artistBio == null) {
                 val audioDb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(artistName)
                 if (artistImageUrl == null) {
@@ -103,12 +133,14 @@ fun ArtistScreen(
                     artistBio = audioDb?.biography
                 }
             }
-            // MusicBrainz + Wikipedia as final fallback for bio
+
+            // 3. MusicBrainz + Wikipedia as final fallback for bio
             if (artistBio == null) {
                 val mbInfo = com.rajatxo.lutea.data.metadata.MusicBrainzClient.lookupArtist(artistName)
                 if (artistImageUrl == null) artistImageUrl = mbInfo?.imageUrl
                 if (artistBio == null) artistBio = mbInfo?.biography
             }
+
             loadingMetadata = false
         }
 
