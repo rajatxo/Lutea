@@ -152,8 +152,6 @@ object LastFmClient {
 
             val list = (0 until trackArray.length()).mapNotNull { i ->
                 val track = trackArray.optJSONObject(i) ?: return@mapNotNull null
-                val rank = track.optInt("@attr"?.let { it } ?: "rank", i + 1)
-                    .let { track.optJSONObject("@attr")?.optInt("rank", i + 1) ?: (i + 1) }
                 val title = track.optString("name").ifBlank { return@mapNotNull null }
                 val playCount = track.optLong("playcount", 0).takeIf { it > 0 }
                 TopTrack(rank = i + 1, title = title, playCount = playCount)

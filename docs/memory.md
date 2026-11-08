@@ -27,9 +27,12 @@
 6. **Search:** Username + "here" fade out when search opens; remaining words shrink + slide to one line
 7. **Nav bar:** No sound effects; medium vibration (25ms) on tab change
 8. **Menu:** Library tab only (not on Home/Search tabs)
-9. **Metadata:** MusicBrainz (free, no key) + Wikipedia REST API for artist bios/images + Cover Art Archive for album art
+9. **Metadata:** Last.fm is the PRIMARY source (top tracks for smart sorting, artist images, bios, similar artists, listener counts). Fallbacks in order: YouTube Data API v3 (image, same channel thumbnail as YouTube Music) → Wikipedia REST API (bio) → TheAudioDB (bio). MusicBrainz/Cover Art Archive stays for album art.
 10. **Architecture:** MusicSource interface as extension point for future streaming sources
 11. **Play Store:** Core app = local only; streaming modules distributed via GitHub separately
+12. **Smart sorting:** Last.fm top tracks are matched against the user's local songs by normalized title. Sort by rank (most popular first). Songs the user doesn't have are NEVER shown. Unknown local songs go to the bottom alphabetically.
+13. **Ponytail:** `AGENTS.md` at repo root holds the lazy-senior-dev ruleset + project-specific overrides. Every AI session (Claude Code, Codex, Cursor, Gemini) auto-loads it. Follow it.
+14. **CI:** GitHub Actions builds `assembleRelease`. The gradle wrapper download (services.gradle.org) sometimes 504s — `gradle-wrapper.properties` is set to `networkTimeout=120000` + `retries=3` so it survives transient outages. Don't reduce these.
 
 ## Inspiration Repos
 - **Coral:** github.com/rajatxo/Coral.git — user owns this, can copy code directly
@@ -42,6 +45,7 @@
 3. Invisible .clickable() elements (alpha=0 doesn't disable pointer input) → gate on visibility via derivedStateOf
 4. % playlists.size with empty list → division by zero → use .coerceAtLeast(1)
 5. LaunchedEffect keyed on scrollOffset.value → 60fps SharedPreferences thrashing → key on centerIndex only
+6. CI build "failed" with no code error → gradle wrapper download 504 from services.gradle.org. Fixed by bumping `networkTimeout` to 120000 + `retries` to 3 in `gradle/wrapper/gradle-wrapper.properties`. Don't push "retry build" commits — fix the wrapper config instead.
 
 ## File Locations (Quick Reference)
 - Wheel: `app/src/main/java/com/rajatxo/lutea/ui/screens/LuteaArc.kt`
