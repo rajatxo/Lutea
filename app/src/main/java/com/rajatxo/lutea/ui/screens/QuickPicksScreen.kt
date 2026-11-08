@@ -1,5 +1,9 @@
 package com.rajatxo.lutea.ui.screens
 
+import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -113,11 +117,84 @@ fun QuickPicksScreen(
 
     selectedPlaylist?.let { playlist ->
         val context = LocalContext.current
+        val scope = rememberCoroutineScope()
         var songs by remember(playlist) { mutableStateOf<List<Song>>(emptyList()) }
-        LaunchedEffect(playlist) {
+        // Key on id + songIds so rename / cover change don't trigger a full MediaStore re-scan.
+        LaunchedEffect(playlist.id, playlist.songIds) {
             val allSongs = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
             songs = allSongs.filter { it.id in playlist.songIds }
         }
+
+        // ── Rename dialog ──
+        var showRenameDialog by remember { mutableStateOf(false) }
+        var renameValue by remember { mutableStateOf(playlist.name) }
+        if (showRenameDialog) {
+            val MAX_LETTERS = 10
+            fun letterCount(s: String): Int = s.count { it.isLetter() }
+            val remainingLetters = MAX_LETTERS - letterCount(renameValue)
+            val isOverLimit = remainingLetters < 0
+            AlertDialog(
+                onDismissRequest = { showRenameDialog = false },
+                title = {
+                    Text("Rename playlist", color = Color.White, fontFamily = CalSansFamily, fontWeight = FontWeight.SemiBold)
+                },
+                text = {
+                    OutlinedTextField(
+                        value = renameValue,
+                        onValueChange = { newValue ->
+                            val filtered = newValue.filter { it.isLetter() || it.isWhitespace() }
+                            if (filtered.count { it.isLetter() } <= MAX_LETTERS) {
+                                renameValue = filtered
+                            }
+                        },
+                        placeholder = { Text("Playlist name (max 10 letters)") },
+                        singleLine = true,
+                        isError = isOverLimit,
+                        supportingText = {
+                            Text(
+                                "$remainingLetters letters left",
+                                color = if (remainingLetters <= 2) Color(0xFFFF6B6B) else Color.White.copy(alpha = 0.5f),
+                                fontSize = 12.sp,
+                            )
+                        },
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (renameValue.isNotBlank() && !isOverLimit) {
+                                PlaylistStore.renamePlaylist(playlist.id, renameValue.trim())
+                                // Refresh the snapshot so the title + blend update immediately.
+                                selectedPlaylist = PlaylistStore.playlists.value.firstOrNull { it.id == playlist.id }
+                            }
+                            showRenameDialog = false
+                        },
+                        enabled = renameValue.isNotBlank() && !isOverLimit && renameValue.trim() != playlist.name,
+                    ) { Text("Save") }
+                },
+                dismissButton = { TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") } },
+            )
+        }
+
+        // ── Cover picker — Android Photo Picker (no permission needed on API 29+) ──
+        // The picked content:// URI dies with the process, so we copy the bytes into
+        // filesDir/playlist_covers/{id}.jpg and store that path. The app owns the file forever.
+        val coverPicker = rememberLauncherForActivityResult(
+            ActivityResultContracts.PickVisualMedia()
+        ) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    val saved = withContext(Dispatchers.IO) {
+                        copyCoverToInternal(context.applicationContext, uri, playlist.id)
+                    }
+                    if (saved != null) {
+                        PlaylistStore.setPlaylistCover(playlist.id, saved)
+                        selectedPlaylist = PlaylistStore.playlists.value.firstOrNull { it.id == playlist.id }
+                    }
+                }
+            }
+        }
+
         PlaylistDetailScreen(
             playlist = playlist,
             songs = songs,
@@ -131,6 +208,13 @@ fun QuickPicksScreen(
             },
             onSongClick = { _, song -> PlaybackConnection.playSong(song, songs) },
             songArt = { it.albumArtUri },
+            onRename = {
+                renameValue = playlist.name  // pre-fill with current name
+                showRenameDialog = true
+            },
+            onChangeCover = {
+                coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
             // Use system bars directly — PlaylistDetailScreen is shown before LuteaScaffold,
             // so LocalLuteaWindowInsets isn't provided yet (that was the crash cause).
             insets = WindowInsets.systemBars,
@@ -554,6 +638,25 @@ private fun formatDuration(ms: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
+}
+
+/**
+ * Copy a picked image (content:// URI from the Photo Picker) into the app's internal
+ * storage so it survives app restarts. SAF-granted URIs die with the process.
+ *
+ * Returns the absolute path of the saved file, or null on failure.
+ */
+private fun copyCoverToInternal(context: Context, source: android.net.Uri, playlistId: Long): String? {
+    return try {
+        val dir = java.io.File(context.filesDir, "playlist_covers").apply { mkdirs() }
+        val target = java.io.File(dir, "$playlistId.jpg")
+        context.contentResolver.openInputStream(source)?.use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        } ?: return null
+        target.absolutePath
+    } catch (e: Exception) {
+        null
+    }
 }
 
 // ── Playlists content — the wheel — tap main text opens the playlist ──
