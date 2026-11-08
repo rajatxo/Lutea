@@ -162,13 +162,23 @@ fun PlaylistDetailScreen(
         val topInset = with(density) { insets.getTop(this).toDp() }
         val bottomInset = with(density) { insets.getBottom(this).toDp() }
 
-        // 0f..1f over the first coverHeight pixels of scrolling
-        val progress = remember(listState, coverHeightPx) {
+        // 0f..1f as the header scrolls its own height off-screen.
+        // Measured against the HEADER's real height (from layoutInfo), NOT coverHeight — the
+        // header is much shorter than the cover, so dividing by coverHeight left progress at
+        // only ~0.5 when the header scrolled past, then firstVisibleItemIndex flipped and
+        // progress jumped to 1.0. That jump snapped the cover's alpha from ~0.6 to 0 in one
+        // frame — the "sudden vanish". With the header's own height, progress glides to 1
+        // exactly as the header leaves the viewport: every scroll-driven property (alpha,
+        // translation, zoom, blur, dissolve) approaches its final value smoothly, no snap.
+        val progress = remember(listState) {
             derivedStateOf {
                 if (listState.firstVisibleItemIndex > 0) {
                     1f
                 } else {
-                    (listState.firstVisibleItemScrollOffset / coverHeightPx).coerceIn(0f, 1f)
+                    val headerPx = listState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { it.key == "header" }?.size?.toFloat()
+                        ?: coverHeightPx
+                    (listState.firstVisibleItemScrollOffset / headerPx).coerceIn(0f, 1f)
                 }
             }
         }
