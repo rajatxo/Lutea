@@ -167,25 +167,29 @@ fun PlaylistDetailScreen(
 
         // 0f..1f as the FIRST SONG ROW reaches the top of the screen.
         //
-        // We read the header item's actual viewport offset from layoutInfo and derive progress
-        // from THAT — not from firstVisibleItemScrollOffset, whose semantics around contentPadding
-        // are ambiguous and caused the cover to finish its parallax way before the songs reached
-        // the top (the 'large gap'). The header starts at offset = contentTopPx (just below the
-        // content padding). It scrolls to offset = -headerHeight as it leaves the viewport.
-        // Mapping that range to 0→1 makes the cover's full parallax unfold over exactly the scroll
-        // that brings the first song row to the top — cover and list move together, no gap.
+        // We read the header item's actual offset from layoutInfo and derive progress from THAT.
+        // LazyListItemInfo.offset is 0 at rest (the header at the content-area top) and goes
+        // negative as the header scrolls up. So scrolledFromRest = -header.offset — NOT
+        // contentTopPx - header.offset (that assumed viewport coords and gave progress ≈ 0.74 at
+        // rest, which made the cover's alpha ~0.07 and the cover was invisible at rest).
         //
-        // Once the header is gone from visibleItemsInfo, progress clamps to 1 — and just before
-        // that moment it was already ≈1, so there is no jump.
+        // The denominator is contentTopPx + headerHeight — the total scroll needed to bring the
+        // first song row to the top of the viewport. This makes the cover's full parallax unfold
+        // over exactly the scroll that brings the songs up, so cover and list move together with
+        // no gap. When the header leaves visibleItemsInfo, we return 1f if it scrolled off, or 0f
+        // if it just hasn't been laid out yet (first frame) — so the cover is visible from frame
+        // one instead of flashing invisible.
         val progress = remember(listState, contentTopPx) {
             derivedStateOf {
                 val header = listState.layoutInfo.visibleItemsInfo
                     .firstOrNull { it.key == "header" }
                 if (header == null) {
-                    1f
+                    // header not in visibleItemsInfo: either not laid out yet (index 0, at rest)
+                    // or scrolled fully off (index > 0). Assume rest if index 0, done if index > 0.
+                    if (listState.firstVisibleItemIndex == 0) 0f else 1f
                 } else {
                     val headerH = header.size.toFloat()
-                    val scrolledFromRest = contentTopPx - header.offset.toFloat()
+                    val scrolledFromRest = -header.offset.toFloat()
                     val denom = (contentTopPx + headerH).coerceAtLeast(1f)
                     (scrolledFromRest / denom).coerceIn(0f, 1f)
                 }
