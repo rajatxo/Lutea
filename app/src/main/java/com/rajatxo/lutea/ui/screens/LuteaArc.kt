@@ -1459,7 +1459,7 @@ fun LuteaArc(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        painter = painterResource(R.drawable.ic_close_circle),
+                                        painter = painterResource(R.drawable.ic_cross),
                                         contentDescription = "Remove",
                                         tint = Color.White,
                                         modifier = Modifier.size(12.dp)
