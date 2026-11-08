@@ -60,6 +60,47 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    - name: Pre-fetch Gradle distribution (mirror fallback)
+      continue-on-error: true
+      run: |
+        # services.gradle.org intermittently returns 504 for the gradle-8.13
+        # distribution. The wrapper's own retries all hit the same URL, so a
+        # sustained outage fails the build. This step pre-fetches the zip from
+        # any of several mirrors and places it where the wrapper expects it,
+        # so the wrapper finds the file cached and skips its own download.
+        DIST_DIR="$HOME/.gradle/wrapper/dists/gradle-8.13-bin"
+        # The wrapper names the dist subdir by base36 of md5(distributionUrl).
+        # For https://services.gradle.org/distributions/gradle-8.13-bin.zip
+        # that hash is stable (observed in CI logs as 5xuhj0ry160q40clulazy9h7d).
+        HASH_DIR="5xuhj0ry160q40clulazy9h7d"
+        TARGET_DIR="$DIST_DIR/$HASH_DIR"
+        if find "$TARGET_DIR" -name "gradle-8.13-bin.zip.ok" 2>/dev/null | grep -q .; then
+          echo "Gradle distribution already cached at $TARGET_DIR"
+          exit 0
+        fi
+        echo "Distribution not cached — trying mirrors..."
+        TMP_ZIP="/tmp/gradle-8.13-bin.zip"
+        for URL in \
+          "https://services.gradle.org/distributions/gradle-8.13-bin.zip" \
+          "https://downloads.gradle.org/distributions/gradle-8.13-bin.zip" \
+          "https://mirrors.cloud.tencent.com/gradle/gradle-8.13-bin.zip" \
+          "https://mirrors.huaweicloud.com/gradle/gradle-8.13-bin.zip"; do
+          echo "Trying: $URL"
+          if curl -fsSL --max-time 240 -o "$TMP_ZIP" "$URL" && [ -s "$TMP_ZIP" ]; then
+            SIZE=$(stat -c%s "$TMP_ZIP")
+            if [ "$SIZE" -gt 10000000 ]; then
+              echo "Downloaded $SIZE bytes from $URL"
+              mkdir -p "$TARGET_DIR"
+              cp "$TMP_ZIP" "$TARGET_DIR/gradle-8.13-bin.zip"
+              (cd "$TARGET_DIR" && unzip -q gradle-8.13-bin.zip && touch gradle-8.13-bin.zip.ok)
+              echo "Placed at $TARGET_DIR"
+              exit 0
+            fi
+            echo "File too small ($SIZE bytes), probably an error page — trying next mirror"
+          fi
+        done
+        echo "All mirrors failed. The wrapper will retry on its own."
+
     - name: Auto-bump patch version
       run: |
         CURRENT_CODE=$(grep 'versionCode' app/build.gradle.kts | head -1 | sed 's/.*= *//; s/ *//' | tr -d '"')
