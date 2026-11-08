@@ -85,11 +85,57 @@ fun ArtistScreen(
         //  + TheAudioDB for bios + MusicBrainz as final fallback.
         var artistImageUrl by remember { mutableStateOf<String?>(null) }
         var artistBio by remember { mutableStateOf<String?>(null) }
-        var loadingMetadata by remember { mutableStateOf(false) }
+        var loadingMetadata by remember { mutableStateOf(true) }
+        LaunchedEffect(artistName) {
+            loadingMetadata = true
 
-        // ★ TEST: Hardcoded image, NO LaunchedEffect, NO network call.
-        // If this doesn't show, the issue is Coil itself.
-        artistImageUrl = "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/f5/93/8c/f5938c49-964c-31d1-4b33-78b634f71fb7/190295978075.jpg/600x600bb.jpg"
+            // 1. iTunes Search API (works in India, free, no key)
+            try {
+                val art = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val itunesUrl = "https://itunes.apple.com/search?term=" +
+                        java.net.URLEncoder.encode(artistName, "UTF-8").replace("+", "%20") +
+                        "&entity=album&limit=1"
+                    val conn = (java.net.URL(itunesUrl).openConnection() as java.net.HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        setRequestProperty("User-Agent", "Lutea/1.0")
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        instanceFollowRedirects = true
+                    }
+                    try {
+                        if (conn.responseCode in 200..299) {
+                            val text = conn.inputStream.bufferedReader().use { it.readText() }
+                            val json = org.json.JSONObject(text)
+                            val results = json.optJSONArray("results")
+                            if (results != null && results.length() > 0) {
+                                val album = results.optJSONObject(0)
+                                val artwork = album?.optString("artworkUrl100")?.takeIf { it.isNotBlank() }
+                                if (artwork != null) artwork.replace("100x100bb", "600x600bb") else null
+                            } else null
+                        } else null
+                    } finally { conn.disconnect() }
+                }
+                if (art != null) artistImageUrl = art
+            } catch (e: Exception) {
+                android.util.Log.w("ArtistScreen", "iTunes failed", e)
+            }
+
+            // 2. TheAudioDB for biography (and image fallback)
+            if (artistImageUrl == null || artistBio == null) {
+                val audioDb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(artistName)
+                if (artistImageUrl == null) artistImageUrl = audioDb?.thumbnailUrl ?: audioDb?.bannerUrl
+                if (artistBio == null) artistBio = audioDb?.biography
+            }
+
+            // 3. MusicBrainz + Wikipedia final fallback
+            if (artistBio == null) {
+                val mbInfo = com.rajatxo.lutea.data.metadata.MusicBrainzClient.lookupArtist(artistName)
+                if (artistImageUrl == null) artistImageUrl = mbInfo?.imageUrl
+                if (artistBio == null) artistBio = mbInfo?.biography
+            }
+
+            loadingMetadata = false
+        }
 
         // Group songs by album, preserving first-seen order.
         val albums: List<Pair<String, List<Song>>> = remember(songs) {

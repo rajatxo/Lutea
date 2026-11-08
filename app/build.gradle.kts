@@ -107,8 +107,13 @@ dependencies {
     implementation("androidx.media3:media3-decoder:1.5.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0")
 
-    // ★ Coil3 — image loading (album art)
+    // ★ Coil3 — image loading (album art + network images)
+    // coil-compose: Compose integration (AsyncImage)
+    // coil-network-okhttp: REQUIRED for loading images from HTTPS URLs.
+    //   Without this, Coil can only load local content:// URIs, not network URLs.
+    //   This was why artist images never loaded — the network module was missing.
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
 
     // ★ Palette — extract dominant color from album art for the playlist background
     implementation("androidx.palette:palette-ktx:1.0.0")
