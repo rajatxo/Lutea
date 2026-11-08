@@ -102,12 +102,19 @@ object ArtistImageCache {
      * Strips feat., ft., &, commas, parentheses, etc.
      */
     fun sanitizeForSearch(name: String): String {
-        return name
-            .replace(Regex("(?i)\\s*(feat|ft|featuring)\\..*", ""), "") // remove feat. X
-            .replace(Regex("(?i)\\s*&\\s*.*"), "") // remove & X
-            .replace(Regex("[,()\\[\\]{}]"), "") // remove punctuation
-            .replace(Regex("\\s*-\\s*.*"), "") // remove - X
-            .trim()
-            .ifBlank { name.trim() }
+        var result = name
+        // Remove feat./ft./featuring and everything after
+        val featRegex = Regex("(?i)\\s*(feat|ft|featuring)\\..*")
+        result = featRegex.replace(result, "")
+        // Remove & and everything after
+        val andRegex = Regex("(?i)\\s*&\\s*.*")
+        result = andRegex.replace(result, "")
+        // Remove punctuation
+        result = result.replace(",", "").replace("(", "").replace(")", "")
+            .replace("[", "").replace("]", "").replace("{", "").replace("}", "")
+        // Remove - and everything after
+        val dashRegex = Regex("\\s*-\\s*.*")
+        result = dashRegex.replace(result, "")
+        return result.trim().ifBlank { name.trim() }
     }
 }
