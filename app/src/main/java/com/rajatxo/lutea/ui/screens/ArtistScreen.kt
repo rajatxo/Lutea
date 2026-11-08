@@ -81,12 +81,25 @@ fun ArtistScreen(
         val screenW = maxWidth
         val horizontalPadding = screenW * 0.06f
 
-        // ★ MusicBrainz enrichment — fetch artist image + bio in background
-        var artistInfo by remember { mutableStateOf<MusicBrainzClient.ArtistInfo?>(null) }
+        // ★ Metadata enrichment — try TheAudioDB first (has artist images),
+        //  fall back to MusicBrainz (has bios via Wikipedia).
+        var artistImageUrl by remember { mutableStateOf<String?>(null) }
+        var artistBio by remember { mutableStateOf<String?>(null) }
         var loadingMetadata by remember { mutableStateOf(true) }
         LaunchedEffect(artistName) {
             loadingMetadata = true
-            artistInfo = MusicBrainzClient.lookupArtist(artistName)
+            // TheAudioDB has actual artist photos — MusicBrainz doesn't
+            val audioDb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(artistName)
+            if (audioDb != null) {
+                artistImageUrl = audioDb.thumbnailUrl ?: audioDb.bannerUrl
+                artistBio = audioDb.biography
+            }
+            // If TheAudioDB didn't have an image or bio, try MusicBrainz as fallback
+            if (artistImageUrl == null || artistBio == null) {
+                val mbInfo = com.rajatxo.lutea.data.metadata.MusicBrainzClient.lookupArtist(artistName)
+                if (artistImageUrl == null) artistImageUrl = mbInfo?.imageUrl
+                if (artistBio == null) artistBio = mbInfo?.biography
+            }
             loadingMetadata = false
         }
 
@@ -151,7 +164,7 @@ fun ArtistScreen(
                         .padding(top = 8.dp, bottom = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // ★ Artist image from MusicBrainz/Cover Art Archive (or placeholder)
+                    // ★ Artist image from TheAudioDB (or MusicBrainz fallback)
                     Box(
                         modifier = Modifier
                             .size(screenW * 0.35f)
@@ -159,10 +172,9 @@ fun ArtistScreen(
                             .background(Color(0xFF1A1A1A)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        val imageUrl = artistInfo?.imageUrl
-                        if (imageUrl != null) {
+                        if (artistImageUrl != null) {
                             AsyncImage(
-                                model = imageUrl,
+                                model = artistImageUrl,
                                 contentDescription = artistName,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
@@ -195,8 +207,8 @@ fun ArtistScreen(
                         fontSize = 13.sp,
                         fontFamily = CalSansFamily,
                     )
-                    // ★ Biography from Wikipedia (via MusicBrainz)
-                    val bio = artistInfo?.biography
+                    // ★ Biography from TheAudioDB or Wikipedia (via MusicBrainz)
+                    val bio = artistBio
                     if (bio != null && bio.isNotBlank()) {
                         Spacer(Modifier.height(16.dp))
                         Text(
