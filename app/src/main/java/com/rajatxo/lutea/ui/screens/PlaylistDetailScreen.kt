@@ -141,6 +141,7 @@ fun PlaylistDetailScreen(
     modifier: Modifier = Modifier,
     onRename: () -> Unit = {},
     onChangeCover: () -> Unit = {},
+    onAddSongs: () -> Unit = {},
     onDelete: () -> Unit = {},
     songArt: (Song) -> Any? = { null },
     insets: WindowInsets = WindowInsets.systemBars,
@@ -222,6 +223,7 @@ fun PlaylistDetailScreen(
                     onShuffle = onShuffle,
                     onRename = onRename,
                     onChangeCover = onChangeCover,
+                    onAddSongs = onAddSongs,
                     onDelete = onDelete,
                 )
             }
@@ -266,6 +268,7 @@ private fun PlaylistHeader(
     onShuffle: () -> Unit,
     onRename: () -> Unit,
     onChangeCover: () -> Unit,
+    onAddSongs: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Column(
@@ -313,6 +316,7 @@ private fun PlaylistHeader(
             DetailMoreMenu(
                 onRename = onRename,
                 onChangeCover = onChangeCover,
+                onAddSongs = onAddSongs,
                 onDelete = onDelete,
             )
         }
@@ -348,6 +352,7 @@ private fun DetailPill(
 private fun DetailMoreMenu(
     onRename: () -> Unit,
     onChangeCover: () -> Unit,
+    onAddSongs: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -382,6 +387,7 @@ private fun DetailMoreMenu(
                 ) {
                     DetailMenuRow("Rename") { open = false; onRename() }
                     DetailMenuRow("Change cover") { open = false; onChangeCover() }
+                    DetailMenuRow("Add songs") { open = false; onAddSongs() }
                     DetailMenuRow("Delete", destructive = true) { open = false; onDelete() }
                 }
             }

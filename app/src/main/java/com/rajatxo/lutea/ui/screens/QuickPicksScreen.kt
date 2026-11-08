@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -85,6 +86,33 @@ fun QuickPicksScreen(
     var showStylePicker by remember { mutableStateOf(false) }
     val playlistStyle by PlaylistStyleManager.state
 
+    // ── Cover picker launcher ── declared at the top level so it survives
+    //    recomposition. Declaring it inside selectedPlaylist?.let re-registered
+    //    the launcher every time the playlist snapshot changed (rename, cover
+    //    change), causing the "first click does nothing, need double click"
+    //    symptom. Now it's stable; onChangeCover just records which playlist
+    //    the next pick should target, then launches.
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pendingCoverPlaylistId by remember { mutableStateOf<Long?>(null) }
+    val coverPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        val pid = pendingCoverPlaylistId
+        if (uri != null && pid != null) {
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    copyCoverToInternal(context.applicationContext, uri, pid)
+                }
+                if (saved != null) {
+                    PlaylistStore.setPlaylistCover(pid, saved)
+                    selectedPlaylist = PlaylistStore.playlists.value.firstOrNull { it.id == pid }
+                }
+            }
+        }
+        pendingCoverPlaylistId = null
+    }
+
     // ── Album page (covers the whole screen) ──
     selectedAlbum?.let { (albumName, songs) ->
         AlbumScreen(
@@ -116,8 +144,6 @@ fun QuickPicksScreen(
     }
 
     selectedPlaylist?.let { playlist ->
-        val context = LocalContext.current
-        val scope = rememberCoroutineScope()
         var songs by remember(playlist) { mutableStateOf<List<Song>>(emptyList()) }
         // Key on id + songIds so rename / cover change don't trigger a full MediaStore re-scan.
         LaunchedEffect(playlist.id, playlist.songIds) {
@@ -176,23 +202,20 @@ fun QuickPicksScreen(
             )
         }
 
-        // ── Cover picker — Android Photo Picker (no permission needed on API 29+) ──
-        // The picked content:// URI dies with the process, so we copy the bytes into
-        // filesDir/playlist_covers/{id}.jpg and store that path. The app owns the file forever.
-        val coverPicker = rememberLauncherForActivityResult(
-            ActivityResultContracts.PickVisualMedia()
-        ) { uri ->
-            if (uri != null) {
-                scope.launch {
-                    val saved = withContext(Dispatchers.IO) {
-                        copyCoverToInternal(context.applicationContext, uri, playlist.id)
-                    }
-                    if (saved != null) {
-                        PlaylistStore.setPlaylistCover(playlist.id, saved)
-                        selectedPlaylist = PlaylistStore.playlists.value.firstOrNull { it.id == playlist.id }
-                    }
-                }
-            }
+        // ── Add songs dialog ──
+        var showAddSongsDialog by remember { mutableStateOf(false) }
+        if (showAddSongsDialog) {
+            AddSongsToPlaylistDialog(
+                playlist = playlist,
+                context = context,
+                onDismiss = { showAddSongsDialog = false },
+                onSongsAdded = {
+                    // The store already updated songIds; refresh the snapshot so
+                    // the song list re-renders immediately.
+                    selectedPlaylist = PlaylistStore.playlists.value.firstOrNull { it.id == playlist.id }
+                    showAddSongsDialog = false
+                },
+            )
         }
 
         PlaylistDetailScreen(
@@ -213,8 +236,12 @@ fun QuickPicksScreen(
                 showRenameDialog = true
             },
             onChangeCover = {
+                // Record which playlist the next pick targets, then launch the
+                // stable top-level picker (declared outside this let block).
+                pendingCoverPlaylistId = playlist.id
                 coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             },
+            onAddSongs = { showAddSongsDialog = true },
             // Use system bars directly — PlaylistDetailScreen is shown before LuteaScaffold,
             // so LocalLuteaWindowInsets isn't provided yet (that was the crash cause).
             insets = WindowInsets.systemBars,
@@ -278,7 +305,6 @@ fun QuickPicksScreen(
     //    through LuteaScaffold. The current song is read straight off
     //    PlaybackConnection — scanning MusicStore is fast enough to do
     //    inline on each tap.
-    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val playerNav = remember {
         PlayerNavigation(
@@ -640,11 +666,127 @@ private fun formatDuration(ms: Long): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
+// ── Add songs to playlist dialog ──
+// Lists every song on the device that ISN'T already in the playlist, with a
+// checkbox per row. On confirm, appends each selected song via PlaylistStore.
+// Simple alphabetical list (no search) — the smallest version that does the job.
+@Composable
+private fun AddSongsToPlaylistDialog(
+    playlist: com.rajatxo.lutea.data.model.Playlist,
+    context: android.content.Context,
+    onDismiss: () -> Unit,
+    onSongsAdded: () -> Unit,
+) {
+    var allSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var loaded by remember { mutableStateOf(false) }
+    val selected = remember { androidx.compose.runtime.mutableStateListOf<Long>() }
+
+    LaunchedEffect(Unit) {
+        allSongs = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+            .filter { it.id !in playlist.songIds }
+            .sortedBy { it.title.lowercase() }
+        loaded = true
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "Add songs to \"${playlist.name}\"",
+                color = Color.White,
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            if (!loaded) {
+                Text("Scanning your music...", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
+            } else if (allSongs.isEmpty()) {
+                Text("All your songs are already in this playlist.", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
+            } else {
+                // LazyColumn inside AlertDialog.text needs a fixed height to scroll.
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(360.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+                ) {
+                    items(allSongs) { song ->
+                        val isChecked = song.id in selected
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isChecked) Color.White.copy(alpha = 0.10f) else Color.Transparent)
+                                .clickable {
+                                    if (isChecked) selected.remove(song.id)
+                                    else selected.add(song.id)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AsyncImage(
+                                model = song.albumArtUri,
+                                contentDescription = null,
+                                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    song.title,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    song.artist,
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isChecked) Color.White else Color.Transparent)
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (isChecked) Color.Transparent else Color.White.copy(alpha = 0.4f),
+                                        shape = CircleShape,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (isChecked) {
+                                    Text("✓", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    selected.forEach { PlaylistStore.addSongToPlaylist(playlist.id, it) }
+                    onSongsAdded()
+                },
+                enabled = loaded && selected.isNotEmpty(),
+            ) { Text("Add ${selected.size} song${if (selected.size != 1) "s" else ""}") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 /**
  * Copy a picked image (content:// URI from the Photo Picker) into the app's internal
  * storage so it survives app restarts. SAF-granted URIs die with the process.
  *
- * Returns the absolute path of the saved file, or null on failure.
+ * Returns the file:// URI string (NOT a raw path) so Coil reliably loads it for both
+ * the cover display and the Palette color extraction. Raw paths like /data/user/0/...
+ * sometimes fail to decode in Coil 3 — file:// URIs always work.
  */
 private fun copyCoverToInternal(context: Context, source: android.net.Uri, playlistId: Long): String? {
     return try {
@@ -653,7 +795,7 @@ private fun copyCoverToInternal(context: Context, source: android.net.Uri, playl
         context.contentResolver.openInputStream(source)?.use { input ->
             target.outputStream().use { output -> input.copyTo(output) }
         } ?: return null
-        target.absolutePath
+        target.toURI().toString()  // "file:///data/user/0/.../playlist_covers/123.jpg"
     } catch (e: Exception) {
         null
     }

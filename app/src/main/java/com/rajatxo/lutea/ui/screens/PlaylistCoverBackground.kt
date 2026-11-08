@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
@@ -19,6 +17,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -52,7 +51,6 @@ private const val DISSOLVE_TO = 0.90f
 private const val DISSOLVE_BAND = 0.35f  // softness of the bottom-up dissolve edge
 private const val BLUR_IN_FROM = 0.08f
 private const val BLUR_IN_TO = 0.75f
-private val BlurRadius = 28.dp
 private val ZoomOrigin = TransformOrigin(0.5f, 0.35f)
 
 private val TopScrimBrush: Brush = Brush.verticalGradient(
@@ -96,6 +94,7 @@ fun PlaylistCoverBackground(
     placeholderSeed: String = "",
 ) {
     val context = LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
     val request = remember(coverUri) {
         if (coverUri.isNullOrBlank()) {
             null
@@ -105,6 +104,10 @@ fun PlaylistCoverBackground(
     }
     val hue = remember(placeholderSeed) { LuteaColorExtractor.hueFor(placeholderSeed) }
     val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    // Max blur radius in pixels — the radius scales from 0 to this as you scroll.
+    // Mochy uses ~30px; we match. Computed once outside graphicsLayer so the lambda
+    // doesn't allocate on every frame.
+    val maxBlurPx = with(density) { 32.dp.toPx() }
 
     Box(
         modifier = modifier
@@ -165,8 +168,12 @@ fun PlaylistCoverBackground(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            // progressive blur: sharp -> blurred crossfade. API 31+ only; below that we just
-            // rely on the fade + dim (Modifier.blur is a no-op there, so we don't compose it).
+            // Progressive blur: a second copy of the cover whose RenderEffect blur
+            // RADIUS grows with scroll progress (0 → 32dp over the first 75% of scroll).
+            // The previous version used a fixed Modifier.blur(28.dp) — the blur amount
+            // never changed, only the alpha faded in. Now the cover actually gets more
+            // blurry the further you scroll, matching Mochy's ScrollAwayCover behaviour.
+            // API 31+ only (RenderEffect); below that we rely on the fade + dim alone.
             if (canBlur) {
                 AsyncImage(
                     model = request,
@@ -175,9 +182,18 @@ fun PlaylistCoverBackground(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            alpha = luteaSmoothstep(BLUR_IN_FROM, BLUR_IN_TO, scrollProgress())
-                        }
-                        .blur(BlurRadius, BlurredEdgeTreatment.Rectangle),
+                            val p = scrollProgress().coerceIn(0f, 1f)
+                            val blurAmount = luteaSmoothstep(BLUR_IN_FROM, BLUR_IN_TO, p)
+                            alpha = blurAmount
+                            if (blurAmount > 0.01f) {
+                                val r = maxBlurPx * blurAmount
+                                renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                                    r, r, android.graphics.Shader.TileMode.CLAMP,
+                                ).asComposeRenderEffect()
+                            } else {
+                                renderEffect = null
+                            }
+                        },
                 )
             }
         }
