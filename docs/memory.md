@@ -65,8 +65,8 @@
 - MusicSource interface: `app/src/main/java/com/rajatxo/lutea/data/source/MusicSource.kt`
 - LocalMusicSource: `app/src/main/java/com/rajatxo/lutea/data/source/LocalMusicSource.kt`
 
-## Signing (for reference, do NOT put secrets in code)
-- Keystore: lutea-release.jks (in repo, gitignored — restored from GitHub Secret on CI)
-- Key alias: coralx
-- Store/key password: The Weeknd 199
-- GitHub Secrets: CORAL_X_KEYSTORE_BASE64, CORAL_X_STORE_PASSWORD, CORAL_X_KEY_ALIAS, CORAL_X_KEY_PASSWORD
+## Signing
+- Keystore is stored as a GitHub Secret on CI (not in the repo)
+- See GitHub repo Settings → Secrets and variables → Actions for:
+  CORAL_X_KEYSTORE_BASE64, CORAL_X_STORE_PASSWORD, CORAL_X_KEY_ALIAS, CORAL_X_KEY_PASSWORD
+- Do NOT put any signing info in code or documentation files
