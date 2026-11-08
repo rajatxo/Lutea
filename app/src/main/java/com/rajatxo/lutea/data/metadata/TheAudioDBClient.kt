@@ -61,23 +61,61 @@ object TheAudioDBClient {
             return@withContext cache[cacheKey] as ArtistData?
         }
         try {
+            // Try v1 API first (free, key "123")
             val url = "$BASE/search.php?s=" + encode(name)
-            val json = httpGetJson(url) ?: return@withContext null
-            val artists = json.optJSONArray("artists") ?: return@withContext null
-            if (artists.length() == 0) return@withContext null
-            val a = artists.optJSONObject(0) ?: return@withContext null
+            val json = httpGetJson(url)
+            val artists = json?.optJSONArray("artists")
+            val a = artists?.optJSONObject(0)
 
-            val data = ArtistData(
-                name = a.optString("strArtist").ifBlank { name },
-                thumbnailUrl = a.optString("strArtistThumb").takeIf { it.isNotBlank() },
-                bannerUrl = a.optString("strArtistFanart").takeIf { it.isNotBlank() },
-                biography = a.optString("strBiographyEN").takeIf { it.isNotBlank() && it != "null" },
-                genre = a.optString("strGenre").takeIf { it.isNotBlank() && it != "null" },
-                country = a.optString("strCountry").takeIf { it.isNotBlank() && it != "null" },
-                artistId = a.optString("idArtist").takeIf { it.isNotBlank() },
-            )
-            cache[cacheKey] = data
-            data
+            if (a != null) {
+                val data = ArtistData(
+                    name = a.optString("strArtist").ifBlank { name },
+                    thumbnailUrl = a.optString("strArtistThumb").takeIf { it.isNotBlank() && it != "null" },
+                    bannerUrl = a.optString("strArtistFanart").takeIf { it.isNotBlank() && it != "null" },
+                    biography = a.optString("strBiographyEN").takeIf { it.isNotBlank() && it != "null" },
+                    genre = a.optString("strGenre").takeIf { it.isNotBlank() && it != "null" },
+                    country = a.optString("strCountry").takeIf { it.isNotBlank() && it != "null" },
+                    artistId = a.optString("idArtist").takeIf { it.isNotBlank() },
+                )
+                cache[cacheKey] = data
+                return@withContext data
+            }
+
+            // TheAudioDB v1 didn't have the artist — try iTunes Search API (free, no key)
+            val itunesUrl = "https://itunes.apple.com/search?term=" + encode(name) + "&entity=musicArtist&limit=1"
+            val itunesJson = httpGetJson(itunesUrl)
+            val results = itunesJson?.optJSONArray("results")
+            val first = results?.optJSONObject(0)
+
+            if (first != null) {
+                // iTunes doesn't give a direct artist image URL, but we can
+                // get the artist's content and use album art as a fallback image.
+                val artistId = first.optLong("artistId", 0)
+                val imageUrl = if (artistId > 0) {
+                    // Lookup the artist's songs to get album art as their image
+                    val lookupUrl = "https://itunes.apple.com/lookup?id=$artistId&entity=song&limit=1"
+                    val lookupJson = httpGetJson(lookupUrl)
+                    val lookupResults = lookupJson?.optJSONArray("results")
+                    val song = lookupResults?.optJSONObject(1) // index 0 is the artist, 1 is first song
+                    song?.optString("artworkUrl100")?.replace("100x100", "600x600")
+                        ?.takeIf { it.isNotBlank() }
+                } else null
+
+                val data = ArtistData(
+                    name = first.optString("artistName").ifBlank { name },
+                    thumbnailUrl = imageUrl,
+                    bannerUrl = null,
+                    biography = null,
+                    genre = first.optString("primaryGenreName").takeIf { it.isNotBlank() },
+                    country = null,
+                    artistId = artistId.toString().takeIf { it != "0" },
+                )
+                cache[cacheKey] = data
+                return@withContext data
+            }
+
+            cache[cacheKey] = null
+            null
         } catch (e: Exception) {
             Log.w(TAG, "searchArtist failed for '$name'", e)
             cache[cacheKey] = null
