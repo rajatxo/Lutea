@@ -25,7 +25,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +44,7 @@ import coil3.compose.AsyncImage
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.domain.model.Song
 import com.rajatxo.lutea.playback.PlaybackConnection
+import com.rajatxo.lutea.data.metadata.MusicBrainzClient
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
 
@@ -75,6 +80,15 @@ fun ArtistScreen(
     ) {
         val screenW = maxWidth
         val horizontalPadding = screenW * 0.06f
+
+        // ★ MusicBrainz enrichment — fetch artist image + bio in background
+        var artistInfo by remember { mutableStateOf<MusicBrainzClient.ArtistInfo?>(null) }
+        var loadingMetadata by remember { mutableStateOf(true) }
+        LaunchedEffect(artistName) {
+            loadingMetadata = true
+            artistInfo = MusicBrainzClient.lookupArtist(artistName)
+            loadingMetadata = false
+        }
 
         // Group songs by album, preserving first-seen order.
         val albums: List<Pair<String, List<Song>>> = remember(songs) {
@@ -135,7 +149,35 @@ fun ArtistScreen(
                         .fillMaxWidth()
                         .padding(horizontal = horizontalPadding)
                         .padding(top = 8.dp, bottom = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // ★ Artist image from MusicBrainz/Cover Art Archive (or placeholder)
+                    Box(
+                        modifier = Modifier
+                            .size(screenW * 0.35f)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1A1A1A)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val imageUrl = artistInfo?.imageUrl
+                        if (imageUrl != null) {
+                            AsyncImage(
+                                model = imageUrl,
+                                contentDescription = artistName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else if (!loadingMetadata) {
+                            // No image found — show first letter
+                            Text(
+                                text = artistName.firstOrNull()?.uppercase() ?: "?",
+                                color = Color.White.copy(alpha = 0.3f),
+                                fontSize = 48.sp,
+                                fontFamily = BillieEilishFamily,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
                     Text(
                         text = artistName,
                         color = Color.White,
@@ -144,6 +186,7 @@ fun ArtistScreen(
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -152,6 +195,28 @@ fun ArtistScreen(
                         fontSize = 13.sp,
                         fontFamily = CalSansFamily,
                     )
+                    // ★ Biography from Wikipedia (via MusicBrainz)
+                    val bio = artistInfo?.biography
+                    if (bio != null && bio.isNotBlank()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = bio,
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 13.sp,
+                            fontFamily = CalSansFamily,
+                            lineHeight = 20.sp,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else if (loadingMetadata) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = "Fetching artist info...",
+                            color = Color.White.copy(alpha = 0.3f),
+                            fontSize = 12.sp,
+                            fontFamily = CalSansFamily,
+                        )
+                    }
                 }
             }
 

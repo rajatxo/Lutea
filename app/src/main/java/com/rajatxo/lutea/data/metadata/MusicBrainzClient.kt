@@ -149,11 +149,15 @@ object MusicBrainzClient {
 
     /**
      * Convenience — search by name then fetch full info for the first hit.
+     * Also tries to fetch an artist image from Wikipedia.
      * Returns null if either step fails.
      */
     suspend fun lookupArtist(name: String): ArtistInfo? {
         val hit = searchArtist(name) ?: return null
-        return getArtistInfo(hit.mbid) ?: hit
+        val info = getArtistInfo(hit.mbid) ?: hit
+        // Try to get artist image from Wikipedia
+        val imageUrl = info.biography?.let { fetchArtistImage(name) }
+        return info.copy(imageUrl = imageUrl)
     }
 
     /**
@@ -270,6 +274,27 @@ object MusicBrainzClient {
             httpGetJson(apiUrl)?.optString("extract")?.takeIf { it.isNotBlank() }
         }.getOrElse {
             Log.w(TAG, "fetchWikipediaExtract failed for '$wikipediaUrl'", it); null
+        }
+    }
+
+    /**
+     * Fetch artist image URL from Wikipedia REST API.
+     * The page summary endpoint returns a "thumbnail" object with a "source" URL.
+     */
+    private fun fetchArtistImage(artistName: String): String? {
+        val title = artistName.replace(" ", "_")
+        val apiUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/" + encode(title)
+        return runCatching {
+            val json = httpGetJson(apiUrl) ?: return null
+            val thumbnail = json.optJSONObject("thumbnail") ?: return null
+            val source = thumbnail.optString("source")
+            // Get the full-size version by removing the thumbnail size suffix
+            source.takeIf { it.isNotBlank() }?.replace("/thumb/", "/")
+                ?.replace("/\\d+px-".toRegex(), "/")
+                ?.replace("^https?://upload\\.wikimedia\\.org/wikipedia/commons/thumb/".toRegex(),
+                    "https://upload.wikimedia.org/wikipedia/commons/")
+        }.getOrElse {
+            Log.w(TAG, "fetchArtistImage failed for '$artistName'", it); null
         }
     }
 
