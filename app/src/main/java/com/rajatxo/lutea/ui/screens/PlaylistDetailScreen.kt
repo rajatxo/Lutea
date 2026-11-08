@@ -157,28 +157,37 @@ fun PlaylistDetailScreen(
         val coverHeight = screenH * COVER_HEIGHT_FRACTION
         val coverHeightPx = with(density) { coverHeight.toPx() }.coerceAtLeast(1f)
         val titleOverlap = screenH * TITLE_OVERLAP_FRACTION
+        val titleOverlapPx = with(density) { titleOverlap.toPx() }
+        // contentPadding.top in pixels = coverHeight - titleOverlap (the space above the header).
+        val contentTopPx = coverHeightPx - titleOverlapPx
         val sidePad = screenW * 0.06f
         val thumbSize = screenW * 0.13f
         val topInset = with(density) { insets.getTop(this).toDp() }
         val bottomInset = with(density) { insets.getBottom(this).toDp() }
 
-        // 0f..1f as the header scrolls its own height off-screen.
-        // Measured against the HEADER's real height (from layoutInfo), NOT coverHeight — the
-        // header is much shorter than the cover, so dividing by coverHeight left progress at
-        // only ~0.5 when the header scrolled past, then firstVisibleItemIndex flipped and
-        // progress jumped to 1.0. That jump snapped the cover's alpha from ~0.6 to 0 in one
-        // frame — the "sudden vanish". With the header's own height, progress glides to 1
-        // exactly as the header leaves the viewport: every scroll-driven property (alpha,
-        // translation, zoom, blur, dissolve) approaches its final value smoothly, no snap.
-        val progress = remember(listState) {
+        // 0f..1f as the FIRST SONG ROW reaches the top of the screen.
+        //
+        // We read the header item's actual viewport offset from layoutInfo and derive progress
+        // from THAT — not from firstVisibleItemScrollOffset, whose semantics around contentPadding
+        // are ambiguous and caused the cover to finish its parallax way before the songs reached
+        // the top (the 'large gap'). The header starts at offset = contentTopPx (just below the
+        // content padding). It scrolls to offset = -headerHeight as it leaves the viewport.
+        // Mapping that range to 0→1 makes the cover's full parallax unfold over exactly the scroll
+        // that brings the first song row to the top — cover and list move together, no gap.
+        //
+        // Once the header is gone from visibleItemsInfo, progress clamps to 1 — and just before
+        // that moment it was already ≈1, so there is no jump.
+        val progress = remember(listState, contentTopPx) {
             derivedStateOf {
-                if (listState.firstVisibleItemIndex > 0) {
+                val header = listState.layoutInfo.visibleItemsInfo
+                    .firstOrNull { it.key == "header" }
+                if (header == null) {
                     1f
                 } else {
-                    val headerPx = listState.layoutInfo.visibleItemsInfo
-                        .firstOrNull { it.key == "header" }?.size?.toFloat()
-                        ?: coverHeightPx
-                    (listState.firstVisibleItemScrollOffset / headerPx).coerceIn(0f, 1f)
+                    val headerH = header.size.toFloat()
+                    val scrolledFromRest = contentTopPx - header.offset.toFloat()
+                    val denom = (contentTopPx + headerH).coerceAtLeast(1f)
+                    (scrolledFromRest / denom).coerceIn(0f, 1f)
                 }
             }
         }
