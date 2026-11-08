@@ -11,8 +11,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -23,7 +29,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.rajatxo.lutea.ui.util.LuteaColorExtractor
 
-// ------------------------------------------------------------------ tunables (brief's cheat sheet)
+// ------------------------------------------------------------------ tunables
 
 // Blend gradient: clear until 0.56, 78% background at 0.84, solid background at 1.0
 private const val BLEND_CLEAR_UNTIL = 0.56f
@@ -36,13 +42,22 @@ private const val BLEND_STEPS = 8
 private const val SCRIM_ALPHA = 0.34f
 private const val SCRIM_END = 0.24f
 
-// Scroll choreography — the cover is PINNED. The one and only thing scroll changes is the
-// blur radius: 0 -> 30 px over progress 0 -> 0.55. Same numbers as Mochy's ScrollAwayCover
-// (CoverSoftRadius = 30f, CoverSoftBy = 0.55f). No parallax, no zoom, no dim, no fade —
-// nothing that could read as the artwork moving, growing or vanishing into the background.
-private const val BLUR_MAX_RADIUS_PX = 30f // actual pixels, exactly Mochy (NOT dp — dp would be ~3x stronger)
-private const val BLUR_IN_FROM = 0f
-private const val BLUR_IN_TO = 0.55f
+// Scroll choreography — this is Mochy's ScrollAwayCover, exactly.
+// The cover is the backdrop pinned behind the list, so it has to travel most of the way up on
+// its own (follow = -0.8). It zooms a little (Ken Burns), dims a little, dissolves from the
+// bottom up, fades out, and softens from sharp to a 30px blur. These are Mochy's constants:
+//   CoverFollow   = 0.8    CoverZoom      = 0.22   CoverFadeFrom = 0.2
+//   CoverFadeTo   = 0.85   CoverDim       = 0.22   CoverSoftRadius = 30f   CoverSoftBy = 0.55
+private const val COVER_FOLLOW = 0.8f        // travels up this share of its height on scroll
+private const val COVER_ZOOM = 0.22f         // Ken Burns zoom
+private const val COVER_FADE_FROM = 0.2f     // alpha fade starts here
+private const val COVER_FADE_TO = 0.85f      // alpha fade ends here (cover gone)
+private const val COVER_DIM = 0.22f          // black overlay, grows with scroll
+private const val DISSOLVE_RAMP_TO = 0.8f    // bottom dissolve reaches full strength here
+private const val BLUR_MAX_RADIUS_PX = 30f   // actual pixels (Mochy CoverSoftRadius) — NOT dp
+private const val BLUR_IN_FROM = 0f          // blur starts immediately
+private const val BLUR_IN_TO = 0.55f         // blur reaches full strength here
+private val ZoomOrigin = TransformOrigin(0.5f, 0.35f)
 
 private val TopScrimBrush: Brush = Brush.verticalGradient(
     0f to Color.Black.copy(alpha = SCRIM_ALPHA),
@@ -59,20 +74,23 @@ internal fun luteaSmoothstep(from: Float, to: Float, x: Float): Float {
 /**
  * The cover image at the top of the playlist screen.
  *
- * What the user asked for, and all this does: when the list scrolls up, the cover blurs —
- * that's it. The box never moves (no parallax), never scales (no zoom), never dims, never
- * fades, never dissolves. The artwork is blurred in place with a RenderEffect whose radius
- * grows 0 -> 30 px as progress goes 0 -> 0.55 (Mochy's ScrollAwayCover numbers, so the blur
- * is clearly visible early but the artwork stays recognisable instead of smearing into a
- * flat puddle of the background colour).
+ * This mirrors Mochy's [ScrollAwayCover] for the playlist backdrop: the cover rides up, zooms,
+ * dims, dissolves from the bottom, fades out, and softens from sharp to a 30px blur as the list
+ * scrolls over it. Constants match Mochy exactly (CoverFollow/CoverZoom/CoverFadeFrom/CoverFadeTo/
+ * CoverDim/CoverSoftRadius/CoverSoftBy) so the behaviour is the one the user already likes.
+ *
+ * There is NO second blur layer on top of this — the kyant top blur that used to sit above the
+ * list is gone. The cover's own RenderEffect blur is the only blur.
  *
  * Layers, bottom to top:
  *  1. placeholder gradient (shown when there is no cover, or while it loads)
  *  2. cover (Coil AsyncImage, Crop) whose RenderEffect blur radius grows with scroll (API 31+;
  *     below S the image simply stays sharp)
- *  3. blend gradient: cover -> [backgroundColor] — STATIC, never driven by scroll (this is the
- *     resting seamless fade into the page colour; it does not expand or move while scrolling)
+ *  3. blend gradient: cover -> [backgroundColor] — seamless fade into the page colour
  *  4. top scrim
+ *
+ * The container's graphicsLayer applies the scroll-away transform (translate / zoom / alpha) and
+ * the drawWithContent below paints the dim + bottom dissolve on top of everything inside.
  *
  * [scrollProgress] and [backgroundColor] are lambdas on purpose: they are only read in the
  * graphicsLayer / draw phase, so scrolling and the 600 ms colour fade never recompose this.
@@ -102,7 +120,41 @@ fun PlaylistCoverBackground(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(coverHeight),
+            .height(coverHeight)
+            .graphicsLayer {
+                val p = scrollProgress().coerceIn(0f, 1f)
+                translationY = p * size.height * -COVER_FOLLOW
+                val zoom = 1f + p * COVER_ZOOM
+                scaleX = zoom
+                scaleY = zoom
+                transformOrigin = ZoomOrigin
+                alpha = 1f - luteaSmoothstep(COVER_FADE_FROM, COVER_FADE_TO, p)
+                // the bottom dissolve cuts into its own buffer; at rest there's nothing to cut
+                compositingStrategy =
+                    if (p > 0f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+            }
+            .drawWithContent {
+                drawContent()
+                val p = scrollProgress().coerceIn(0f, 1f)
+                if (p > 0f) {
+                    // dim
+                    drawRect(Color.Black.copy(alpha = COVER_DIM * p))
+                    // bottom dissolve — DstIn with a soft gradient cuts the lower band away
+                    val clear = 0.1f + 0.45f * luteaSmoothstep(0f, DISSOLVE_RAMP_TO, p)
+                    val top = size.height * (1f - clear)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Black,
+                            1f to Color.Transparent,
+                            startY = top,
+                            endY = size.height,
+                        ),
+                        topLeft = Offset(0f, top),
+                        size = Size(size.width, size.height - top),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
+            },
     ) {
         // placeholder (also what you see if the image fails to load)
         Box(
@@ -119,10 +171,8 @@ fun PlaylistCoverBackground(
         )
 
         if (request != null) {
-            // The ONE cover image. Its RenderEffect blur radius grows with scroll progress
-            // (0 -> 30px over progress 0 -> 0.55), so the artwork visibly turns from sharp
-            // to blurred as the list rides over it — and it stays fully visible the whole way.
-            // This is the ONLY scroll-driven effect on the cover.
+            // The cover. Its RenderEffect blur radius grows with scroll progress
+            // (0 -> 30px over progress 0 -> 0.55), Mochy's CoverSoftRadius / CoverSoftBy.
             // API 31+ only (RenderEffect); below S the image simply stays sharp.
             AsyncImage(
                 model = request,
@@ -147,7 +197,7 @@ fun PlaylistCoverBackground(
             )
         }
 
-        // blend: cover -> background colour. STATIC — the stops never depend on scroll
+        // blend: cover -> background colour. Cached; only rebuilt while the colour animates.
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -173,10 +223,6 @@ fun PlaylistCoverBackground(
  *   0.56 -> clear
  *   0.84 -> background @ 78%
  *   1.00 -> background @ 100%
- *
- * Same stops as the brief, but the ramp between them is a smooth (C1) curve instead of two
- * straight lines, so there is no faint "edge" where the fade starts. The clear stops use the
- * background RGB at alpha 0 (not transparent black) so the gradient never passes through grey.
  */
 private fun blendStops(bg: Color): Array<Pair<Float, Color>> {
     val clear = bg.copy(alpha = 0f)

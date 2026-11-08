@@ -44,17 +44,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -73,11 +69,6 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.view.WindowCompat
 import coil3.compose.AsyncImage
-import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
 import com.rajatxo.lutea.data.model.Playlist
 import com.rajatxo.lutea.domain.model.Song
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
@@ -117,20 +108,13 @@ import com.rajatxo.lutea.ui.util.rememberCoverThemeColor
 private const val COVER_HEIGHT_FRACTION = 0.60f   // cover = 60% of the real container height
 private const val TITLE_OVERLAP_FRACTION = 0.14f  // big title starts this much inside the cover's fade zone
 private const val TOP_BAR_THRESHOLD = 0.55f       // scrollProgress where the small title morphs in
-
-// Mochy-style progressive top blur: whatever scrolls under the status bar melts
-// into blur. Radius grows with scroll, a DstOut gradient punch-out removes it
-// toward the bottom of the zone — no rectangle, no hard edge.
-private val TopBlurMaxRadius = 24.dp
-private val TopBlurZoneExtra = 88.dp              // blur zone extends this far below the 56dp bar row
-private const val TOP_BLUR_FROM = 0.10f           // scrollProgress where the top blur starts
-private const val TOP_BLUR_TO = 0.80f             // scrollProgress where it reaches full strength
 private val TopBarContentHeight = 56.dp
 
 /**
- * Playlist detail: cover art that dissolves into a dark, hue-tinted background colour taken
- * from the cover, a song list riding over it, and a Mochy-style progressive blur under the
- * status bar that melts whatever scrolls underneath.
+ * Playlist detail: cover art that rides up, zooms, dims, dissolves and blurs as the list
+ * scrolls over it (Mochy's ScrollAwayCover, exactly), dissolving into a dark hue-tinted
+ * background colour taken from the cover, with a song list riding over it. The cover's own
+ * RenderEffect blur is the only blur — there is no second blur layer on top.
  *
  * Law 7: everything screen-relative is a fraction of BoxWithConstraints.maxWidth/maxHeight.
  * Law 1: pass LocalLuteaWindowInsets.current as [insets].
@@ -161,13 +145,6 @@ fun PlaylistDetailScreen(
     val themeState = rememberCoverThemeColor(playlist.coverUri, fallbackSeed = playlist.id.toString())
     val listState = rememberLazyListState()
     val density = LocalDensity.current
-
-    // kyant backdrop: captures the cover + the scrolling list so the top blur overlay can
-    // blur whatever is underneath it (same mechanism as the nav capsule / LuteaScaffold).
-    val graphicsLayer = rememberGraphicsLayer()
-    val backdrop = rememberLayerBackdrop(graphicsLayer = graphicsLayer) {
-        drawContent()
-    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -210,14 +187,9 @@ fun PlaylistDetailScreen(
         val totalMs = remember(songs) { songs.sumOf { detailDurationMs(it.duration) } }
         val subtitle = remember(songs, totalMs) { detailSubtitle(songs.size, totalMs) }
 
-        // top blur overlay is only composed once scrolling starts (zero idle GPU cost);
-        // it fades in smoothly from there, so there is no pop at the threshold
-        val topBlurActive by remember { derivedStateOf { progress.value > 0.01f } }
-
-        // captured layer: cover + list. The top blur overlay samples THIS. The capture layer
-        // stays OUTSIDE the scrollable — kyant criteria (see LuteaBackdrop.kt).
-        Box(modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-            // layer 0: pinned cover — the ONLY scroll-driven effect is its blur (see PlaylistCoverBackground)
+        // cover + list. No capture layer — the cover's own RenderEffect blur is the only blur.
+        Box(modifier = Modifier.fillMaxSize()) {
+            // layer 0: the cover — Mochy's ScrollAwayCover (rides up, zooms, blurs, dims, dissolves, fades)
             PlaylistCoverBackground(
                 coverUri = playlist.coverUri,
                 backgroundColor = { themeState.value },
@@ -242,7 +214,6 @@ fun PlaylistDetailScreen(
                         name = playlist.name,
                         subtitle = subtitle,
                         sidePad = sidePad,
-                        progress = { progress.value },
                         onPlayAll = onPlayAll,
                         onShuffle = onShuffle,
                         onRename = onRename,
@@ -267,19 +238,7 @@ fun PlaylistDetailScreen(
             }
         }
 
-        // layer 2: Mochy-style progressive blur — content scrolling under the status bar
-        // melts into blur, which fades out smoothly toward the bottom of the zone
-        if (topBlurActive) {
-            PlaylistTopBlur(
-                backdrop = backdrop,
-                progress = { progress.value },
-                topInset = topInset,
-                modifier = Modifier.align(Alignment.TopStart),
-            )
-        }
-
-        // layer 3: back button + small title (the old frost rectangle is gone — the blur
-        // overlay above does the legibility work now)
+        // layer 2: back button + small title (morphs in once the cover has scrolled away)
         PlaylistTopBar(
             title = playlist.name,
             morph = { morph.value },
@@ -298,7 +257,6 @@ private fun PlaylistHeader(
     name: String,
     subtitle: String,
     sidePad: Dp,
-    progress: () -> Float,
     onPlayAll: () -> Unit,
     onShuffle: () -> Unit,
     onRename: () -> Unit,
@@ -311,21 +269,13 @@ private fun PlaylistHeader(
             .fillMaxWidth()
             .padding(horizontal = sidePad),
     ) {
-        // big title: collapses toward the small one in the top bar as the bar morphs in
+        // big title scrolls naturally with the list (Mochy doesn't fade/scale it)
         DetailText(
             text = name,
             size = 38.sp,
             lineHeight = 42.sp,
             family = BillieEilishFamily,
             maxLines = 3,
-            modifier = Modifier.graphicsLayer {
-                val t = luteaSmoothstep(0.30f, TOP_BAR_THRESHOLD, progress())
-                alpha = 1f - t
-                val s = 1f - 0.12f * t
-                scaleX = s
-                scaleY = s
-                transformOrigin = TransformOrigin(0f, 1f)
-            },
         )
         Spacer(Modifier.height(6.dp))
         DetailText(
@@ -516,76 +466,11 @@ private fun DetailEmptyHint(sidePad: Dp) {
     )
 }
 
-// ------------------------------------------------------------------ progressive top blur
-
-/**
- * Mochy-style progressive top blur.
- *
- * One kyant backdrop layer over the top `topInset + 88dp` of the screen. The captured
- * content (cover + scrolling list) is blurred with a radius that grows with scroll
- * progress, and a DstOut gradient punch-out removes the blur toward the bottom of the
- * zone — no rectangle, no hard edge: whatever scrolls under the status bar just melts
- * into blur near the top edge, exactly like Mochy.
- *
- * Scroll progress is only read in the graphicsLayer / draw phase — scrolling never
- * recomposes this.
- */
-@Composable
-private fun PlaylistTopBlur(
-    backdrop: LayerBackdrop,
-    progress: () -> Float,
-    topInset: Dp,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(topInset + TopBlurZoneExtra)
-            .graphicsLayer {
-                // fades the whole zone in with scroll (zero at rest, no pop)
-                alpha = luteaSmoothstep(TOP_BLUR_FROM, TOP_BLUR_TO, progress().coerceIn(0f, 1f))
-            }
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { RectangleShape },
-                effects = {
-                    // blur radius grows as you scroll (small floor keeps RenderEffect happy)
-                    val s = luteaSmoothstep(TOP_BLUR_FROM, TOP_BLUR_TO, progress())
-                    blur(TopBlurMaxRadius.toPx() * s.coerceAtLeast(0.03f))
-                },
-                onDrawSurface = {
-                    // 1) punch the blur out toward the bottom of the zone — smooth, no edge
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.42f to Color.Transparent,
-                            0.88f to Color.White,
-                            1f to Color.White,
-                        ),
-                        blendMode = BlendMode.DstOut,
-                    )
-                    // 2) faint darkening at the very top for status-bar legibility
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.18f),
-                            0.5f to Color.Transparent,
-                        ),
-                    )
-                },
-            ),
-    )
-}
-
 // ------------------------------------------------------------------ top bar row
 
 /**
- * Back button (always visible) + small title that morph in after
+ * Back button (always visible) + small title that morphs in after
  * scrollProgress > TOP_BAR_THRESHOLD.
- *
- * The old frost layer (a blurred copy of the cover + a solid tint block + hairline inside
- * a rectangle) is gone — it popped in with a spring overshoot, showed a hard bottom edge
- * and let header content ghost through it. PlaylistTopBlur above now does the legibility
- * work by actually blurring whatever scrolls underneath.
  */
 @Composable
 private fun PlaylistTopBar(
