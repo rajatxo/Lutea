@@ -86,6 +86,12 @@ fun ArtistScreen(
         var artistImageUrl by remember { mutableStateOf<String?>(null) }
         var artistBio by remember { mutableStateOf<String?>(null) }
         var loadingMetadata by remember { mutableStateOf(true) }
+
+        // ★ TEST: Set a hardcoded image immediately to test if Coil can render it.
+        // If this shows up, the issue is with the network call.
+        // If this doesn't show up, the issue is with Coil or the layout.
+        artistImageUrl = "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/f5/93/8c/f5938c49-964c-31d1-4b33-78b634f71fb7/190295978075.jpg/600x600bb.jpg"
+
         LaunchedEffect(artistName) {
             loadingMetadata = true
 
