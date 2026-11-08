@@ -86,15 +86,36 @@ fun ArtistScreen(
         var artistImageUrl by remember { mutableStateOf<String?>(null) }
         var artistBio by remember { mutableStateOf<String?>(null) }
         var loadingMetadata by remember { mutableStateOf(true) }
+        val context = androidx.compose.ui.platform.LocalContext.current
         LaunchedEffect(artistName) {
             loadingMetadata = true
-            // 1. YouTube — same image as YTM (channel thumbnail)
-            artistImageUrl = com.rajatxo.lutea.data.metadata.YouTubeClient.getArtistImage(artistName)
-            // 2. Wikipedia — for bio (and image if YouTube failed)
+
+            // 0. Check permanent cache first — if we've already downloaded this
+            //    artist's image before, load it instantly from disk (no network).
+            val cachedFile = com.rajatxo.lutea.data.metadata.ArtistImageCache.getCachedFile(context, artistName)
+            if (cachedFile != null) {
+                artistImageUrl = cachedFile.absolutePath
+                loadingMetadata = false
+                // Still fetch bio in background (fast, small text)
+                val cleanName = com.rajatxo.lutea.data.metadata.ArtistImageCache.sanitizeForSearch(artistName)
+                artistBio = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(cleanName)?.biography
+                return@LaunchedEffect
+            }
+
+            // 1. YouTube Data API v3 — same image as YouTube Music
+            val cleanName = com.rajatxo.lutea.data.metadata.ArtistImageCache.sanitizeForSearch(artistName)
+            val ytImage = com.rajatxo.lutea.data.metadata.YouTubeClient.getArtistImage(cleanName)
+            if (ytImage != null) {
+                // Download + permanently cache the image
+                val cached = com.rajatxo.lutea.data.metadata.ArtistImageCache.downloadAndCache(context, artistName, ytImage)
+                artistImageUrl = cached?.absolutePath ?: ytImage
+            }
+
+            // 2. Wikipedia REST API — for biography (and image if YouTube failed)
             if (artistImageUrl == null || artistBio == null) {
                 try {
                     val wiki = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        val title = artistName.replace(" ", "_")
+                        val title = cleanName.replace(" ", "_")
                         val url = "https://en.wikipedia.org/api/rest_v1/page/summary/" +
                             java.net.URLEncoder.encode(title, "UTF-8").replace("+", "%20")
                         val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
@@ -111,17 +132,26 @@ fun ArtistScreen(
                         } finally { conn.disconnect() }
                     }
                     if (wiki != null) {
-                        if (artistImageUrl == null) artistImageUrl = wiki.first
+                        if (artistImageUrl == null && wiki.first != null) {
+                            // Download + cache Wikipedia image too
+                            val cached = com.rajatxo.lutea.data.metadata.ArtistImageCache.downloadAndCache(context, artistName, wiki.first!!)
+                            artistImageUrl = cached?.absolutePath ?: wiki.first
+                        }
                         if (artistBio == null) artistBio = wiki.second
                     }
                 } catch (e: Exception) { android.util.Log.w("ArtistScreen", "Wikipedia failed", e) }
             }
-            // 3. TheAudioDB fallback for bio
-            if (artistBio == null) {
-                val adb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(artistName)
-                if (artistImageUrl == null) artistImageUrl = adb?.thumbnailUrl ?: adb?.bannerUrl
+
+            // 3. TheAudioDB fallback for bio + image
+            if (artistImageUrl == null || artistBio == null) {
+                val adb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(cleanName)
+                if (artistImageUrl == null && adb?.thumbnailUrl != null) {
+                    val cached = com.rajatxo.lutea.data.metadata.ArtistImageCache.downloadAndCache(context, artistName, adb.thumbnailUrl)
+                    artistImageUrl = cached?.absolutePath ?: adb.thumbnailUrl
+                }
                 if (artistBio == null) artistBio = adb?.biography
             }
+
             loadingMetadata = false
         }
 
