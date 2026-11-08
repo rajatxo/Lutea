@@ -89,45 +89,95 @@ fun ArtistScreen(
         LaunchedEffect(artistName) {
             loadingMetadata = true
 
-            // 1. iTunes Search API (works in India, free, no key)
+            // 1. Wikipedia REST API — has ACTUAL artist photos (not album covers).
+            //    Free, no key, works in India. Returns thumbnail + biography.
             try {
-                val art = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val itunesUrl = "https://itunes.apple.com/search?term=" +
-                        java.net.URLEncoder.encode(artistName, "UTF-8").replace("+", "%20") +
-                        "&entity=album&limit=1"
-                    val conn = (java.net.URL(itunesUrl).openConnection() as java.net.HttpURLConnection).apply {
+                val wiki = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    // Convert artist name to Wikipedia page title (spaces → underscores)
+                    val pageTitle = artistName.replace(" ", "_")
+                    val wikiUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/" +
+                        java.net.URLEncoder.encode(pageTitle, "UTF-8").replace("+", "%20")
+                    android.util.Log.d("ArtistScreen", "Wikipedia URL: $wikiUrl")
+                    val conn = (java.net.URL(wikiUrl).openConnection() as java.net.HttpURLConnection).apply {
                         requestMethod = "GET"
-                        setRequestProperty("User-Agent", "Lutea/1.0")
+                        setRequestProperty("User-Agent", "Lutea/1.0 ( rajat@lutea.local )")
                         connectTimeout = 8000
                         readTimeout = 8000
                         instanceFollowRedirects = true
                     }
                     try {
-                        if (conn.responseCode in 200..299) {
+                        val code = conn.responseCode
+                        android.util.Log.d("ArtistScreen", "Wikipedia response: $code")
+                        if (code in 200..299) {
                             val text = conn.inputStream.bufferedReader().use { it.readText() }
                             val json = org.json.JSONObject(text)
-                            val results = json.optJSONArray("results")
-                            if (results != null && results.length() > 0) {
-                                val album = results.optJSONObject(0)
-                                val artwork = album?.optString("artworkUrl100")?.takeIf { it.isNotBlank() }
-                                if (artwork != null) artwork.replace("100x100bb", "600x600bb") else null
-                            } else null
+                            // thumbnail.source = actual artist photo URL
+                            val thumbnail = json.optJSONObject("thumbnail")
+                            val imgUrl = thumbnail?.optString("source")?.takeIf { it.isNotBlank() }
+                            // Upgrade thumbnail to full-size by removing /thumb/ and size suffix
+                            val fullImg = imgUrl?.let { url ->
+                                // Wikipedia thumbnail URLs look like:
+                                // https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Foo.jpg/300px-Foo.jpg
+                                // Full size: https://upload.wikimedia.org/wikipedia/commons/a/ab/Foo.jpg
+                                url.replace("/thumb/", "/")
+                                    .replace("/[0-9]+px-".toRegex(), "/")
+                                    .replace("/thumb/", "/")
+                            }
+                            // extract = biography text
+                            val bio = json.optString("extract")?.takeIf { it.isNotBlank() }
+                            android.util.Log.d("ArtistScreen", "Wiki image: $fullImg, bio: ${bio?.length ?: 0} chars")
+                            Pair(fullImg, bio)
                         } else null
                     } finally { conn.disconnect() }
                 }
-                if (art != null) artistImageUrl = art
+                if (wiki != null) {
+                    artistImageUrl = wiki.first
+                    artistBio = wiki.second
+                }
             } catch (e: Exception) {
-                android.util.Log.w("ArtistScreen", "iTunes failed", e)
+                android.util.Log.w("ArtistScreen", "Wikipedia failed", e)
             }
 
-            // 2. TheAudioDB for biography (and image fallback)
+            // 2. TheAudioDB fallback (for image or bio if Wikipedia didn't have them)
             if (artistImageUrl == null || artistBio == null) {
                 val audioDb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(artistName)
                 if (artistImageUrl == null) artistImageUrl = audioDb?.thumbnailUrl ?: audioDb?.bannerUrl
                 if (artistBio == null) artistBio = audioDb?.biography
             }
 
-            // 3. MusicBrainz + Wikipedia final fallback
+            // 3. iTunes album art as LAST RESORT (not an artist photo, just album cover)
+            if (artistImageUrl == null) {
+                try {
+                    val art = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val itunesUrl = "https://itunes.apple.com/search?term=" +
+                            java.net.URLEncoder.encode(artistName, "UTF-8").replace("+", "%20") +
+                            "&entity=album&limit=1"
+                        val conn = (java.net.URL(itunesUrl).openConnection() as java.net.HttpURLConnection).apply {
+                            requestMethod = "GET"
+                            setRequestProperty("User-Agent", "Lutea/1.0")
+                            connectTimeout = 8000
+                            readTimeout = 8000
+                        }
+                        try {
+                            if (conn.responseCode in 200..299) {
+                                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                                val json = org.json.JSONObject(text)
+                                val results = json.optJSONArray("results")
+                                if (results != null && results.length() > 0) {
+                                    results.optJSONObject(0)?.optString("artworkUrl100")
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.replace("100x100bb", "600x600bb")
+                                } else null
+                            } else null
+                        } finally { conn.disconnect() }
+                    }
+                    if (art != null) artistImageUrl = art
+                } catch (e: Exception) {
+                    android.util.Log.w("ArtistScreen", "iTunes fallback failed", e)
+                }
+            }
+
+            // 4. MusicBrainz + Wikipedia (via MB) final fallback for bio only
             if (artistBio == null) {
                 val mbInfo = com.rajatxo.lutea.data.metadata.MusicBrainzClient.lookupArtist(artistName)
                 if (artistImageUrl == null) artistImageUrl = mbInfo?.imageUrl
