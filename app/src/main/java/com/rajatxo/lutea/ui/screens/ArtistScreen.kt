@@ -91,36 +91,49 @@ fun ArtistScreen(
 
             // 1. iTunes Search API — works everywhere including India.
             //    Search for albums by this artist → get high-res album art as artist image.
+            //    MUST run on Dispatchers.IO — network on main thread throws
+            //    NetworkOnMainThreadException which was being silently caught.
             try {
-                val itunesUrl = "https://itunes.apple.com/search?term=" +
-                    java.net.URLEncoder.encode(artistName, "UTF-8").replace("+", "%20") +
-                    "&entity=album&limit=1"
-                val conn = (java.net.URL(itunesUrl).openConnection() as java.net.HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    setRequestProperty("User-Agent", "Lutea/1.0")
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                    instanceFollowRedirects = true
-                }
-                try {
-                    if (conn.responseCode in 200..299) {
-                        val text = conn.inputStream.bufferedReader().use { it.readText() }
-                        val json = org.json.JSONObject(text)
-                        val results = json.optJSONArray("results")
-                        if (results != null && results.length() > 0) {
-                            val album = results.optJSONObject(0)
-                            // artworkUrl100 → upgrade to 600x600bb for better quality
-                            val art = album?.optString("artworkUrl100")?.takeIf { it.isNotBlank() }
-                            if (art != null) {
-                                artistImageUrl = art.replace("100x100bb", "600x600bb")
-                            }
-                        }
+                val art = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val itunesUrl = "https://itunes.apple.com/search?term=" +
+                        java.net.URLEncoder.encode(artistName, "UTF-8").replace("+", "%20") +
+                        "&entity=album&limit=1"
+                    android.util.Log.d("ArtistScreen", "iTunes URL: $itunesUrl")
+                    val conn = (java.net.URL(itunesUrl).openConnection() as java.net.HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        setRequestProperty("User-Agent", "Lutea/1.0")
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                        instanceFollowRedirects = true
                     }
-                } finally {
-                    conn.disconnect()
+                    try {
+                        val code = conn.responseCode
+                        android.util.Log.d("ArtistScreen", "iTunes response code: $code")
+                        if (code in 200..299) {
+                            val text = conn.inputStream.bufferedReader().use { it.readText() }
+                            android.util.Log.d("ArtistScreen", "iTunes response length: ${text.length}")
+                            val json = org.json.JSONObject(text)
+                            val results = json.optJSONArray("results")
+                            android.util.Log.d("ArtistScreen", "iTunes results count: ${results?.length() ?: 0}")
+                            if (results != null && results.length() > 0) {
+                                val album = results.optJSONObject(0)
+                                val artwork = album?.optString("artworkUrl100")?.takeIf { it.isNotBlank() }
+                                android.util.Log.d("ArtistScreen", "Artwork URL: $artwork")
+                                if (artwork != null) {
+                                    artwork.replace("100x100bb", "600x600bb")
+                                } else null
+                            } else null
+                        } else null
+                    } finally {
+                        conn.disconnect()
+                    }
+                }
+                if (art != null) {
+                    artistImageUrl = art
+                    android.util.Log.d("ArtistScreen", "Artist image set: $art")
                 }
             } catch (e: Exception) {
-                android.util.Log.w("ArtistScreen", "iTunes search failed", e)
+                android.util.Log.e("ArtistScreen", "iTunes search FAILED", e)
             }
 
             // 2. TheAudioDB for biography (and image if iTunes didn't have one)
