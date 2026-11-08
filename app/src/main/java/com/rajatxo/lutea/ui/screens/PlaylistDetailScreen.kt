@@ -217,7 +217,7 @@ fun PlaylistDetailScreen(
         // captured layer: cover + list. The top blur overlay samples THIS. The capture layer
         // stays OUTSIDE the scrollable — kyant criteria (see LuteaBackdrop.kt).
         Box(modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-            // layer 0: cover + blend + scroll choreography
+            // layer 0: pinned cover — the ONLY scroll-driven effect is its blur (see PlaylistCoverBackground)
             PlaylistCoverBackground(
                 coverUri = playlist.coverUri,
                 backgroundColor = { themeState.value },
