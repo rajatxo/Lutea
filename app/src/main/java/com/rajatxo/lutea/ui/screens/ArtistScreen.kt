@@ -81,21 +81,30 @@ fun ArtistScreen(
         val screenW = maxWidth
         val horizontalPadding = screenW * 0.06f
 
-        // ★ Metadata enrichment — try TheAudioDB first (has artist images),
-        //  fall back to MusicBrainz (has bios via Wikipedia).
+        // ★ Metadata enrichment — Deezer FIRST (fast, has artist photos),
+        //  then TheAudioDB (bios), then MusicBrainz (fallback).
         var artistImageUrl by remember { mutableStateOf<String?>(null) }
         var artistBio by remember { mutableStateOf<String?>(null) }
         var loadingMetadata by remember { mutableStateOf(true) }
         LaunchedEffect(artistName) {
             loadingMetadata = true
-            // TheAudioDB has actual artist photos — MusicBrainz doesn't
-            val audioDb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(artistName)
-            if (audioDb != null) {
-                artistImageUrl = audioDb.thumbnailUrl ?: audioDb.bannerUrl
-                artistBio = audioDb.biography
+            // Deezer is fast + reliable + has actual artist photos (picture_xl = 1000x1000)
+            val deezer = com.rajatxo.lutea.data.metadata.DeezerClient.searchArtist(artistName)
+            if (deezer != null) {
+                artistImageUrl = deezer.imageUrl
             }
-            // If TheAudioDB didn't have an image or bio, try MusicBrainz as fallback
+            // TheAudioDB has bios + sometimes images
             if (artistImageUrl == null || artistBio == null) {
+                val audioDb = com.rajatxo.lutea.data.metadata.TheAudioDBClient.searchArtist(artistName)
+                if (artistImageUrl == null) {
+                    artistImageUrl = audioDb?.thumbnailUrl ?: audioDb?.bannerUrl
+                }
+                if (artistBio == null) {
+                    artistBio = audioDb?.biography
+                }
+            }
+            // MusicBrainz + Wikipedia as final fallback for bio
+            if (artistBio == null) {
                 val mbInfo = com.rajatxo.lutea.data.metadata.MusicBrainzClient.lookupArtist(artistName)
                 if (artistImageUrl == null) artistImageUrl = mbInfo?.imageUrl
                 if (artistBio == null) artistBio = mbInfo?.biography
