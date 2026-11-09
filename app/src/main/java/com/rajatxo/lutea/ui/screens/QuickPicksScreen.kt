@@ -59,6 +59,7 @@ import com.rajatxo.lutea.ui.player.PlayerNavigation
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.components.SpatialHead3D
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.util.LuteaTab
 import kotlinx.coroutines.Dispatchers
@@ -363,29 +364,25 @@ fun QuickPicksScreen(
     }
 }
 
-// ── Effect content — placeholder for audio effects (EQ, Reverb, 8D, Speed) ──
+// ── Effect content — 8D audio UI with 3D head ──
 @Composable
 private fun EffectContent() {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1C1C1E))
-            .padding(horizontal = 20.dp)
-            .padding(top = 120.dp, bottom = 120.dp),
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF0D0D0D),  // 5% grey at very top
+                        Color(0xFF000000),  // 95% black
+                    ),
+                ),
+            ),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = "Effect",
-            color = Color.White,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = CalSansFamily,
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = "Audio effects coming soon — Equalizer, Reverb, 8D Audio, Speed Control",
-            color = Color.White.copy(alpha = 0.5f),
-            fontSize = 14.sp,
-            fontFamily = CalSansFamily,
+        SpatialHead3D(
+            modifier = Modifier.size(220.dp),
+            accentColor = Color(0xFFFF8C24),
         )
     }
 }
