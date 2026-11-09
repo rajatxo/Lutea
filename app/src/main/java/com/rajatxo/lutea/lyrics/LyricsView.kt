@@ -408,11 +408,18 @@ private fun ContentDrawScope.drawKaraoke(
         idx = end + 1
     }
 
-    // 4. glow on held notes (halo drawn from the glyph itself, trails behind the head)
+    // 4. glow on held notes — per-LETTER bell curve trailing the sweep head (Mochy BloomLagChars=1.6, BloomSpanChars=3.5)
     var glowPath: Path? = null
     for (li in 0 until count) {
         val i = letters[li]
-        val a = m.glow[i]
+        val wordGlow = m.glow[i]
+        if (wordGlow < 0.02f) continue
+        // Per-letter glow: bell curve centered 1.6 chars behind the sweep head
+        val glowDist = i.toFloat() - m.head + 1.6f
+        val glowBa = min(1f, abs(glowDist) / 3.5f)
+        val glowBw = 1f - glowBa
+        val glowBell = glowBw * glowBw * (3f - 2f * glowBw)
+        val a = wordGlow * glowBell
         if (a < 0.02f) continue
         if (glowPath == null) glowPath = m.glowClip.get(lay, m.head)
         val gl = m.glyph(m.text[i])
@@ -555,7 +562,28 @@ private fun KaraokeLine(
                             drawContent()
                         } else {
                             val p = m.litClip.get(lay, m.head)
-                            clipPath(p) { this@drawWithContent.drawContent() }
+                        clipPath(p) { this@drawWithContent.drawContent() }
+                        // Soft edge: DstIn gradient on the head line only (Mochy's approach)
+                        val headInt = m.head.toInt().coerceIn(0, max(0, lay.text.length - 1))
+                        val headLine = lay.getLineForOffset(headInt).coerceIn(0, lay.lineCount - 1)
+                        val headBox = try { lay.getBoundingBox(headInt) } catch (e: Exception) { null }
+                        if (headBox != null) {
+                            val frac = (m.head - headInt).coerceIn(0f, 1f)
+                            val headX = headBox.left + headBox.width * frac
+                            val fromX = headX - 26f
+                            val toX = headX + 6f
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    0f to Color.Black,
+                                    1f to Color.Transparent,
+                                    startX = fromX,
+                                    endX = toX,
+                                ),
+                                topLeft = Offset(minOf(fromX, toX), lay.getLineTop(headLine)),
+                                size = androidx.compose.ui.geometry.Size(abs(toX - fromX), lay.getLineBottom(headLine) - lay.getLineTop(headLine)),
+                                blendMode = BlendMode.DstIn,
+                            )
+                        }
                         }
                     } catch (e: Exception) {
                         drawContent()
