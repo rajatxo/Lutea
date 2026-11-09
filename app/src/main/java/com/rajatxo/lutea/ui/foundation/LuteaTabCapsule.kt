@@ -51,6 +51,7 @@ import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.rajatxo.lutea.R
+import androidx.compose.ui.res.painterResource
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.icons.LuteaIcons
 import com.rajatxo.lutea.ui.util.LuteaTab
@@ -368,12 +369,21 @@ private fun FluidNavItem(
 
     Layout(
         content = {
-            Icon(
-                imageVector = fluidTabIcon(tab),
-                contentDescription = null,
-                tint = FluidInk,
-                modifier = Modifier.size(metrics.iconSize),
-            )
+            if (tab == LuteaTab.Effect) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_effect),
+                    contentDescription = null,
+                    tint = FluidInk,
+                    modifier = Modifier.size(metrics.iconSize),
+                )
+            } else {
+                Icon(
+                    imageVector = fluidTabIcon(tab),
+                    contentDescription = null,
+                    tint = FluidInk,
+                    modifier = Modifier.size(metrics.iconSize),
+                )
+            }
             Text(
                 text = tab.label,
                 color = FluidInk,
