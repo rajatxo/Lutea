@@ -729,7 +729,7 @@ private fun LyricLineItem(
     line: LyricLine,
     synced: Boolean,
     isActive: Boolean,
-    relation: Int,                       // index - activeIndex (negative = already sung)
+    relation: Int,
     clock: State<Float>,
     style: LyricsStyle,
     blurEffects: Array<RenderEffect?>,
@@ -743,20 +743,8 @@ private fun LyricLineItem(
         else -> style.inactiveFontWeight ?: style.fontWeight
     }
     val align = if (line.alignEnd) TextAlign.End else TextAlign.Center
-    val dimStyle = remember(style, weight, align, sizeScale) {
-        TextStyle(
-            fontFamily = style.fontFamily,
-            fontWeight = weight,
-            fontSize = style.fontSize * sizeScale,
-            lineHeight = style.lineHeight * sizeScale,
-            textAlign = align,
-            color = if (synced) style.unsungColor else style.sungColor.copy(alpha = 0.92f),
-            fontFeatureSettings = NoLigatures,   // a ligature is one glyph over two letters; can't be torn apart
-        )
-    }
-    val litStyle = remember(dimStyle, style) { dimStyle.copy(color = style.sungColor) }
 
-    // ACTIVE alpha 1.0 / scale 1.06 · UPCOMING 0.5 / 0.98 · DEFAULT 0.38 / 0.95 · PAST 0.24 / 0.93
+    // Mochy resting alpha/scale
     val alphaTarget = when {
         !synced -> 0.95f
         isActive -> 1f
@@ -782,6 +770,20 @@ private fun LyricLineItem(
     val blur = animateFloatAsState(blurStep.toFloat(), tween(350), label = "lyricBlur")
     val interaction = remember { MutableInteractionSource() }
 
+    val textStyle = remember(style, weight, align, sizeScale) {
+        TextStyle(
+            fontFamily = style.fontFamily,
+            fontWeight = weight,
+            fontSize = style.fontSize * sizeScale,
+            lineHeight = style.lineHeight * sizeScale,
+            textAlign = align,
+            color = if (isActive && synced) style.sungColor else style.unsungColor.copy(alpha = if (!synced) 0.92f else 1f),
+        )
+    }
+
+    // Safety: try complex per-letter rendering, fall back to plain BasicText on ANY error
+    var useFallback = remember(line) { false }
+    
     Box(
         Modifier
             .fillMaxWidth()
@@ -794,47 +796,49 @@ private fun LyricLineItem(
                 this.alpha = alpha.value
                 val step = (blur.value + 0.5f).toInt().coerceIn(0, blurEffects.size - 1)
                 renderEffect = blurEffects[step]
-                translationY = staggerOffset()   // cascade
+                translationY = staggerOffset()
             },
     ) {
-        if (!synced) {
-            BasicText(line.text, modifier = Modifier.fillMaxWidth(), style = dimStyle)
+        if (!synced || useFallback) {
+            BasicText(line.text, modifier = Modifier.fillMaxWidth(), style = textStyle)
             return@Box
         }
 
+        // Try per-letter rendering
         val model = remember(line) { try { LineModel(line) } catch (e: Exception) { null } }
         val motion = remember(model) { if (model != null) try { LineMotion(model) } catch (e: Exception) { null } else null }
         val holder = remember(model) { arrayOfNulls<TextLayoutResult>(1) }
         val cache = remember(model) { MotionCache() }
         val path = remember(model) { Path() }
 
-        // Safety: if LineModel or LineMotion failed, render plain text
         if (model == null || motion == null) {
-            BasicText(line.text, modifier = Modifier.fillMaxWidth(), style = dimStyle)
+            BasicText(line.text, modifier = Modifier.fillMaxWidth(), style = textStyle)
             return@Box
         }
 
-        // Drive this line's springs while it's active (and while it fades out).
+        // Drive springs
         LaunchedEffect(model, isActive) {
             var last = -1L
             fun dtOf(now: Long): Float = (if (last < 0) 0.016f else (now - last) / 1e9f).also { last = now }
             if (isActive) {
-                while (isActive) withFrameNanos { now -> motion.step(clock.value, dtOf(now)) }
+                while (isActive) withFrameNanos { now -> try { motion.step(clock.value, dtOf(now)) } catch (e: Exception) {} }
             } else {
-                while (focus.value > 0.002f) withFrameNanos { now -> motion.step(clock.value, dtOf(now)) }
-                motion.reset()
+                while (focus.value > 0.002f) withFrameNanos { now -> try { motion.step(clock.value, dtOf(now)) } catch (e: Exception) {} }
+                try { motion.reset() } catch (e: Exception) {}
             }
         }
 
-        Box(Modifier.fillMaxWidth().letterMotion(holder, cache, model, motion, style) { focus.value }) {
-            // dim copy
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .letterMotion(holder, cache, model, motion, style) { focus.value }
+        ) {
             BasicText(
                 text = line.text,
                 modifier = Modifier.fillMaxWidth(),
-                style = dimStyle,
+                style = textStyle,
                 onTextLayout = { holder[0] = it },
             )
-            // lit copy — its own offscreen layer so the DstIn edge only touches this copy
             BasicText(
                 text = line.text,
                 modifier = Modifier
@@ -846,7 +850,7 @@ private fun LyricLineItem(
                     .padding(MotionBleed)
                     .fillMaxWidth()
                     .sweepMask(holder, cache, model, motion, style, path),
-                style = litStyle,
+                style = textStyle.copy(color = style.sungColor),
             )
         }
     }
