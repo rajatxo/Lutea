@@ -932,7 +932,7 @@ fun LuteaArc(
                 val trackWidth = 7.dp
                 val trackColor = Color.White.copy(alpha = 0.25f)  // ★ was 0.15f, now 0.25f
                 val trackCorner = 3.dp
-                val trackPaddingEnd = (maxWidth * 0.075f - 3.dp).coerceAtLeast(0.dp)  // 7.5% minus 3dp to keep the old gap after the thumb shrank
+                val trackPaddingEnd = maxWidth * 0.075f  // 7.5% — same as the old build (before 3D thumb)
                 // ★ Thumb — Lutea3DThumb is drawn horizontally and rotated -90° to sit on the vertical track.
                 //    thumbHeight = its length ALONG the track, thumbThickness = its width ACROSS the track
                 //    (keep them about 2.35 : 1). thumbHitWidth = the grab area around the track.
@@ -944,15 +944,16 @@ fun LuteaArc(
                 val thumbY = (sliderHeight - thumbHeight) * knobFraction
 
                 // Track (long gray capsule) — DRAG to rotate wheel (clamped, no infinite loop).
-                // ★ Centering: the Box's CENTER is positioned at exactly trackPaddingEnd from the
-                //    screen's right edge. Both the track (7dp) and the thumb (38dp visual after
-                //    rotation) are CENTERED in this Box, so they share the same horizontal axis.
-                //    padding = trackPaddingEnd - thumbHitWidth/2 → Box center = trackPaddingEnd.
+                // ★ Same positioning as the old build (before the 3D thumb):
+                //    padding(end = trackPaddingEnd) + width(trackWidth + 20.dp).
+                //    The track and thumb are both CENTERED in this box, so the track passes
+                //    through the centre of the thumb. The 3D thumb (32dp visual) overflows
+                //    the 27dp box slightly — requiredSize + TopCenter keeps it centred.
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = (trackPaddingEnd - thumbHitWidth / 2).coerceAtLeast(0.dp))
-                        .width(thumbHitWidth)
+                        .padding(end = trackPaddingEnd)
+                        .width(trackWidth + 20.dp)
                         .height(sliderHeight)
                         .pointerInput(playlists.size) {
                             // ★ Fixed: use detectTapGestures for taps + detectVerticalDragGestures for drags.
