@@ -336,6 +336,7 @@ fun QuickPicksScreen(
             title = when (activeTab) {
                 LuteaTab.Home -> ""
                 LuteaTab.Search -> ""
+                LuteaTab.Effect -> ""
                 LuteaTab.Library -> ""
             },
             activeTab = activeTab,
@@ -348,6 +349,7 @@ fun QuickPicksScreen(
             when (activeTab) {
                 LuteaTab.Home -> QuickPicksContent()
                 LuteaTab.Search -> SearchContent()
+                LuteaTab.Effect -> EffectContent()
                 LuteaTab.Library -> PlaylistsContent(
                     onOpenPlaylist = { selectedPlaylist = it },
                     playlistStyle = playlistStyle,
@@ -358,6 +360,33 @@ fun QuickPicksScreen(
 
     if (showStylePicker) {
         PlaylistStylePickerDialog(onDismiss = { showStylePicker = false })
+    }
+}
+
+// ── Effect content — placeholder for audio effects (EQ, Reverb, 8D, Speed) ──
+@Composable
+private fun EffectContent() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1C1C1E))
+            .padding(horizontal = 20.dp)
+            .padding(top = 120.dp, bottom = 120.dp),
+    ) {
+        Text(
+            text = "Effect",
+            color = Color.White,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = CalSansFamily,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Audio effects coming soon — Equalizer, Reverb, 8D Audio, Speed Control",
+            color = Color.White.copy(alpha = 0.5f),
+            fontSize = 14.sp,
+            fontFamily = CalSansFamily,
+        )
     }
 }
 

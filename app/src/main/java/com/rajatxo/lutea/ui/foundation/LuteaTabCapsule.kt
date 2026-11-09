@@ -105,8 +105,8 @@ private val FluidGlassBlur = 16.dp
 /** Soft shadow under every circle / pill. */
 private val FluidShadow = 6.dp
 
-/** Left → right order of the bar: Home first, Search in the middle, Library last. */
-private val FluidOrder = listOf(LuteaTab.Home, LuteaTab.Search, LuteaTab.Library)
+/** Left → right order of the bar: Home, Search, Effect, Library. */
+private val FluidOrder = listOf(LuteaTab.Home, LuteaTab.Search, LuteaTab.Effect, LuteaTab.Library)
 
 // ------------------------------ brushes --------------------------------------
 
@@ -438,6 +438,7 @@ private fun FluidNavItem(
 private fun fluidTabIcon(tab: LuteaTab): ImageVector = when (tab) {
     LuteaTab.Home -> LuteaIcons.Home
     LuteaTab.Search -> LuteaIcons.Search
+    LuteaTab.Effect -> LuteaIcons.Effect
     LuteaTab.Library -> LuteaIcons.Library
 }
 
