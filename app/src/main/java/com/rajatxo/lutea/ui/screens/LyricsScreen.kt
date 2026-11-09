@@ -100,7 +100,7 @@ fun LyricsScreen(
             return@LaunchedEffect
         }
         lyricsState = LyricsState.Loading
-        lyricsState = fetchLyrics(song.id, song.title, song.artist, durationState.value)
+        lyricsState = fetchLyrics(song.id, song.title, song.artist, durationState.value, song.album)
     }
 
     // Poll playback position every 200ms for smooth word animation
