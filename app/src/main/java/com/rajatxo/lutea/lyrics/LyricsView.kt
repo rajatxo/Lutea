@@ -564,7 +564,7 @@ private fun KaraokeLine(
                             val p = m.litClip.get(lay, m.head)
                         clipPath(p) { this@drawWithContent.drawContent() }
                         // Soft edge: DstIn gradient on the head line only (Mochy's approach)
-                        val headInt = m.head.toInt().coerceIn(0, max(0, lay.text.length - 1))
+                        val headInt = m.head.toInt().coerceIn(0, max(0, m.text.length - 1))
                         val headLine = lay.getLineForOffset(headInt).coerceIn(0, lay.lineCount - 1)
                         val headBox = try { lay.getBoundingBox(headInt) } catch (e: Exception) { null }
                         if (headBox != null) {
