@@ -583,6 +583,7 @@ private fun KaraokeLine(
                                     )
                                 }
                         }
+                        }
                     } catch (e: Exception) {
                         drawContent()
                     }
