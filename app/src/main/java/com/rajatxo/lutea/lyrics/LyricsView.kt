@@ -315,8 +315,6 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
             }
         }
     }
-}        }
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
