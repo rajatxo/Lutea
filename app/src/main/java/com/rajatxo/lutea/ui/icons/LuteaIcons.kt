@@ -346,4 +346,4 @@ object LuteaIcons {
         moveTo(3f, 7f)
         arcTo(6f, 6f, 0f, false, false, 3f, 17f)
     }
-}}}}
+}
