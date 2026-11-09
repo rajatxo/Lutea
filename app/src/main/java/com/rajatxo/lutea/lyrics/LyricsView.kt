@@ -678,7 +678,14 @@ private fun Modifier.sweepMask(
 /** Same layout as the content, but the layer that follows gets [bleed] of extra room on every side. */
 private fun Modifier.layerBleed(bleed: Dp): Modifier = layout { measurable, constraints ->
     val px = bleed.roundToPx()
-    val placeable = measurable.measure(constraints.offset(px * 2, px * 2))
+    val placeable = measurable.measure(
+        androidx.compose.ui.unit.Constraints(
+            minWidth = (constraints.minWidth - px * 2).coerceAtLeast(0),
+            maxWidth = (constraints.maxWidth - px * 2).coerceAtLeast(0),
+            minHeight = (constraints.minHeight - px * 2).coerceAtLeast(0),
+            maxHeight = (constraints.maxHeight - px * 2).coerceAtLeast(0),
+        )
+    )
     layout(
         (placeable.width - px * 2).coerceIn(constraints.minWidth, constraints.maxWidth),
         (placeable.height - px * 2).coerceIn(constraints.minHeight, constraints.maxHeight),
@@ -813,7 +820,7 @@ private fun LyricLineItem(
             var last = -1L
             fun dtOf(now: Long): Float = (if (last < 0) 0.016f else (now - last) / 1e9f).also { last = now }
             if (isActive) {
-                while (isActive()) withFrameNanos { now -> motion.step(clock.value, dtOf(now)) }
+                while (isActive) withFrameNanos { now -> motion.step(clock.value, dtOf(now)) }
             } else {
                 while (focus.value > 0.002f) withFrameNanos { now -> motion.step(clock.value, dtOf(now)) }
                 motion.reset()
