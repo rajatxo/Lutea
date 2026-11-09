@@ -932,7 +932,7 @@ fun LuteaArc(
                 val trackWidth = 7.dp
                 val trackColor = Color.White.copy(alpha = 0.25f)  // ★ was 0.15f, now 0.25f
                 val trackCorner = 3.dp
-                val trackPaddingEnd = maxWidth * 0.075f  // ★ was 0.08f, now 0.075f (7.5%)
+                val trackPaddingEnd = (maxWidth * 0.075f - 3.dp).coerceAtLeast(0.dp)  // 7.5% minus 3dp to keep the old gap after the thumb shrank
                 // ★ Thumb — Lutea3DThumb is drawn horizontally and rotated -90° to sit on the vertical track.
                 //    thumbHeight = its length ALONG the track, thumbThickness = its width ACROSS the track
                 //    (keep them about 2.35 : 1). thumbHitWidth = the grab area around the track.
