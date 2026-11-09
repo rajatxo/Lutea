@@ -542,47 +542,52 @@ private fun KaraokeLine(
             onTextLayout = { m.layout = it },
             modifier = Modifier.fillMaxWidth(),
         )
-        // lit copy — clipped to everything the sweep has passed
+        // lit copy — soft DstIn gradient mask at the sweep head (NO hard clipPath = no square shape)
         BasicText(
             text = line.text,
             style = sungStyle,
             modifier = Modifier
                 .fillMaxWidth()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     try {
                         val lay = m.layout
-                        if (lay == null) {
-                            drawContent()
-                        } else {
-                            val p = m.litClip.get(lay, m.head)
-                            clipPath(p) {
-                                this@drawWithContent.drawContent()
-                                // Soft edge at the sweep head — fades the lit copy to transparent
-                                val lastLine = lay.lineCount - 1
-                                for (l in 0..lastLine) {
-                                    val ls = lay.getLineStart(l)
-                                    val le = lay.getLineEnd(l)
-                                    if (m.head <= ls) break
-                                    val right = if (m.head >= le) lay.getLineRight(l) else {
-                                        val c = floor(m.head).toInt().coerceIn(ls, max(ls, le - 1))
-                                        val frac = (m.head - c).coerceIn(0f, 1f)
-                                        val b = lay.getBoundingBox(c)
-                                        b.left + b.width * frac
-                                    }
-                                    val soft = lay.layoutInput.style.fontSize.toPx() * 0.6f
-                                    drawRect(
-                                        brush = Brush.horizontalGradient(
-                                            0f to Color.Black,
-                                            1f to Color.Transparent,
-                                            startX = right - soft * 0.3f,
-                                            endX = right + soft * 0.7f,
-                                        ),
-                                        topLeft = Offset(0f, lay.getLineTop(l)),
-                                        size = androidx.compose.ui.geometry.Size(soft + 100f, lay.getLineBottom(l) - lay.getLineTop(l)),
-                                        blendMode = BlendMode.DstIn,
-                                    )
-                                }
-                        }
+                        if (lay == null) { drawContent(); return@drawWithContent }
+                        drawContent()
+                        val lastLine = lay.lineCount - 1
+                        val soft = lay.layoutInput.style.fontSize.toPx() * 0.6f
+                        for (l in 0..lastLine) {
+                            val ls = lay.getLineStart(l)
+                            val le = lay.getLineEnd(l)
+                            val lineLeft = lay.getLineLeft(l)
+                            val lineRight = lay.getLineRight(l)
+                            val lineTop = lay.getLineTop(l)
+                            val lineBottom = lay.getLineBottom(l)
+                            if (m.head <= ls) {
+                                // Entire line is after the sweep — remove it all
+                                drawRect(color = Color.Transparent, topLeft = Offset(lineLeft, lineTop),
+                                    size = androidx.compose.ui.geometry.Size(lineRight - lineLeft, lineBottom - lineTop),
+                                    blendMode = BlendMode.DstIn)
+                                continue
+                            }
+                            val right = if (m.head >= le) lineRight else {
+                                val c = floor(m.head).toInt().coerceIn(ls, max(ls, le - 1))
+                                val frac = (m.head - c).coerceIn(0f, 1f)
+                                val b = lay.getBoundingBox(c)
+                                b.left + b.width * frac
+                            }
+                            // Soft DstIn gradient: keep before sweep, fade out after
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    0f to Color.Black,
+                                    1f to Color.Transparent,
+                                    startX = right - soft * 0.3f,
+                                    endX = right + soft * 0.7f,
+                                ),
+                                topLeft = Offset(lineLeft, lineTop),
+                                size = androidx.compose.ui.geometry.Size(lineRight - lineLeft + soft, lineBottom - lineTop),
+                                blendMode = BlendMode.DstIn,
+                            )
                         }
                     } catch (e: Exception) {
                         drawContent()
