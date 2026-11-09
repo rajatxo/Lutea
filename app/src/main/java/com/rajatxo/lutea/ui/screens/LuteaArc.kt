@@ -944,11 +944,14 @@ fun LuteaArc(
                 val thumbY = (sliderHeight - thumbHeight) * knobFraction
 
                 // Track (long gray capsule) — DRAG to rotate wheel (clamped, no infinite loop).
+                // ★ Centering: the Box's CENTER is positioned at exactly trackPaddingEnd from the
+                //    screen's right edge. Both the track (7dp) and the thumb (38dp visual after
+                //    rotation) are CENTERED in this Box, so they share the same horizontal axis.
+                //    padding = trackPaddingEnd - thumbHitWidth/2 → Box center = trackPaddingEnd.
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        // keep the visible track where it was, but make the grab area as wide as the thumb
-                        .padding(end = (trackPaddingEnd + (trackWidth + 20.dp) / 2 - thumbHitWidth / 2).coerceAtLeast(0.dp))
+                        .padding(end = (trackPaddingEnd - thumbHitWidth / 2).coerceAtLeast(0.dp))
                         .width(thumbHitWidth)
                         .height(sliderHeight)
                         .pointerInput(playlists.size) {
