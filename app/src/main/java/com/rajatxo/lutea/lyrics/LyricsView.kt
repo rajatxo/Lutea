@@ -362,7 +362,7 @@ private fun ContentDrawScope.drawKaraoke(
         }
     }
     if (uniform && abs(s0 - 1f) < 0.0005f) {
-        withTransform({ translate(dx0, dy0) }) { drawContent() }
+        withTransform({ translate(dx0, dy0) }) { this@drawKaraoke.drawContent() }
         return
     }
 
@@ -394,14 +394,14 @@ private fun ContentDrawScope.drawKaraoke(
             withTransform({
                 translate(0f, dy)
                 clipRect(left, top, right, bottom)
-            }) { drawContent() }
+            }) { this@drawKaraoke.drawContent() }
         } else {
             val pivot = Offset(box.center.x, lay.getLineBaseline(line))
             withTransform({
                 translate(dx, dy)
-                scale(s, pivot)
+                scale(s, s, pivot = pivot)
                 clipRect(left, top, right, bottom)
-            }) { drawContent() }
+            }) { this@drawKaraoke.drawContent() }
         }
         idx = end + 1
     }
@@ -422,7 +422,7 @@ private fun ContentDrawScope.drawKaraoke(
         val clip = glowPath
         withTransform({
             translate(m.dxs[li], m.dys[li])
-            scale(m.scs[li], pivot)
+            scale(m.scs[li], m.scs[li], pivot = pivot)
             clipPath(clip)
         }) {
             drawText(
@@ -529,7 +529,7 @@ private fun KaraokeLine(
                         glowColor = style.glowColor,
                     )
                 } catch (e: Exception) {
-                    drawContent()
+                    this@drawKaraoke.drawContent()
                 }
             },
     ) {
