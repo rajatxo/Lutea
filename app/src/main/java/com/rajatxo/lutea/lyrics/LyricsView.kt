@@ -104,8 +104,8 @@ data class LyricsStyle(
     val inactiveColor: Color = Color.White.copy(alpha = 0.36f),
     val glowColor: Color = Color.White,
     val glowRadius: Dp = 12.dp,         // glow radius for held notes (wider than before)
-    val liftDistance: Dp = 3.dp,       // Mochy WordWaitDrop = 3dp
-    val heldZoom: Float = 0.08f,       // Mochy HeldZoom — word swells 8% on held notes
+    val liftDistance: Dp = 1.5.dp,      // reduced from 3dp — smoother, less jumpy
+    val heldZoom: Float = 0.04f,       // reduced from 0.08 — subtle swell, not jumpy
     val heldGlowAlpha: Float = 0.5f,   // glow intensity on held notes
     val maxBlur: Dp = 12.dp,
     val focusFraction: Float = 0.055f,
@@ -281,7 +281,7 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 val riseProgress = (wp / 0.85f).coerceIn(0f, 1f)
                 val fallProgress = if (t > g.endMs) smooth(((t - g.endMs).toFloat() / 420f).coerceIn(0f, 1f)) else 0f
                 val rise = smooth(riseProgress) * (1f - fallProgress)
-                val lift = p.liftPx * rise * (dur / 450f).coerceIn(0.55f, 1f)
+                val lift = p.liftPx * rise * (dur / 600f).coerceIn(0.4f, 0.8f)
                 val origin = Offset(g.left, g.top - lift)
 
                 // Held-note detection: secPerChar > 0.1s = some hold, > 0.34s = full hold
