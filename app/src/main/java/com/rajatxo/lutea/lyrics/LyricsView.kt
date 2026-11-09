@@ -185,6 +185,9 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
     private val tLeft = FloatArray(n)
     private val tRight = FloatArray(n)
     private val tLine = IntArray(n)
+    private val tTop = FloatArray(n)
+    private val tBottom = FloatArray(n)
+    private val tStartOffset = IntArray(n)
     private val groups: List<WordGroup> = buildGroups(line)
 
     fun ensureLayout(measurer: TextMeasurer, maxWidth: Int) {
@@ -205,6 +208,9 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
             tLeft[i] = min(b0.left, b1.left)
             tRight[i] = max(b0.right, b1.right)
             tLine[i] = l.getLineForOffset(s)
+            tTop[i] = l.getLineTop(tLine[i])
+            tBottom[i] = l.getLineBottom(tLine[i])
+            tStartOffset[i] = cursor
         }
         for (g in groups) {
             var lo = Float.MAX_VALUE; var hi = -Float.MAX_VALUE
@@ -271,51 +277,80 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 val dur = max(g.endMs - g.startMs, 1L).toFloat()
                 val wp = ((t - g.startMs).toFloat() / dur).coerceIn(0f, 1f)
 
-                // Sweep-based rise: fully risen at 85% of the word, falls over 420ms after
-                val riseProgress = (wp / 0.85f).coerceIn(0f, 1f)
-                val fallProgress = if (t > g.endMs) smooth(((t - g.endMs).toFloat() / 420f).coerceIn(0f, 1f)) else 0f
-                val rise = smooth(riseProgress) * (1f - fallProgress)
-                val lift = p.liftPx * rise * (dur / 450f).coerceIn(0.55f, 1f)
-                val origin = Offset(g.left, g.top - lift)
-
-                // Held-note detection: secPerChar > 0.1s = some hold, > 0.34s = full hold
+                // Held-note detection
                 val secPerChar = (dur / 1000f) / g.letterCount
                 val hold = smooth(((secPerChar - 0.1f) / (0.34f - 0.1f)).coerceIn(0f, 1f))
 
-                // Glow: attack 35%, release 30% — grows on held notes, lingers after
+                // Glow: attack 35%, release 30%
                 val glowAttack = smooth((wp / 0.35f).coerceIn(0f, 1f))
                 val glowRelease = smooth(((1f - wp) / 0.3f).coerceIn(0f, 1f))
                 val glow = hold * glowAttack * glowRelease * p.heldGlowAlpha
 
-                // Swell: attack 20%, release 12% — word grows on held notes
-                val swellAttack = smooth((wp / 0.2f).coerceIn(0f, 1f))
-                val swellRelease = smooth(((1f - wp) / 0.12f).coerceIn(0f, 1f))
-                val swell = hold * swellAttack * swellRelease * p.heldZoom
-                val scale = 1f + swell
+                // Word-level rise (for the base unsung draw)
+                val riseProgress = (wp / 0.85f).coerceIn(0f, 1f)
+                val fallProgress = if (t > g.endMs) smooth(((t - g.endMs).toFloat() / 420f).coerceIn(0f, 1f)) else 0f
+                val wordRise = smooth(riseProgress) * (1f - fallProgress)
+                val wordLift = p.liftPx * wordRise * (dur / 450f).coerceIn(0.55f, 1f)
 
-                drawText(wl, color = p.unsung, topLeft = origin)
+                // Per-letter wave constants (Mochy)
+                val wordStartOffset = tStartOffset.getOrElse(g.firstToken) { 0 }
+                val wordEndOffset = wordStartOffset + line.text.substring(wordStartOffset).takeWhile { it != '\u0000' }.length
+                // Simplified: use the token offsets directly
+                val wStart = tStartOffset[g.firstToken]
+                val wEnd = if (g.lastToken + 1 < n) tStartOffset[g.lastToken + 1] else line.text.length
+                val wLen = max(wEnd - wStart, 1)
+                val sweep = wStart + wp * wLen  // sweep head position (char offset)
 
                 val shadow = Shadow(
                     color = p.glow.copy(alpha = glow),
                     offset = Offset.Zero,
                     blurRadius = p.glowRadiusPx * (0.5f + 1.5f * glow),
                 )
-                canvas2.save()
-                if (scale != 1f) {
-                    val baselineY = origin.y + (g.bottom - g.top)
-                    val centerX = origin.x + (g.right - g.left) / 2f
-                    canvas2.translate(centerX, baselineY)
-                    canvas2.scale(scale, scale)
-                    canvas2.translate(-centerX, -baselineY)
+
+                // Draw each letter individually with its own rise offset — the WAVE
+                for (ti in g.firstToken..g.lastToken) {
+                    val letterStart = tStartOffset[ti]
+                    // Per-letter rise: starts 0.5 chars before the sweep, completes 2.5 chars later
+                    val letterRise = if (sweep >= wEnd) 1f else smooth(((sweep - letterStart + 0.5f) / 2.5f).coerceIn(0f, 1f))
+                    // Blend 55% letter / 45% word (Mochy LetterRiseShare)
+                    val riseTarget = wordRise + (letterRise - wordRise) * 0.55f
+                    val dy = -p.liftPx * riseTarget * (dur / 450f).coerceIn(0.55f, 1f)
+
+                    // Per-letter swell (on held notes)
+                    val swellAttack = smooth((wp / 0.2f).coerceIn(0f, 1f))
+                    val swellRelease = smooth(((1f - wp) / 0.12f).coerceIn(0f, 1f))
+                    val swellLetter = if (sweep >= wEnd) 1f else smooth(((sweep - letterStart + 0.35f) / 1.4f).coerceIn(0f, 1f))
+                    val swellTarget = hold * swellAttack * swellRelease * swellLetter
+                    val letterScale = 1f + p.heldZoom * swellTarget
+
+                    // Token fill state
+                    val tk = line.tokens[ti]
+                    val tkDur = max(tk.endMs - tk.startMs, 1L)
+                    val tkPr = ((t - tk.startMs).toFloat() / tkDur).coerceIn(0f, 1f)
+
+                    val origin = Offset(g.left, g.top)
+                    canvas2.save()
+                    canvas2.translate(0f, dy)
+                    if (letterScale != 1f) {
+                        val baselineY = tBottom[ti] - g.top
+                        val centerX = (tLeft[ti] + tRight[ti]) / 2f - g.left
+                        canvas2.translate(centerX, baselineY)
+                        canvas2.scale(letterScale, letterScale)
+                        canvas2.translate(-centerX, -baselineY)
+                    }
+                    // Clip to the letter's box (in the translated space)
+                    canvas2.clipRect(tLeft[ti] - g.left, tTop[ti] - g.top, tRight[ti] - g.left, tBottom[ti] - g.top)
+
+                    if (tkPr >= 1f) {
+                        drawText(wl, color = p.sung, topLeft = origin, alpha = fillAlpha, shadow = shadow)
+                    } else if (tkPr <= 0f) {
+                        drawText(wl, color = p.unsung, topLeft = origin)
+                    } else {
+                        drawText(wl, brush = brushFor(frontOf(g.visualLine) - g.left, p), topLeft = origin, alpha = fillAlpha, shadow = shadow)
+                    }
+                    canvas2.restore()
                 }
-                val k = g.visualLine
-                when (modeOf(k)) {
-                    2 -> drawText(wl, color = p.sung, topLeft = origin, alpha = fillAlpha, shadow = shadow)
-                    1 -> drawText(wl, brush = brushFor(frontOf(k) - g.left, p), topLeft = origin, alpha = fillAlpha, shadow = shadow)
-                }
-                canvas2.restore()
-            }
-        }
+            }        }
     }
 }
 
