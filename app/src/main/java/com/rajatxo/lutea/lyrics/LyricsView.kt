@@ -1,9 +1,8 @@
 package com.rajatxo.lutea.lyrics
 
 import android.os.Build
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -27,6 +26,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -68,39 +68,57 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Lutea lyrics view — line-by-line focus + word-by-word fill, with a soft glow and a
-//  little "pull" (lift) on the word being sung.  Original implementation:
-//    • one text layout per line, measured once (text never re-composes while playing)
-//    • the fill is a soft-edged gradient swept across the word, redrawn per frame
-//    • sung word lifts + glows (text shadow, no shaders) and settles back after
-//    • the line itself is pulled to the focus point by a spring
-//    • scale/blur/alpha are graphicsLayer transforms → no layout shift
+//  Lutea lyrics view — studied from Mochy's LyricsGlowLine + LyricsScreen +
+//  LyricsStagger, then written from scratch with original code.
+//
+//  Visual constants match Mochy exactly:
+//    • active line: alpha 1.0, scale 1.06, white, Bold, 32sp / 40sp line-height
+//    • upcoming:    alpha 0.5,  scale 0.98
+//    • default:     alpha 0.38, scale 0.95
+//    • past:        alpha 0.24, scale 0.93
+//    • blur: 0px (active), 5px (adjacent), 12px (far) — DECAL tile mode
+//    • glow: very subtle — 3dp radius, only on the sung word, trailing the sweep
+//    • focus: active line at 5.5% from top (min 72dp)
+//    • auto-scroll: 950ms tween, CubicBezier(0.42, 0, 0.16, 1) — eases in, no kick
+//    • cascade: up to 9 rows below trail at 55ms × distance spring time constant
+//    • immersive fade: top 10% + bottom 38% dissolve via DstIn
+//    • user-scroll pause: 3.5s
+//    • word rise: 3dp lift on the sung word, easing in/out
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Immutable
 data class LyricsStyle(
-    val fontSize: TextUnit = 30.sp,
-    val lineHeight: TextUnit = 38.sp,
-    val fontFamily: FontFamily = FontFamily.Default,     // pass your CalSansFamily here
+    val fontSize: TextUnit = 32.sp,
+    val lineHeight: TextUnit = 40.sp,
+    val fontFamily: FontFamily = FontFamily.Default,
     val fontWeight: FontWeight = FontWeight.Bold,
     val sungColor: Color = Color.White,
-    val unsungColor: Color = Color.White.copy(alpha = 0.36f),
+    val unsungColor: Color = Color.White.copy(alpha = 0.58f),   // active unsung = 0.58 (Mochy)
+    val inactiveColor: Color = Color.White.copy(alpha = 0.36f),  // resting inactive base
     val glowColor: Color = Color.White,
-    val glowRadius: Dp = 12.dp,
-    val liftDistance: Dp = 3.dp,       // how far the sung word rises
-    val maxBlur: Dp = 3.5.dp,          // blur on far lines (API 31+); 0.dp = off
-    val focusFraction: Float = 0.30f,  // where the active line sits (0 = top, 1 = bottom)
-    val lineGap: Dp = 18.dp,
-    val horizontalPadding: Dp = 24.dp,
+    val glowRadius: Dp = 3.dp,         // Mochy BloomRadiusPx = 2.6 — very tight, not a soft glow
+    val liftDistance: Dp = 3.dp,       // Mochy WordWaitDrop = 3dp
+    val maxBlur: Dp = 12.dp,           // Mochy BlurStageRadii = {0, 5, 12}
+    val focusFraction: Float = 0.055f, // Mochy ActiveLineViewportFraction = 0.055
+    val minFocusDp: Dp = 72.dp,        // Mochy MinPastLineVisibleHeight
+    val lineGap: Dp = 12.dp,           // Mochy: 12dp top + 12dp bottom per row
+    val horizontalPadding: Dp = 36.dp, // Mochy CENTER alignment padding
 )
 
-private fun easeOutCubic(x: Float): Float { val i = 1f - x; return 1f - i * i * i }
 private fun smooth(x: Float): Float { val c = x.coerceIn(0f, 1f); return c * c * (3f - 2f * c) }
+private fun easeOutCubic(x: Float): Float { val i = 1f - x; return 1f - i * i * i }
+
+private val RecenterEasing = CubicBezierEasing(0.42f, 0f, 0.16f, 1f)  // Mochy Style 1
+
+private const val STAGGER_LAG_PER_ROW_MS = 55f   // Mochy StaggerLagPerRowMs
+private const val STAGGER_MAX_ROWS = 9            // Mochy StaggerMaxRows
 
 /** 0..1 "this word is being pulled up" envelope, purely a function of time (seek-safe). */
 private fun wordEnvelope(startMs: Long, endMs: Long, t: Long): Float {
@@ -134,18 +152,11 @@ private class DrawParams(
 )
 
 private class WordGroup(
-    val firstToken: Int,
-    val lastToken: Int,
-    val startMs: Long,
-    val endMs: Long,
-    val text: String,
+    val firstToken: Int, val lastToken: Int,
+    val startMs: Long, val endMs: Long, val text: String,
 ) {
-    var left = 0f
-    var top = 0f
-    var right = 0f
-    var bottom = 0f
-    var visualLine = 0
-    var layout: TextLayoutResult? = null
+    var left = 0f; var top = 0f; var right = 0f; var bottom = 0f
+    var visualLine = 0; var layout: TextLayoutResult? = null
 }
 
 private fun buildGroups(line: LyricLine): List<WordGroup> {
@@ -161,7 +172,6 @@ private fun buildGroups(line: LyricLine): List<WordGroup> {
     return out
 }
 
-/** Measured text + per-token / per-word geometry for one lyric line. */
 private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
     var layout: TextLayoutResult? = null
     private var width = -1
@@ -176,12 +186,7 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
         if (layout != null && width == maxWidth) return
         width = maxWidth
         if (line.text.isEmpty()) return
-        val l = measurer.measure(
-            text = line.text,
-            style = textStyle,
-            overflow = TextOverflow.Visible,
-            constraints = Constraints(maxWidth = maxWidth),
-        )
+        val l = measurer.measure(text = line.text, style = textStyle, overflow = TextOverflow.Visible, constraints = Constraints(maxWidth = maxWidth))
         layout = l
         rtl = l.getParagraphDirection(0) == ResolvedTextDirection.Rtl
         var cursor = 0
@@ -197,116 +202,76 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
             tLine[i] = l.getLineForOffset(s)
         }
         for (g in groups) {
-            var lo = Float.MAX_VALUE
-            var hi = -Float.MAX_VALUE
+            var lo = Float.MAX_VALUE; var hi = -Float.MAX_VALUE
             for (i in g.firstToken..g.lastToken) { lo = min(lo, tLeft[i]); hi = max(hi, tRight[i]) }
-            g.left = lo
-            g.right = hi
-            g.visualLine = tLine[g.firstToken]
-            g.top = l.getLineTop(g.visualLine)
-            g.bottom = l.getLineBottom(g.visualLine)
-            g.layout = null
+            g.left = lo; g.right = hi; g.visualLine = tLine[g.firstToken]
+            g.top = l.getLineTop(g.visualLine); g.bottom = l.getLineBottom(g.visualLine); g.layout = null
         }
     }
 
     private fun brushFor(front: Float, p: DrawParams): Brush {
         val clear = p.sung.copy(alpha = 0f)
-        return if (!rtl) {
+        return if (!rtl)
             Brush.horizontalGradient(0f to p.sung, 1f to clear, startX = front - p.softPx * 0.15f, endX = front + p.softPx * 0.85f)
-        } else {
+        else
             Brush.horizontalGradient(0f to clear, 1f to p.sung, startX = front - p.softPx * 0.85f, endX = front + p.softPx * 0.15f)
-        }
     }
 
-    /** t < 0 means "not playing this line": draw it dim. fillAlpha fades the highlight in/out. */
     fun draw(scope: DrawScope, t: Long, fillAlpha: Float, p: DrawParams) {
         val l = layout ?: return
         with(scope) {
-            if (!p.synced) {
-                drawText(l, color = p.sung.copy(alpha = 0.92f))
-                return
-            }
-            if (t < 0L || fillAlpha <= 0.002f) {
-                drawText(l, color = p.unsung)
-                return
-            }
+            if (!p.synced) { drawText(l, color = p.sung.copy(alpha = 0.92f)); return }
+            if (t < 0L || fillAlpha <= 0.002f) { drawText(l, color = p.unsung); return }
 
-            // 1 ── how far has the fill travelled on each visual line?
             val lc = l.lineCount
-            val hasTok = BooleanArray(lc)
-            val anyFilled = BooleanArray(lc)
-            val allFilled = BooleanArray(lc) { true }
-            val partialFront = FloatArray(lc) { Float.NaN }
-            val lastEdge = FloatArray(lc) { Float.NaN }
+            val hasTok = BooleanArray(lc); val anyFilled = BooleanArray(lc); val allFilled = BooleanArray(lc) { true }
+            val partialFront = FloatArray(lc) { Float.NaN }; val lastEdge = FloatArray(lc) { Float.NaN }
             for (i in 0 until n) {
-                val k = tLine[i]
-                hasTok[k] = true
+                val k = tLine[i]; hasTok[k] = true
                 val tk = line.tokens[i]
                 val dur = max(tk.endMs - tk.startMs, 1L)
                 val pr = ((t - tk.startMs).toFloat() / dur).coerceIn(0f, 1f)
-                if (pr >= 1f) {
-                    anyFilled[k] = true
-                    lastEdge[k] = if (rtl) tLeft[i] else tRight[i]
-                } else if (pr <= 0f) {
-                    allFilled[k] = false
-                } else {
-                    anyFilled[k] = true
-                    allFilled[k] = false
-                    val w = tRight[i] - tLeft[i]
-                    partialFront[k] = if (rtl) tRight[i] - pr * w else tLeft[i] + pr * w
-                }
+                if (pr >= 1f) { anyFilled[k] = true; lastEdge[k] = if (rtl) tLeft[i] else tRight[i] }
+                else if (pr <= 0f) { allFilled[k] = false }
+                else { anyFilled[k] = true; allFilled[k] = false; val w = tRight[i] - tLeft[i]; partialFront[k] = if (rtl) tRight[i] - pr * w else tLeft[i] + pr * w }
             }
-            // mode: 0 nothing, 1 partial, 2 full
-            fun modeOf(k: Int): Int = if (!hasTok[k] || !anyFilled[k]) 0 else if (allFilled[k]) 2 else 1
-            fun frontOf(k: Int): Float = if (!partialFront[k].isNaN()) partialFront[k] else lastEdge[k]
+            fun modeOf(k: Int) = if (!hasTok[k] || !anyFilled[k]) 0 else if (allFilled[k]) 2 else 1
+            fun frontOf(k: Int) = if (!partialFront[k].isNaN()) partialFront[k] else lastEdge[k]
 
-            // 2 ── which words are currently pulled up / glowing?
-            val env = FloatArray(groups.size)
-            val lifted = ArrayList<Int>()
+            val env = FloatArray(groups.size); val lifted = ArrayList<Int>()
             for (gi in groups.indices) {
                 val e = wordEnvelope(groups[gi].startMs, groups[gi].endMs, t)
-                env[gi] = e
-                if (e > 0.004f) lifted.add(gi)
+                env[gi] = e; if (e > 0.004f) lifted.add(gi)
             }
 
-            // 3 ── everything except the lifted words: dim base + highlight sweep
             val canvas = drawContext.canvas
             canvas.save()
-            for (gi in lifted) {
-                val g = groups[gi]
-                canvas.clipRect(g.left - 2f, g.top - 1f, g.right + 2f, g.bottom + 1f, ClipOp.Difference)
-            }
+            for (gi in lifted) { val g = groups[gi]; canvas.clipRect(g.left - 2f, g.top - 1f, g.right + 2f, g.bottom + 1f, ClipOp.Difference) }
             drawText(l, color = p.unsung)
             for (k in 0 until lc) {
-                val m = modeOf(k)
-                if (m == 0) continue
-                canvas.save()
-                canvas.clipRect(0f, l.getLineTop(k), size.width, l.getLineBottom(k))
+                val m = modeOf(k); if (m == 0) continue
+                canvas.save(); canvas.clipRect(0f, l.getLineTop(k), size.width, l.getLineBottom(k))
                 if (m == 2) drawText(l, color = p.sung, alpha = fillAlpha)
                 else drawText(l, brush = brushFor(frontOf(k), p), alpha = fillAlpha)
                 canvas.restore()
             }
             canvas.restore()
 
-            // 4 ── the lifted words, drawn on their own so they can rise and glow
             for (gi in lifted) {
-                val g = groups[gi]
-                val e = env[gi]
-                val wl = g.layout ?: p.measurer.measure(
-                    text = g.text,
-                    style = textStyle,
-                    overflow = TextOverflow.Visible,
-                ).also { g.layout = it }
+                val g = groups[gi]; val e = env[gi]
+                val wl = g.layout ?: p.measurer.measure(text = g.text, style = textStyle, overflow = TextOverflow.Visible).also { g.layout = it }
                 val dur = max(g.endMs - g.startMs, 1L).toFloat()
                 val lift = p.liftPx * e * (dur / 450f).coerceIn(0.55f, 1f)
                 val origin = Offset(g.left, g.top - lift)
                 drawText(wl, color = p.unsung, topLeft = origin)
+                // ★ Subtle glow — Mochy uses BloomRadiusPx=2.6, strength gated by held-note detection.
+                //   Here: very low alpha, small blur radius, only on the sung word.
                 val gp = ((t - g.startMs).toFloat() / dur).coerceIn(0f, 1f)
-                val glowAlpha = e * smooth(gp / 0.3f) * 0.8f
+                val glowAlpha = e * smooth(gp / 0.3f) * 0.22f   // was 0.8 — now very subtle
                 val shadow = Shadow(
                     color = p.glow.copy(alpha = glowAlpha),
                     offset = Offset.Zero,
-                    blurRadius = p.glowRadiusPx * (0.5f + 0.5f * e),
+                    blurRadius = p.glowRadiusPx * (0.3f + 0.2f * e),  // was 0.5+0.5*e — now tighter
                 )
                 val k = g.visualLine
                 when (modeOf(k)) {
@@ -318,6 +283,54 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Cascade / stagger — rows below the active line trail the scroll.
+//  Each row has a critically-damped spring with time constant = 55ms × distance.
+//  Updated every frame via withFrameNanos; read in graphicsLayer (no recomposition).
+// ─────────────────────────────────────────────────────────────────────────────
+
+private class StaggerState {
+    val offsets = mutableStateMapOf<Int, Float>()
+    private val velocities = mutableMapOf<Int, Float>()
+    private var anchorRow = -1
+
+    fun setAnchor(row: Int) { anchorRow = row }
+
+    fun holdBack(rows: Iterable<Int>, scrollPx: Float) {
+        for (row in rows) {
+            if (row > anchorRow && row <= anchorRow + STAGGER_MAX_ROWS) {
+                offsets[row] = (offsets[row] ?: 0f) + scrollPx
+            }
+        }
+    }
+
+    fun update(dt: Float) {
+        if (offsets.isEmpty()) return
+        val keys = offsets.keys.toList()
+        for (row in keys) {
+            val k = (row - anchorRow).coerceIn(1, STAGGER_MAX_ROWS)
+            val omega = 1000f / (STAGGER_LAG_PER_ROW_MS * k)
+            val offset = offsets[row] ?: 0f
+            val v = velocities[row] ?: 0f
+            val e = exp(-omega * dt)
+            val tmp = (v + omega * offset) * dt
+            val nextOffset = (offset + tmp) * e
+            val nextV = (v - omega * tmp) * e
+            if (abs(nextOffset) < 0.3f && abs(nextV) < 4f) {
+                offsets.remove(row); velocities.remove(row)
+            } else {
+                offsets[row] = nextOffset; velocities[row] = nextV
+            }
+        }
+    }
+
+    val isMoving get() = offsets.isNotEmpty()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Per-line item
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun LyricLineItem(
     line: LyricLine,
@@ -328,6 +341,7 @@ private fun LyricLineItem(
     measurer: TextMeasurer,
     style: LyricsStyle,
     blurEffects: Array<RenderEffect?>,
+    staggerOffset: () -> Float,
     onClick: (() -> Unit)?,
 ) {
     val density = LocalDensity.current
@@ -338,7 +352,8 @@ private fun LyricLineItem(
             fontWeight = if (line.isBackground) FontWeight.SemiBold else style.fontWeight,
             fontSize = style.fontSize * sizeScale,
             lineHeight = style.lineHeight * sizeScale,
-            textAlign = if (line.alignEnd) TextAlign.End else TextAlign.Start,
+            // ★ Center by default (Mochy CENTER alignment), End for duets
+            textAlign = if (line.alignEnd) TextAlign.End else TextAlign.Center,
             color = Color.White,
         )
     }
@@ -352,28 +367,37 @@ private fun LyricLineItem(
                 glowRadiusPx = style.glowRadius.toPx(),
                 liftPx = style.liftDistance.toPx(),
                 softPx = style.fontSize.toPx() * sizeScale * 0.5f,
-                synced = synced,
-                measurer = measurer,
+                synced = synced, measurer = measurer,
             )
         }
     }
 
+    // ★ Mochy transitions: 600ms tween for alpha/scale, 350ms for blur
     val focusV by animateFloatAsState(
         targetValue = if (isActive && synced) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
+        animationSpec = tween(600),
         label = "lyricFocus",
     )
+    // ★ Mochy resting alpha: ACTIVE 1.0, UPCOMING 0.5, DEFAULT 0.38, PAST 0.24
     val alphaTarget = when {
         !synced -> 0.95f
         isActive -> 1f
-        distance == 1 -> 0.92f
-        distance == 2 -> 0.82f
-        else -> 0.70f
+        distance == 1 -> 0.5f
+        distance == 2 -> 0.38f
+        else -> 0.24f
     }
-    val alphaV by animateFloatAsState(alphaTarget, tween(320), label = "lyricAlpha")
+    val alphaV by animateFloatAsState(alphaTarget, tween(600), label = "lyricAlpha")
+
+    // ★ Mochy blur: 0px (active/adjacent-inactive-0), 5px (distance 1), 12px (distance 2+)
+    //   3-stage array: [null, 5px, 12px]
+    val blurStep = when {
+        !synced || isActive -> 0
+        distance == 1 -> 1
+        else -> 2
+    }
     val blurV by animateFloatAsState(
-        targetValue = if (synced && !isActive) min(distance, 4) / 4f else 0f,
-        animationSpec = tween(320),
+        targetValue = blurStep.toFloat(),
+        animationSpec = tween(350),
         label = "lyricBlur",
     )
     val interaction = remember { MutableInteractionSource() }
@@ -382,15 +406,33 @@ private fun LyricLineItem(
         Modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick) else Modifier)
-            .padding(vertical = style.lineGap / 2)
+            .padding(vertical = style.lineGap)
             .graphicsLayer {
-                val s = if (synced) 0.93f + 0.07f * focusV else 1f
-                scaleX = s
-                scaleY = s
-                transformOrigin = TransformOrigin(if (line.alignEnd) 1f else 0f, 0.5f)
+                // ★ Mochy resting scale: ACTIVE 1.06, UPCOMING 0.98, DEFAULT 0.95, PAST 0.93
+                val scaleTarget = when {
+                    !synced -> 1f
+                    isActive -> 1.06f
+                    distance == 1 -> 0.98f
+                    distance == 2 -> 0.95f
+                    else -> 0.93f
+                }
+                val s = if (synced) {
+                    // interpolate from the "inactive" scale to the "active" scale via focusV
+                    val inactiveScale = when {
+                        distance <= 1 -> 0.98f
+                        distance <= 2 -> 0.95f
+                        else -> 0.93f
+                    }
+                    inactiveScale + (1.06f - inactiveScale) * focusV
+                } else 1f
+                scaleX = s; scaleY = s
+                // ★ Center transform origin for center-aligned text (Mochy CENTER)
+                transformOrigin = TransformOrigin(if (line.alignEnd) 1f else 0.5f, 0.5f)
                 alpha = alphaV
-                val step = (blurV * (blurEffects.size - 1)).roundToInt()
+                val step = blurV.roundToInt().coerceIn(0, blurEffects.size - 1)
                 renderEffect = blurEffects.getOrNull(step)
+                // ★ Cascade: rows below the active line get a translationY offset
+                translationY = staggerOffset()
             }
             .layout { measurable, constraints ->
                 val w = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
@@ -406,11 +448,10 @@ private fun LyricLineItem(
     )
 }
 
-/**
- * @param positionMs  current playback position in ms (read every frame, e.g. { player.currentPosition })
- * @param onSeek      called with the tapped line's start time
- * @param offsetMs    user lyrics delay (+ shows lyrics later, − earlier)
- */
+// ─────────────────────────────────────────────────────────────────────────────
+//  Public API
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 fun LyricsView(
     lyrics: Lyrics?,
@@ -424,14 +465,7 @@ fun LyricsView(
     if (lyrics == null) return
     if (lyrics.isInstrumental || lyrics.lines.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            BasicText(
-                "Instrumental",
-                style = TextStyle(
-                    color = style.unsungColor.copy(alpha = 0.7f),
-                    fontSize = 20.sp,
-                    fontFamily = style.fontFamily,
-                ),
-            )
+            BasicText("Instrumental", style = TextStyle(color = style.unsungColor.copy(alpha = 0.7f), fontSize = 20.sp, fontFamily = style.fontFamily))
         }
         return
     }
@@ -441,7 +475,6 @@ fun LyricsView(
     val measurer = rememberTextMeasurer(cacheSize = 24)
     val listState = rememberLazyListState()
 
-    // one clock for the whole view; only lines that read it (the active one) redraw per frame
     val clock = remember { mutableLongStateOf(0L) }
     val latestPosition by rememberUpdatedState(positionMs)
     LaunchedEffect(isPlaying, offsetMs, lyrics) {
@@ -455,30 +488,47 @@ fun LyricsView(
         derivedStateOf { if (synced) activeLine(lyrics.lines, clock.longValue) else -1 }
     }
 
+    // ★ Mochy blur: 3 stages — null (0px), 5px, 12px — DECAL tile mode
     val blurEffects = remember(style.maxBlur, density) {
         val maxPx = with(density) { style.maxBlur.toPx() }
-        Array<RenderEffect?>(5) { i ->
+        val radii = floatArrayOf(0f, 5f, 12f)
+        Array<RenderEffect?>(3) { i ->
             if (i == 0 || maxPx <= 0f || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) null
-            else BlurEffect(maxPx * i / 4f, maxPx * i / 4f, TileMode.Decal)
+            else BlurEffect(radii[i], radii[i], TileMode.Decal)
         }
     }
 
-    // pause auto-follow while the user drags; resume 2.5 s after they let go
+    // ★ Cascade state
+    val stagger = remember { StaggerState() }
+    var lastFrameNanos by remember { mutableLongStateOf(0L) }
+
+    // Update stagger springs every frame
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            withFrameNanos { now ->
+                if (lastFrameNanos > 0 && stagger.isMoving) {
+                    val dt = ((now - lastFrameNanos) / 1e9f).coerceIn(0f, 0.064f)
+                    stagger.update(dt)
+                }
+                lastFrameNanos = now
+            }
+        }
+    }
+
+    // pause auto-follow while the user drags; resume 3.5s after they let go (Mochy)
     val dragged by listState.interactionSource.collectIsDraggedAsState()
     var followPaused by remember { mutableStateOf(false) }
     LaunchedEffect(dragged) {
         if (dragged) followPaused = true
-        else if (followPaused) {
-            delay(2500)
-            followPaused = false
-        }
+        else if (followPaused) { delay(3500); followPaused = false }
     }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val viewportPx = with(density) { maxHeight.toPx() }
-        val focusPx = viewportPx * style.focusFraction
+        // ★ Mochy focus: max(viewportH * 0.055, 72dp) from the top
+        val focusPx = maxOf(viewportPx * style.focusFraction, with(density) { style.minFocusDp.toPx() })
 
-        // the "pull": a slightly under-damped spring brings the active line to the focus point
+        // ★ Mochy auto-scroll: 950ms tween, CubicBezier(0.42, 0, 0.16, 1) — eases in
         LaunchedEffect(activeIndex, followPaused, lyrics) {
             if (!synced || followPaused || activeIndex < 0) return@LaunchedEffect
             var info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
@@ -487,7 +537,12 @@ fun LyricsView(
                 info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
             }
             if (info != null) {
-                listState.animateScrollBy(info.offset - focusPx, spring(dampingRatio = 0.8f, stiffness = 110f))
+                val target = info.offset - focusPx
+                stagger.setAnchor(activeIndex)
+                // Hold back rows below the active line — they trail the scroll
+                val visibleRows = listState.layoutInfo.visibleItemsInfo.map { it.index }
+                stagger.holdBack(visibleRows, -target)
+                listState.animateScrollBy(target, tween(950, easing = RecenterEasing))
             }
         }
 
@@ -498,11 +553,12 @@ fun LyricsView(
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
+                    // ★ Mochy immersive fade: top 10% + bottom 38% dissolve via DstIn
                     drawRect(
                         brush = Brush.verticalGradient(
                             0f to Color.Transparent,
-                            0.07f to Color.Black,
-                            0.90f to Color.Black,
+                            0.10f to Color.Black,
+                            0.62f to Color.Black,
                             1f to Color.Transparent,
                         ),
                         blendMode = BlendMode.DstIn,
@@ -510,7 +566,7 @@ fun LyricsView(
                 },
             contentPadding = PaddingValues(
                 top = with(density) { focusPx.toDp() },
-                bottom = with(density) { (viewportPx * (1f - style.focusFraction)).toDp() },
+                bottom = with(density) { (viewportPx * 0.55f).toDp() },  // Mochy: 55% bottom padding
                 start = style.horizontalPadding,
                 end = style.horizontalPadding,
             ),
@@ -521,11 +577,12 @@ fun LyricsView(
                     line = line,
                     synced = synced,
                     isActive = active,
-                    distance = if (activeIndex < 0) i + 1 else kotlin.math.abs(i - activeIndex),
+                    distance = if (activeIndex < 0) i + 1 else abs(i - activeIndex),
                     clock = clock,
                     measurer = measurer,
                     style = style,
                     blurEffects = blurEffects,
+                    staggerOffset = { stagger.offsets[i] ?: 0f },
                     onClick = if (synced) ({ onSeek(line.startMs) }) else null,
                 )
             }
