@@ -304,7 +304,9 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 if (scale != 1f) {
                     val baselineY = origin.y + (g.bottom - g.top)
                     val centerX = origin.x + (g.right - g.left) / 2f
-                    canvas2.scale(scale, scale, centerX, baselineY)
+                    canvas2.translate(centerX, baselineY)
+                    canvas2.scale(scale, scale)
+                    canvas2.translate(-centerX, -baselineY)
                 }
                 val k = g.visualLine
                 when (modeOf(k)) {
