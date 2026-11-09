@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -48,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.border
 import androidx.compose.ui.Modifier
@@ -91,10 +93,14 @@ import com.rajatxo.lutea.data.prefs.PlaylistStyle
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.components.Lutea3DThumb
 import com.rajatxo.lutea.data.prefs.UserNameManager
 import com.rajatxo.lutea.ui.foundation.LocalSearchOpen
 import com.rajatxo.lutea.ui.foundation.LocalSearchTrigger
 import com.rajatxo.lutea.ui.icons.LuteaIcons
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
@@ -161,6 +167,19 @@ fun LuteaArc(
     val pxPerItem = with(density) { 64.dp.toPx() }
     val scrollOffset = remember { Animatable(savedScroll) }
     var lastSnappedIndex by remember { mutableStateOf(savedIndex) }
+
+    // ★ True while the wheel is moving (finger drag, fling, snap or search jump), false ~160ms
+    //    after it stops. Drives the slider thumb's LED: white when idle, glowing when rotating.
+    var isWheelRotating by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { scrollOffset.value }
+            .drop(1) // ignore the initial value so the LED doesn't flash on open
+            .collectLatest {
+                isWheelRotating = true
+                delay(160)
+                isWheelRotating = false
+            }
+    }
 
     // ── Sound + Haptic (Coral pattern) ──
     val soundPool = remember {
@@ -914,39 +933,23 @@ fun LuteaArc(
                 val trackColor = Color.White.copy(alpha = 0.25f)  // ★ was 0.15f, now 0.25f
                 val trackCorner = 3.dp
                 val trackPaddingEnd = maxWidth * 0.075f  // ★ was 0.08f, now 0.075f (7.5%)
-                // ★ Thumb — 3D button: layered shadows + gradient + inner highlight
-                val thumbWidth = 20.dp
-                val thumbHeight = 60.dp
-                val thumbCorner = 10.dp
-                // ★ 3D gradient: bright top edge → mid dark → darker bottom (creates dome illusion)
-                val thumbGradient = Brush.verticalGradient(
-                    colorStops = arrayOf(
-                        0.0f to Color(0xFF4A4A4A),   // bright top edge (catches light)
-                        0.15f to Color(0xFF3A3A3A),  // upper highlight
-                        0.5f to Color(0xFF2A2A2A),   // mid body
-                        0.85f to Color(0xFF1A1A1A),  // lower shadow
-                        1.0f to Color(0xFF121212),   // dark bottom edge
-                    )
-                )
-                // ★ 3D shadows: dark drop shadow below + whitish glow on top edge
-                val thumbDropShadow = Color.Black.copy(alpha = 0.5f)
-                val thumbTopGlow = Color.White.copy(alpha = 0.15f)
-                // ★ Glossy border (top half brighter, bottom darker = 3D edge)
-                val thumbBorderTop = Color.White.copy(alpha = 0.25f)
-                val thumbBorderBottom = Color.Black.copy(alpha = 0.3f)
-                val thumbBorderWidth = 1.dp
+                // ★ Thumb — Lutea3DThumb is drawn horizontally and rotated -90° to sit on the vertical track.
+                //    thumbHeight = its length ALONG the track, thumbThickness = its width ACROSS the track
+                //    (keep them about 2.35 : 1). thumbHitWidth = the grab area around the track.
+                val thumbHeight = 90.dp
+                val thumbThickness = 38.dp
+                val thumbHitWidth = thumbThickness + 8.dp
                 // Thumb Y: thumb moves DOWN when scroll increases (finger down = thumb down).
                 // knobFraction = 0 → thumb at TOP. knobFraction = 1 → thumb at BOTTOM.
                 val thumbY = (sliderHeight - thumbHeight) * knobFraction
-                // ★ Thumb X: exactly centered on the track (not offset by padding math)
-                val thumbCenterPadding = trackPaddingEnd - (thumbWidth - trackWidth) / 2f
 
                 // Track (long gray capsule) — DRAG to rotate wheel (clamped, no infinite loop).
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = trackPaddingEnd)
-                        .width(trackWidth + 20.dp)
+                        // keep the visible track where it was, but make the grab area as wide as the thumb
+                        .padding(end = (trackPaddingEnd + (trackWidth + 20.dp) / 2 - thumbHitWidth / 2).coerceAtLeast(0.dp))
+                        .width(thumbHitWidth)
                         .height(sliderHeight)
                         .pointerInput(playlists.size) {
                             // ★ Fixed: use detectTapGestures for taps + detectVerticalDragGestures for drags.
@@ -1016,67 +1019,16 @@ fun LuteaArc(
                             .background(trackColor)
                     )
 
-                    // ★ Thumb — INSIDE track Box, constrained to track bounds.
-                    // Offset is from TOP of track. Clamped so it never leaves.
-                    // Layer 1: ★ GLOW — light emitting outward from the thumb on both sides.
-                    //    Uses a wider, blurred Box with a radial gradient that fades to transparent.
-                    //    Positioned behind the thumb, extends beyond the track width.
-                    Box(
+                    // ★ Thumb — Lutea3DThumb: white LED when idle, glowing accent colour while the
+                    //    wheel rotates. Pass no activeColor to get the photo's yellow-green instead.
+                    Lutea3DThumb(
+                        active = isWheelRotating,
+                        activeColor = accentColor,
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) - 8.dp)
-                            .width(thumbWidth + 24.dp)  // wider than thumb = light spreads outward
-                            .height(thumbHeight + 16.dp)  // taller = light spreads vertically too
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.15f),  // center glow
-                                        Color.White.copy(alpha = 0.05f),  // mid fade
-                                        Color.Transparent,                  // edges fade to nothing
-                                    )
-                                )
-                            )
-                            .graphicsLayer {
-                                // Soft blur on the glow for a diffused light effect
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                                    this.renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                                        12f, 12f, android.graphics.Shader.TileMode.DECAL
-                                    ).asComposeRenderEffect()
-                                }
-                                this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-                            }
-                    )
-                    // Layer 2: drop shadow
-                    Box(
-                        modifier = Modifier
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + 3.dp)
-                            .align(Alignment.TopCenter)
-                            .width(thumbWidth)
-                            .height(thumbHeight)
-                            .shadow(8.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbDropShadow, spotColor = thumbDropShadow)
-                            .clip(RoundedCornerShape(thumbCorner))
-                    )
-                    // Layer 2: button body
-                    Box(
-                        modifier = Modifier
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight))
-                            .align(Alignment.TopCenter)
-                            .width(thumbWidth)
-                            .height(thumbHeight)
-                            .shadow(2.dp, RoundedCornerShape(thumbCorner), ambientColor = thumbTopGlow, spotColor = thumbTopGlow)
-                            .clip(RoundedCornerShape(thumbCorner))
-                            .background(thumbGradient)
-                            .border(thumbBorderWidth, thumbBorderTop, RoundedCornerShape(thumbCorner))
-                    )
-                    // Layer 3: center highlight line (was at top — moved to CENTER of thumb)
-                    Box(
-                        modifier = Modifier
-                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + (thumbHeight / 2) - 1.dp)
-                            .align(Alignment.TopCenter)
-                            .width(thumbWidth)
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(Color.White.copy(alpha = 0.3f))
+                            .offset(y = thumbY.coerceIn(0.dp, sliderHeight - thumbHeight) + (thumbHeight - thumbThickness) / 2)
+                            .requiredSize(thumbHeight, thumbThickness)
+                            .graphicsLayer { rotationZ = -90f },
                     )
                 }
 
@@ -1100,7 +1052,7 @@ fun LuteaArc(
                 val secondaryFontSize = 40.sp  // ★ was 35sp, now 40sp
                 // ★ Max text width = screen width minus slider zone (7.5% + 20dp thumb + 20dp gap buffer)
                 //    Buffer increased from 10dp to 20dp for a slightly larger gap between text and thumb.
-                val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbWidth + 20.dp).toPx() }
+                val maxTextWidthPx = with(density) { maxWidth.toPx() } - with(density) { (trackPaddingEnd + thumbThickness + 12.dp).toPx() }
 
                 // Opacity: 100% → 90% → 75% → 62% → 45% → 30%
                 // Blur: 2dp on ±3, 5dp on ±4
