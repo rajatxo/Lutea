@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -330,6 +331,7 @@ private fun ContentDrawScope.drawKaraoke(
     sungColor: Color,
     glowColor: Color,
 ) {
+    val self = this
     val lay = m.layout
     if (lay == null) { drawContent(); return }
     val letters = m.letters
@@ -362,7 +364,7 @@ private fun ContentDrawScope.drawKaraoke(
         }
     }
     if (uniform && abs(s0 - 1f) < 0.0005f) {
-        withTransform({ translate(dx0, dy0) }) { this@drawKaraoke.drawContent() }
+        withTransform({ translate(dx0, dy0) }) { self.drawContent() }
         return
     }
 
@@ -394,14 +396,14 @@ private fun ContentDrawScope.drawKaraoke(
             withTransform({
                 translate(0f, dy)
                 clipRect(left, top, right, bottom)
-            }) { this@drawKaraoke.drawContent() }
+            }) { self.drawContent() }
         } else {
             val pivot = Offset(box.center.x, lay.getLineBaseline(line))
             withTransform({
                 translate(dx, dy)
                 scale(s, s, pivot = pivot)
                 clipRect(left, top, right, bottom)
-            }) { this@drawKaraoke.drawContent() }
+            }) { self.drawContent() }
         }
         idx = end + 1
     }
@@ -529,7 +531,7 @@ private fun KaraokeLine(
                         glowColor = style.glowColor,
                     )
                 } catch (e: Exception) {
-                    this@drawKaraoke.drawContent()
+                    drawContent()
                 }
             },
     ) {
