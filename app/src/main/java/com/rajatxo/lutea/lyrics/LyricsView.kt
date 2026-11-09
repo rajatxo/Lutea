@@ -100,16 +100,18 @@ data class LyricsStyle(
     val fontFamily: FontFamily = FontFamily.Default,
     val fontWeight: FontWeight = FontWeight.Bold,
     val sungColor: Color = Color.White,
-    val unsungColor: Color = Color.White.copy(alpha = 0.58f),   // active unsung = 0.58 (Mochy)
-    val inactiveColor: Color = Color.White.copy(alpha = 0.36f),  // resting inactive base
+    val unsungColor: Color = Color.White.copy(alpha = 0.58f),
+    val inactiveColor: Color = Color.White.copy(alpha = 0.36f),
     val glowColor: Color = Color.White,
-    val glowRadius: Dp = 3.dp,         // Mochy BloomRadiusPx = 2.6 — very tight, not a soft glow
+    val glowRadius: Dp = 8.dp,         // glow radius for held notes (wider than before)
     val liftDistance: Dp = 3.dp,       // Mochy WordWaitDrop = 3dp
-    val maxBlur: Dp = 12.dp,           // Mochy BlurStageRadii = {0, 5, 12}
-    val focusFraction: Float = 0.055f, // Mochy ActiveLineViewportFraction = 0.055
-    val minFocusDp: Dp = 72.dp,        // Mochy MinPastLineVisibleHeight
-    val lineGap: Dp = 12.dp,           // Mochy: 12dp top + 12dp bottom per row
-    val horizontalPadding: Dp = 36.dp, // Mochy CENTER alignment padding
+    val heldZoom: Float = 0.08f,       // Mochy HeldZoom — word swells 8% on held notes
+    val heldGlowAlpha: Float = 0.5f,   // glow intensity on held notes
+    val maxBlur: Dp = 12.dp,
+    val focusFraction: Float = 0.055f,
+    val minFocusDp: Dp = 72.dp,
+    val lineGap: Dp = 12.dp,
+    val horizontalPadding: Dp = 36.dp,
 )
 
 private fun smooth(x: Float): Float { val c = x.coerceIn(0f, 1f); return c * c * (3f - 2f * c) }
@@ -147,6 +149,8 @@ private class DrawParams(
     val glowRadiusPx: Float,
     val liftPx: Float,
     val softPx: Float,
+    val heldZoom: Float,
+    val heldGlowAlpha: Float,
     val synced: Boolean,
     val measurer: TextMeasurer,
 )
@@ -157,6 +161,7 @@ private class WordGroup(
 ) {
     var left = 0f; var top = 0f; var right = 0f; var bottom = 0f
     var visualLine = 0; var layout: TextLayoutResult? = null
+    val letterCount: Int = text.count { it.isLetterOrDigit() }.coerceAtLeast(1)
 }
 
 private fun buildGroups(line: LyricLine): List<WordGroup> {
@@ -238,10 +243,13 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
             fun modeOf(k: Int) = if (!hasTok[k] || !anyFilled[k]) 0 else if (allFilled[k]) 2 else 1
             fun frontOf(k: Int) = if (!partialFront[k].isNaN()) partialFront[k] else lastEdge[k]
 
-            val env = FloatArray(groups.size); val lifted = ArrayList<Int>()
+            val lifted = ArrayList<Int>()
             for (gi in groups.indices) {
-                val e = wordEnvelope(groups[gi].startMs, groups[gi].endMs, t)
-                env[gi] = e; if (e > 0.004f) lifted.add(gi)
+                val g = groups[gi]
+                val dur = max(g.endMs - g.startMs, 1L).toFloat()
+                val wp = ((t - g.startMs).toFloat() / dur).coerceIn(0f, 1f)
+                val fallTime = (t - g.endMs).toFloat()
+                if (wp > 0f || (fallTime > 0f && fallTime < 420f)) lifted.add(gi)
             }
 
             val canvas = drawContext.canvas
@@ -256,30 +264,58 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 canvas.restore()
             }
             canvas.restore()
-
+            val canvas2 = drawContext.canvas
             for (gi in lifted) {
-                val g = groups[gi]; val e = env[gi]
+                val g = groups[gi]
                 val wl = g.layout ?: p.measurer.measure(text = g.text, style = textStyle, overflow = TextOverflow.Visible).also { g.layout = it }
                 val dur = max(g.endMs - g.startMs, 1L).toFloat()
-                val lift = p.liftPx * e * (dur / 450f).coerceIn(0.55f, 1f)
+                val wp = ((t - g.startMs).toFloat() / dur).coerceIn(0f, 1f)
+
+                // Sweep-based rise: fully risen at 85% of the word, falls over 420ms after
+                val riseProgress = (wp / 0.85f).coerceIn(0f, 1f)
+                val fallProgress = if (t > g.endMs) smooth(((t - g.endMs).toFloat() / 420f).coerceIn(0f, 1f)) else 0f
+                val rise = smooth(riseProgress) * (1f - fallProgress)
+                val lift = p.liftPx * rise * (dur / 450f).coerceIn(0.55f, 1f)
                 val origin = Offset(g.left, g.top - lift)
+
+                // Held-note detection: secPerChar > 0.1s = some hold, > 0.34s = full hold
+                val secPerChar = (dur / 1000f) / g.letterCount
+                val hold = smooth(((secPerChar - 0.1f) / (0.34f - 0.1f)).coerceIn(0f, 1f))
+
+                // Glow: attack 35%, release 30% — grows on held notes, lingers after
+                val glowAttack = smooth((wp / 0.35f).coerceIn(0f, 1f))
+                val glowRelease = smooth(((1f - wp) / 0.3f).coerceIn(0f, 1f))
+                val glow = hold * glowAttack * glowRelease * p.heldGlowAlpha
+
+                // Swell: attack 20%, release 12% — word grows on held notes
+                val swellAttack = smooth((wp / 0.2f).coerceIn(0f, 1f))
+                val swellRelease = smooth(((1f - wp) / 0.12f).coerceIn(0f, 1f))
+                val swell = hold * swellAttack * swellRelease * p.heldZoom
+                val scale = 1f + swell
+
                 drawText(wl, color = p.unsung, topLeft = origin)
-                // ★ Subtle glow — Mochy uses BloomRadiusPx=2.6, strength gated by held-note detection.
-                //   Here: very low alpha, small blur radius, only on the sung word.
-                val gp = ((t - g.startMs).toFloat() / dur).coerceIn(0f, 1f)
-                val glowAlpha = e * smooth(gp / 0.3f) * 0.22f   // was 0.8 — now very subtle
+
                 val shadow = Shadow(
-                    color = p.glow.copy(alpha = glowAlpha),
+                    color = p.glow.copy(alpha = glow),
                     offset = Offset.Zero,
-                    blurRadius = p.glowRadiusPx * (0.3f + 0.2f * e),  // was 0.5+0.5*e — now tighter
+                    blurRadius = p.glowRadiusPx * (0.5f + 1.5f * glow),
                 )
+                canvas2.save()
+                if (scale != 1f) {
+                    val baselineY = origin.y + (g.bottom - g.top)
+                    val centerX = origin.x + (g.right - g.left) / 2f
+                    canvas2.scale(scale, scale, centerX, baselineY)
+                }
                 val k = g.visualLine
                 when (modeOf(k)) {
                     2 -> drawText(wl, color = p.sung, topLeft = origin, alpha = fillAlpha, shadow = shadow)
                     1 -> drawText(wl, brush = brushFor(frontOf(k) - g.left, p), topLeft = origin, alpha = fillAlpha, shadow = shadow)
                 }
+                canvas2.restore()
             }
         }
+    }
+}        }
     }
 }
 
@@ -367,6 +403,8 @@ private fun LyricLineItem(
                 glowRadiusPx = style.glowRadius.toPx(),
                 liftPx = style.liftDistance.toPx(),
                 softPx = style.fontSize.toPx() * sizeScale * 0.5f,
+                heldZoom = style.heldZoom,
+                heldGlowAlpha = style.heldGlowAlpha,
                 synced = synced, measurer = measurer,
             )
         }
