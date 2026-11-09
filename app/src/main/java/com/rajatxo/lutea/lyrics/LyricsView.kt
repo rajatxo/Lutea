@@ -86,7 +86,7 @@ data class LyricsStyle(
     val glowRadius: Dp = 8.dp,
     val liftDistance: Dp = 3.dp,
     val heldZoom: Float = 0.075f,
-    val heldGlowAlpha: Float = 0.5f,
+    val heldGlowAlpha: Float = 0.65f,
     val maxBlur: Dp = 12.dp,
     val focusFraction: Float = 0.055f,
     val minFocusDp: Dp = 72.dp,
@@ -237,7 +237,7 @@ private class LineModel(
                 if (count > 0) {
                     val sMs = tokS[i]; val eMs = tokE[j]
                     val secPerChar = (eMs - sMs) / 1000f / count
-                    val hold = smoothstep((secPerChar - 0.1f) / (0.34f - 0.1f))
+                    val hold = smoothstep((secPerChar - 0.05f) / (0.34f - 0.05f))
                     ws.add(WordInfo(cs, min(ce, n), sMs, eMs, hold, first, last))
                 }
             }
@@ -555,7 +555,33 @@ private fun KaraokeLine(
                             drawContent()
                         } else {
                             val p = m.litClip.get(lay, m.head)
-                            clipPath(p) { this@drawWithContent.drawContent() }
+                            clipPath(p) {
+                                this@drawWithContent.drawContent()
+                                // Soft edge at the sweep head — fades the lit copy to transparent
+                                val lastLine = lay.lineCount - 1
+                                for (l in 0..lastLine) {
+                                    val ls = lay.getLineStart(l)
+                                    val le = lay.getLineEnd(l)
+                                    if (m.head <= ls) break
+                                    val right = if (m.head >= le) lay.getLineRight(l) else {
+                                        val c = floor(m.head).toInt().coerceIn(ls, max(ls, le - 1))
+                                        val frac = (m.head - c).coerceIn(0f, 1f)
+                                        val b = lay.getBoundingBox(c)
+                                        b.left + b.width * frac
+                                    }
+                                    val soft = lay.layoutInput.style.fontSize.toPx() * 0.6f
+                                    drawRect(
+                                        brush = Brush.horizontalGradient(
+                                            0f to Color.Black,
+                                            1f to Color.Transparent,
+                                            startX = right - soft * 0.3f,
+                                            endX = right + soft * 0.7f,
+                                        ),
+                                        topLeft = Offset(0f, lay.getLineTop(l)),
+                                        size = androidx.compose.ui.geometry.Size(soft + 100f, lay.getLineBottom(l) - lay.getLineTop(l)),
+                                        blendMode = BlendMode.DstIn,
+                                    )
+                                }
                         }
                     } catch (e: Exception) {
                         drawContent()
@@ -796,11 +822,11 @@ private fun LyricRow(
     when {
         !synced -> { tAlpha = 0.8f; tScale = 1f; tBlur = 0f }
         isActive -> { tAlpha = 1f; tScale = 1.06f; tBlur = 0f }
-        dist == 1 -> { tAlpha = 0.5f; tScale = 0.98f; tBlur = maxBlurPx * 5f / 12f }
-        dist > 1 -> { tAlpha = 0.38f; tScale = 0.95f; tBlur = maxBlurPx }
+        dist == 1 -> { tAlpha = 0.5f; tScale = 0.98f; tBlur = 5f }
+        dist > 1 -> { tAlpha = 0.38f; tScale = 0.95f; tBlur = 12f }
         else -> {
             tAlpha = 0.24f; tScale = 0.93f
-            tBlur = if (dist == -1) maxBlurPx * 5f / 12f else maxBlurPx
+            tBlur = if (dist == -1) 5f else 12f
         }
     }
     val alphaS = animateFloatAsState(tAlpha, tween(600), label = "lyricAlpha")
