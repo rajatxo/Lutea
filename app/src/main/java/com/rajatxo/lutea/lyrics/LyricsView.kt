@@ -515,6 +515,7 @@ private fun Modifier.letterMotion(
     style: LyricsStyle,
     amplitude: () -> Float,
 ): Modifier = drawWithContent {
+    try {
     motion.tick.intValue // subscribe to the per-frame springs
     val layout = holder[0]
     val amp = amplitude().coerceIn(0f, 1f)
@@ -584,6 +585,7 @@ private fun Modifier.letterMotion(
         }
         k++
     }
+    } catch (e: Exception) { drawContent() }
 }
 
 /**
@@ -598,6 +600,7 @@ private fun Modifier.sweepMask(
     style: LyricsStyle,
     path: Path,
 ): Modifier = drawWithContent {
+    try {
     motion.tick.intValue
     val layout = holder[0] ?: return@drawWithContent
     val len = model.text.length
@@ -673,6 +676,7 @@ private fun Modifier.sweepMask(
             blendMode = BlendMode.DstIn,
         )
     }
+    } catch (e: Exception) { drawContent() }
 }
 
 /** Same layout as the content, but the layer that follows gets [bleed] of extra room on every side. */
