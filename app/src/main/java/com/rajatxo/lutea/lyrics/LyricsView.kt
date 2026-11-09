@@ -442,7 +442,8 @@ private fun LyricLineItem(
                 layout(w, h) { placeable.place(0, 0) }
             }
             .drawBehind {
-                val tNow = if (synced && focusV > 0.002f) clock.value else -1L
+                // ★ Only draw the fill on the ACTIVE line (not during the focus-out transition)
+                val tNow = if (synced && isActive && focusV > 0.002f) clock.value else -1L
                 geo.draw(this, tNow, focusV, params)
             }
     )
@@ -475,12 +476,32 @@ fun LyricsView(
     val measurer = rememberTextMeasurer(cacheSize = 24)
     val listState = rememberLazyListState()
 
+    // ★ Smooth clock: interpolate every frame, sync with actual position every 500ms.
+    //    This is the key fix — reading positionMs() every frame returned the same value
+    //    between polls (200ms), causing the word fill to stall then jump. Now the clock
+    //    advances smoothly every frame and syncs periodically.
     val clock = remember { mutableLongStateOf(0L) }
     val latestPosition by rememberUpdatedState(positionMs)
-    LaunchedEffect(isPlaying, offsetMs, lyrics) {
+    LaunchedEffect(isPlaying, offsetMs) {
+        var lastNanos = 0L
+        var lastSyncWallMs = 0L
         while (isActive) {
-            clock.longValue = latestPosition() + offsetMs
-            if (isPlaying) withFrameNanos { } else delay(120)
+            withFrameNanos { now ->
+                if (isPlaying && lastNanos > 0) {
+                    val dtMs = (now - lastNanos) / 1_000_000
+                    clock.longValue += dtMs
+                }
+                lastNanos = now
+            }
+            // Sync with actual playback position every ~500ms (corrects drift from seeking, pauses, etc.)
+            val wallMs = System.currentTimeMillis()
+            if (wallMs - lastSyncWallMs > 500) {
+                lastSyncWallMs = wallMs
+                val actual = latestPosition() + offsetMs
+                if (abs(actual - clock.longValue) > 200) {
+                    clock.longValue = actual
+                }
+            }
         }
     }
 
@@ -529,20 +550,24 @@ fun LyricsView(
         val focusPx = maxOf(viewportPx * style.focusFraction, with(density) { style.minFocusDp.toPx() })
 
         // ★ Mochy auto-scroll: 950ms tween, CubicBezier(0.42, 0, 0.16, 1) — eases in
-        LaunchedEffect(activeIndex, followPaused, lyrics) {
+        //    Keyed on activeIndex + followPaused only (NOT lyrics — upgrading lyrics
+        //    would cancel the scroll mid-animation and cause a snap).
+        LaunchedEffect(activeIndex, followPaused) {
             if (!synced || followPaused || activeIndex < 0) return@LaunchedEffect
             var info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
             if (info == null) {
-                listState.scrollToItem(activeIndex)
+                // ★ Use animateScrollToItem (animated) instead of scrollToItem (instant snap)
+                listState.animateScrollToItem(activeIndex, 0)
                 info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
             }
             if (info != null) {
                 val target = info.offset - focusPx
-                stagger.setAnchor(activeIndex)
-                // Hold back rows below the active line — they trail the scroll
-                val visibleRows = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                stagger.holdBack(visibleRows, -target)
-                listState.animateScrollBy(target, tween(950, easing = RecenterEasing))
+                if (abs(target) > 0.5f) {
+                    stagger.setAnchor(activeIndex)
+                    val visibleRows = listState.layoutInfo.visibleItemsInfo.map { it.index }
+                    stagger.holdBack(visibleRows, -target)
+                    listState.animateScrollBy(target, tween(950, easing = RecenterEasing))
+                }
             }
         }
 
