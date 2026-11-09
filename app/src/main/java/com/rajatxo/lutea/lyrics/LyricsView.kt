@@ -86,7 +86,7 @@ data class LyricsStyle(
     val glowRadius: Dp = 8.dp,
     val liftDistance: Dp = 3.dp,
     val heldZoom: Float = 0.075f,
-    val heldGlowAlpha: Float = 0.65f,
+    val heldGlowAlpha: Float = 0.5f,
     val maxBlur: Dp = 12.dp,
     val focusFraction: Float = 0.055f,
     val minFocusDp: Dp = 72.dp,
@@ -237,7 +237,7 @@ private class LineModel(
                 if (count > 0) {
                     val sMs = tokS[i]; val eMs = tokE[j]
                     val secPerChar = (eMs - sMs) / 1000f / count
-                    val hold = smoothstep((secPerChar - 0.05f) / (0.34f - 0.05f))
+                    val hold = smoothstep((secPerChar - 0.1f) / (0.34f - 0.1f))
                     ws.add(WordInfo(cs, min(ce, n), sMs, eMs, hold, first, last))
                 }
             }
@@ -542,52 +542,20 @@ private fun KaraokeLine(
             onTextLayout = { m.layout = it },
             modifier = Modifier.fillMaxWidth(),
         )
-        // lit copy — soft DstIn gradient mask at the sweep head (NO hard clipPath = no square shape)
+        // lit copy — clipped to everything the sweep has passed
         BasicText(
             text = line.text,
             style = sungStyle,
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     try {
                         val lay = m.layout
-                        if (lay == null) { drawContent(); return@drawWithContent }
-                        drawContent()
-                        val lastLine = lay.lineCount - 1
-                        val soft = lay.layoutInput.style.fontSize.toPx() * 0.6f
-                        for (l in 0..lastLine) {
-                            val ls = lay.getLineStart(l)
-                            val le = lay.getLineEnd(l)
-                            val lineLeft = lay.getLineLeft(l)
-                            val lineRight = lay.getLineRight(l)
-                            val lineTop = lay.getLineTop(l)
-                            val lineBottom = lay.getLineBottom(l)
-                            if (m.head <= ls) {
-                                // Entire line is after the sweep — remove it all
-                                drawRect(color = Color.Transparent, topLeft = Offset(lineLeft, lineTop),
-                                    size = androidx.compose.ui.geometry.Size(lineRight - lineLeft, lineBottom - lineTop),
-                                    blendMode = BlendMode.DstIn)
-                                continue
-                            }
-                            val right = if (m.head >= le) lineRight else {
-                                val c = floor(m.head).toInt().coerceIn(ls, max(ls, le - 1))
-                                val frac = (m.head - c).coerceIn(0f, 1f)
-                                val b = lay.getBoundingBox(c)
-                                b.left + b.width * frac
-                            }
-                            // Soft DstIn gradient: keep before sweep, fade out after
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    0f to Color.Black,
-                                    1f to Color.Transparent,
-                                    startX = right - soft * 0.3f,
-                                    endX = right + soft * 0.7f,
-                                ),
-                                topLeft = Offset(lineLeft, lineTop),
-                                size = androidx.compose.ui.geometry.Size(lineRight - lineLeft + soft, lineBottom - lineTop),
-                                blendMode = BlendMode.DstIn,
-                            )
+                        if (lay == null) {
+                            drawContent()
+                        } else {
+                            val p = m.litClip.get(lay, m.head)
+                            clipPath(p) { this@drawWithContent.drawContent() }
                         }
                     } catch (e: Exception) {
                         drawContent()
@@ -828,11 +796,11 @@ private fun LyricRow(
     when {
         !synced -> { tAlpha = 0.8f; tScale = 1f; tBlur = 0f }
         isActive -> { tAlpha = 1f; tScale = 1.06f; tBlur = 0f }
-        dist == 1 -> { tAlpha = 0.5f; tScale = 0.98f; tBlur = 5f }
-        dist > 1 -> { tAlpha = 0.38f; tScale = 0.95f; tBlur = 12f }
+        dist == 1 -> { tAlpha = 0.5f; tScale = 0.98f; tBlur = maxBlurPx * 5f / 12f }
+        dist > 1 -> { tAlpha = 0.38f; tScale = 0.95f; tBlur = maxBlurPx }
         else -> {
             tAlpha = 0.24f; tScale = 0.93f
-            tBlur = if (dist == -1) 5f else 12f
+            tBlur = if (dist == -1) maxBlurPx * 5f / 12f else maxBlurPx
         }
     }
     val alphaS = animateFloatAsState(tAlpha, tween(600), label = "lyricAlpha")
