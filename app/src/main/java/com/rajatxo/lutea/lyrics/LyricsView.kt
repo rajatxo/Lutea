@@ -273,7 +273,6 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
             val canvas2 = drawContext.canvas
             for (gi in lifted) {
                 val g = groups[gi]
-                val wl = g.layout ?: p.measurer.measure(text = g.text, style = textStyle, overflow = TextOverflow.Visible).also { g.layout = it }
                 val dur = max(g.endMs - g.startMs, 1L).toFloat()
                 val wp = ((t - g.startMs).toFloat() / dur).coerceIn(0f, 1f)
 
@@ -286,41 +285,36 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 val glowRelease = smooth(((1f - wp) / 0.3f).coerceIn(0f, 1f))
                 val glow = hold * glowAttack * glowRelease * p.heldGlowAlpha
 
-                // Word-level rise (for the base unsung draw)
+                // Word-level rise (for the blend)
                 val riseProgress = (wp / 0.85f).coerceIn(0f, 1f)
                 val fallProgress = if (t > g.endMs) smooth(((t - g.endMs).toFloat() / 420f).coerceIn(0f, 1f)) else 0f
                 val wordRise = smooth(riseProgress) * (1f - fallProgress)
-                val wordLift = p.liftPx * wordRise * (dur / 450f).coerceIn(0.55f, 1f)
 
-                // Per-letter wave constants (Mochy)
-                val wordStartOffset = tStartOffset.getOrElse(g.firstToken) { 0 }
-                val wordEndOffset = wordStartOffset + line.text.substring(wordStartOffset).takeWhile { it != '\u0000' }.length
-                // Simplified: use the token offsets directly
+                // Per-letter wave: sweep position in character offsets
                 val wStart = tStartOffset[g.firstToken]
                 val wEnd = if (g.lastToken + 1 < n) tStartOffset[g.lastToken + 1] else line.text.length
                 val wLen = max(wEnd - wStart, 1)
-                val sweep = wStart + wp * wLen  // sweep head position (char offset)
+                val sweep = wStart + wp * wLen
 
                 val shadow = Shadow(
                     color = p.glow.copy(alpha = glow),
                     offset = Offset.Zero,
                     blurRadius = p.glowRadiusPx * (0.5f + 1.5f * glow),
                 )
+                val k = g.visualLine
+                val front = frontOf(k)
 
-                // Draw each letter individually with its own rise offset — the WAVE
+                // Draw each letter individually — clip to its box in the LINE layout, translate by dy
                 for (ti in g.firstToken..g.lastToken) {
                     val letterStart = tStartOffset[ti]
-                    // Per-letter rise: starts 0.5 chars before the sweep, completes 2.5 chars later
+                    // Per-letter rise: starts 0.5 chars before sweep, completes 2.5 chars later
                     val letterRise = if (sweep >= wEnd) 1f else smooth(((sweep - letterStart + 0.5f) / 2.5f).coerceIn(0f, 1f))
-                    // Blend 55% letter / 45% word (Mochy LetterRiseShare)
                     val riseTarget = wordRise + (letterRise - wordRise) * 0.55f
                     val dy = -p.liftPx * riseTarget * (dur / 450f).coerceIn(0.55f, 1f)
 
                     // Per-letter swell (on held notes)
-                    val swellAttack = smooth((wp / 0.2f).coerceIn(0f, 1f))
-                    val swellRelease = smooth(((1f - wp) / 0.12f).coerceIn(0f, 1f))
                     val swellLetter = if (sweep >= wEnd) 1f else smooth(((sweep - letterStart + 0.35f) / 1.4f).coerceIn(0f, 1f))
-                    val swellTarget = hold * swellAttack * swellRelease * swellLetter
+                    val swellTarget = hold * smooth((wp / 0.2f).coerceIn(0f, 1f)) * smooth(((1f - wp) / 0.12f).coerceIn(0f, 1f)) * swellLetter
                     val letterScale = 1f + p.heldZoom * swellTarget
 
                     // Token fill state
@@ -328,25 +322,24 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                     val tkDur = max(tk.endMs - tk.startMs, 1L)
                     val tkPr = ((t - tk.startMs).toFloat() / tkDur).coerceIn(0f, 1f)
 
-                    val origin = Offset(g.left, g.top)
+                    // Draw: translate first, then clip to letter's box in LINE coordinates, then draw the LINE layout
                     canvas2.save()
                     canvas2.translate(0f, dy)
                     if (letterScale != 1f) {
-                        val baselineY = tBottom[ti] - g.top
-                        val centerX = (tLeft[ti] + tRight[ti]) / 2f - g.left
-                        canvas2.translate(centerX, baselineY)
+                        val cx = (tLeft[ti] + tRight[ti]) / 2f
+                        val by = tBottom[ti]
+                        canvas2.translate(cx, by)
                         canvas2.scale(letterScale, letterScale)
-                        canvas2.translate(-centerX, -baselineY)
+                        canvas2.translate(-cx, -by)
                     }
-                    // Clip to the letter's box (in the translated space)
-                    canvas2.clipRect(tLeft[ti] - g.left, tTop[ti] - g.top, tRight[ti] - g.left, tBottom[ti] - g.top)
+                    canvas2.clipRect(tLeft[ti], tTop[ti], tRight[ti], tBottom[ti])
 
                     if (tkPr >= 1f) {
-                        drawText(wl, color = p.sung, topLeft = origin, alpha = fillAlpha, shadow = shadow)
+                        drawText(l, color = p.sung, alpha = fillAlpha, shadow = shadow)
                     } else if (tkPr <= 0f) {
-                        drawText(wl, color = p.unsung, topLeft = origin)
+                        drawText(l, color = p.unsung)
                     } else {
-                        drawText(wl, brush = brushFor(frontOf(g.visualLine) - g.left, p), topLeft = origin, alpha = fillAlpha, shadow = shadow)
+                        drawText(l, brush = brushFor(front, p), alpha = fillAlpha, shadow = shadow)
                     }
                     canvas2.restore()
                 }
