@@ -66,6 +66,7 @@ val LocalPlayerNavigation = staticCompositionLocalOf { PlayerNavigation() }
  * - Song title (BillieEilish font, large) + artist (gray, smaller)
  * - Seek bar with position / duration labels
  * - Controls: prev, play/pause, next (large circular buttons)
+ * - Lyrics icon (top-left) — opens the lyrics page
  * - Swipe down or tap close button to collapse back to mini player
  * - Position polled every 500ms while visible
  * - Slide-up + fade animation on expand, slide-down + fade on collapse
@@ -74,6 +75,7 @@ val LocalPlayerNavigation = staticCompositionLocalOf { PlayerNavigation() }
 fun FullPlayer(
     visible: Boolean,
     onClose: () -> Unit,
+    onLyricsClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     onAlbumClick: () -> Unit = LocalPlayerNavigation.current.onAlbumClick,
     onArtistClick: () -> Unit = LocalPlayerNavigation.current.onArtistClick,
@@ -89,13 +91,13 @@ fun FullPlayer(
             exit = slideOutVertically(animationSpec = tween(400, easing = FastOutSlowInEasing)) { it } + fadeOut(),
             modifier = modifier,
         ) {
-            FullPlayerContent(onClose = onClose)
+            FullPlayerContent(onClose = onClose, onLyricsClick = onLyricsClick)
         }
     }
 }
 
 @Composable
-private fun FullPlayerContent(onClose: () -> Unit) {
+private fun FullPlayerContent(onClose: () -> Unit, onLyricsClick: () -> Unit = {}) {
     val currentSong by PlaybackConnection.currentSong.collectAsState()
     val isPlaying by PlaybackConnection.isPlaying.collectAsState()
     val positionMs by PlaybackConnection.positionMs.collectAsState()
@@ -133,7 +135,7 @@ private fun FullPlayerContent(onClose: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            // ── Top: close button + drag handle ──
+            // ── Top: lyrics button + drag handle + close button ──
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -149,7 +151,28 @@ private fun FullPlayerContent(onClose: () -> Unit) {
                         .clip(RoundedCornerShape(2.dp))
                         .background(Color.White.copy(alpha = 0.3f))
                 )
-                // Close button
+                // Lyrics button (left)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onLyricsClick
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_lyrics),
+                        contentDescription = "Lyrics",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                // Close button (right)
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)

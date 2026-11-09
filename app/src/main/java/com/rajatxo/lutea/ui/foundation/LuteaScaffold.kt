@@ -147,6 +147,7 @@ fun LuteaScaffold(
     var searchOpen by remember { mutableStateOf(false) }
     val searchOpenState = remember { mutableStateOf(false) }
     var playerVisible by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(
         LocalLuteaWindowInsets provides insets,
@@ -567,21 +568,18 @@ fun LuteaScaffold(
                 onExpand = { playerVisible = true },
             )
 
-            // ★ Full player — overlays the entire screen when expanded.
-            //    Slide-up from bottom. Swipe down or tap close to collapse.
-            com.rajatxo.lutea.ui.player.FullPlayer(
-                visible = playerVisible,
-                onClose = { playerVisible = false },
-                modifier = Modifier.fillMaxSize(),
-            )
-
             // Bottom: nav capsule (fluid 3-circle expanding nav). Centered at
             // the bottom. The old sparkle-search circle beside the Library tab
             // has been removed — search is now triggered from the title text.
+            //
+            // Drawn BEFORE the FullPlayer so the player paints on top of it
+            // when expanded. Also fades out when the player or lyrics is visible
+            // so it doesn't show through.
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = effBottomDp),
+                    .padding(bottom = effBottomDp)
+                    .graphicsLayer { alpha = if (playerVisible || showLyrics) 0f else 1f },
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -590,6 +588,36 @@ fun LuteaScaffold(
                     activeTab = activeTab,
                     onTabSelected = onTabSelected,
                     backdrop = glassBackdrop,
+                )
+            }
+
+            // ★ Full player — overlays the entire screen when expanded.
+            //    Slide-up from bottom. Swipe down or tap close to collapse.
+            //    Drawn AFTER the nav bar so it paints on top of it.
+            com.rajatxo.lutea.ui.player.FullPlayer(
+                visible = playerVisible,
+                onClose = {
+                    playerVisible = false
+                    showLyrics = false
+                },
+                onLyricsClick = { showLyrics = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            // ★ Lyrics screen — on top of everything. Opens from the player's
+            //    lyrics icon. Closes back to the player.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showLyrics,
+                enter = androidx.compose.animation.fadeIn(
+                    animationSpec = androidx.compose.animation.core.tween(300)
+                ),
+                exit = androidx.compose.animation.fadeOut(
+                    animationSpec = androidx.compose.animation.core.tween(300)
+                ),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                com.rajatxo.lutea.ui.screens.LyricsScreen(
+                    onClose = { showLyrics = false },
                 )
             }
         }

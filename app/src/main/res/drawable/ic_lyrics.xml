@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Speech bubble outline with text-line cutouts (evenOdd) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M5,3 C3.895,3 3,3.895 3,5 L3,15 C3,16.105 3.895,17 5,17 L7,17 L7,19.5 C7,19.93 7.52,20.14 7.83,19.85 L10.97,17 L19,17 C20.105,17 21,16.105 21,15 L21,5 C21,3.895 20.105,3 19,3 Z M6.5,7 L17.5,7 L17.5,8.5 L6.5,8.5 Z M6.5,10.25 L17.5,10.25 L17.5,11.75 L6.5,11.75 Z M6.5,13.5 L13,13.5 L13,15 L6.5,15 Z" />
+</vector>
