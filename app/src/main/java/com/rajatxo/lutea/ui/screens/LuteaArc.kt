@@ -936,8 +936,8 @@ fun LuteaArc(
                 // ★ Thumb — Lutea3DThumb is drawn horizontally and rotated -90° to sit on the vertical track.
                 //    thumbHeight = its length ALONG the track, thumbThickness = its width ACROSS the track
                 //    (keep them about 2.35 : 1). thumbHitWidth = the grab area around the track.
-                val thumbHeight = 90.dp
-                val thumbThickness = 38.dp
+                val thumbHeight = 76.dp
+                val thumbThickness = 32.dp
                 val thumbHitWidth = thumbThickness + 8.dp
                 // Thumb Y: thumb moves DOWN when scroll increases (finger down = thumb down).
                 // knobFraction = 0 → thumb at TOP. knobFraction = 1 → thumb at BOTTOM.
