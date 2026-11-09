@@ -316,34 +316,34 @@ object LuteaIcons {
         close()
     }
 
-    /** Effect icon — speaker with sound waves. Filled, simple shapes only. */
+    /** Effect icon — speaker with sound waves. Uses only PathBuilder-available methods. */
     val Effect: ImageVector = filled("Effect", viewportWidth = 24f, viewportHeight = 24f) {
         // Speaker body (rounded rect)
-        moveTo(8f, 14f)
-        arcTo(2f, 2f, 0f, false, true, 10f, 12f)
-        horizontalLineTo(14f)
-        arcTo(2f, 2f, 0f, false, true, 16f, 14f)
+        moveTo(9f, 14f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 10.5f, 12.5f)
+        horizontalLineTo(13.5f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 15f, 14f)
         verticalLineTo(18f)
-        arcTo(2f, 2f, 0f, false, true, 14f, 20f)
-        horizontalLineTo(10f)
-        arcTo(2f, 2f, 0f, false, true, 8f, 18f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 13.5f, 19.5f)
+        horizontalLineTo(10.5f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 9f, 18f)
         close()
         // Head circle
         moveTo(12f, 3f)
         arcTo(4f, 4f, 0f, true, false, 12f, 11f)
         arcTo(4f, 4f, 0f, true, false, 12f, 3f)
         close()
-        // Right sound wave (curve)
-        moveTo(19f, 8f)
-        cubicTo(20.5f, 10f, 20.5f, 14f, 19f, 16f)
-        // Right sound wave (inner)
-        moveTo(21.5f, 6f)
-        cubicTo(23f, 9f, 23f, 15f, 21.5f, 18f)
-        // Left sound wave (curve)
-        moveTo(5f, 8f)
-        cubicTo(3.5f, 10f, 3.5f, 14f, 5f, 16f)
-        // Left sound wave (inner)
-        moveTo(2.5f, 6f)
-        cubicTo(1f, 9f, 1f, 15f, 2.5f, 18f)
+        // Right sound wave (outer) — small arc
+        moveTo(18.5f, 9f)
+        arcTo(4f, 4f, 0f, false, true, 18.5f, 15f)
+        // Right sound wave (inner) — small arc
+        moveTo(21f, 7f)
+        arcTo(6f, 6f, 0f, false, true, 21f, 17f)
+        // Left sound wave (outer) — small arc
+        moveTo(5.5f, 9f)
+        arcTo(4f, 4f, 0f, false, false, 5.5f, 15f)
+        // Left sound wave (inner) — small arc
+        moveTo(3f, 7f)
+        arcTo(6f, 6f, 0f, false, false, 3f, 17f)
     }
-}}}
+}}}}
