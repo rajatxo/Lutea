@@ -364,7 +364,7 @@ fun QuickPicksScreen(
     }
 }
 
-// ── Effect content — image-based bust, blends into black ──
+// ── Effect content — Behance-style dot sphere with 5 mode capsules ──
 @Composable
 private fun EffectContent() {
     Box(
