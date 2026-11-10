@@ -364,7 +364,7 @@ fun QuickPicksScreen(
     }
 }
 
-// ── Effect content — Behance-style dot sphere with 5 mode capsules ──
+// ── Effect content — Behance dot sphere on top + head image at bottom ──
 @Composable
 private fun EffectContent() {
     Box(
