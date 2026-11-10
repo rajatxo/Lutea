@@ -167,7 +167,9 @@ fun EffectVisual(
                         allStops.add(0f to grey)
                         allStops.add(0.55f to grey)
                         allStops.addAll(stops)
-                        val greyBrush = Brush.verticalGradient(allStops.toList())
+                        val greyBrush = Brush.verticalGradient(
+                            *allStops.toTypedArray(),
+                        )
                         onDrawBehind { drawRect(greyBrush) }
                     },
                 contentAlignment = Alignment.BottomCenter,
