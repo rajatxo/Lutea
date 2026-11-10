@@ -5,9 +5,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ThreeDRotation
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +19,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.cos
+import kotlin.math.sin
 
 @Composable
 fun SpatialAudioControllerCard(
@@ -78,11 +77,11 @@ fun SpatialAudioControllerCard(
                     .background(Color(0xFF222226)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.ThreeDRotation,
-                    contentDescription = "Rotate 3D",
-                    tint = accentColor,
-                    modifier = Modifier.size(20.dp)
+                Text(
+                    text = "\u21BB",
+                    color = accentColor,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
