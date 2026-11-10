@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.google.android.filament.Camera
 import com.google.android.filament.Engine
 import com.google.android.filament.EntityManager
 import com.google.android.filament.LightManager
@@ -53,7 +54,7 @@ fun FilamentViewport(
                 override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                     view.viewport = Viewport(0, 0, width, height)
                     val aspect = width.toDouble() / height.toDouble()
-                    camera.setProjection(45.0, aspect, 0.1, 100.0)
+                    camera.setProjection(45.0, aspect, 0.1, 100.0, Camera.Fov.VERTICAL)
                 }
 
                 override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -101,7 +102,7 @@ fun FilamentViewport(
             } catch (_: Exception) {}
 
             // Camera — Double, not Float
-            camera.setProjection(45.0, 1.0, 0.1, 100.0)
+            camera.setProjection(45.0, 1.0, 0.1, 100.0, Camera.Fov.VERTICAL)
             camera.lookAt(0.0, 0.0, 3.5, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
 
             // Render loop
