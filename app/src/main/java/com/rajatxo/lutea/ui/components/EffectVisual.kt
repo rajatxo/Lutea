@@ -72,9 +72,9 @@ fun EffectVisual(
 
         // ── Sphere composition at top ──
         val compositionSizeDp = with(density) {
-            min(widthPx * 0.85f, heightPx * 0.55f).toDp()
+            min(widthPx * 0.80f, heightPx * 0.50f).toDp()
         }
-        val compositionTopPad = with(density) { (heightPx * 0.04f).toDp() }
+        val compositionTopPad = with(density) { (heightPx * 0.02f).toDp() }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -164,8 +164,8 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         val arrowBaseR = dim * 0.32f   // arrow base sits just outside the sphere
         val arrowH = dim * 0.030f
         val arrowW = dim * 0.038f
-        val ringR = dim * 0.36f        // thin + thick circle just past arrow tips
-        val dottedR = dim * 0.395f     // outermost dotted ring
+        val ringR = dim * 0.38f        // thin + thick circle — small gap past arrow tips
+        val dottedR = dim * 0.415f     // outermost dotted ring
 
         val thinStroke = dim * 0.0028f
         val thickStroke = dim * 0.0080f
