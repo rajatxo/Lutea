@@ -41,14 +41,19 @@ fun EffectVisual(
     ) {
         // Match the wheel slider's 7.5% side gap on BOTH edges — see
         // LuteaArc.kt: trackPaddingEnd = maxWidth * 0.075f.
-        val sideGap = maxWidth * 0.075f
-        val imgSize = min(maxWidth - sideGap * 2, maxHeight * 0.5f).dp
+        val imgSizeDp = with(androidx.compose.ui.platform.LocalDensity.current) {
+            val widthPx = maxWidth.toPx()
+            val heightPx = maxHeight.toPx()
+            val sideGapPx = widthPx * 0.075f
+            val sizePx = min(widthPx - sideGapPx * 2, heightPx * 0.5f)
+            sizePx.toDp()
+        }
 
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Box(modifier = Modifier.size(imgSize, imgSize)) {
+            Box(modifier = Modifier.size(imgSizeDp, imgSizeDp)) {
                 Image(
                     painter = painterResource(headRes),
                     contentDescription = "Spatial audio head",
