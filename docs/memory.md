@@ -46,6 +46,7 @@
 4. % playlists.size with empty list → division by zero → use .coerceAtLeast(1)
 5. LaunchedEffect keyed on scrollOffset.value → 60fps SharedPreferences thrashing → key on centerIndex only
 6. CI build "failed" with no code error → gradle wrapper download 504 from services.gradle.org. Fixed by bumping `networkTimeout` to 120000 + `retries` to 3 in `gradle/wrapper/gradle-wrapper.properties`. Don't push "retry build" commits — fix the wrapper config instead.
+7. **Filament Engine leak → crash on Effect tab after a few opens.** `FilamentViewport`'s `DisposableEffect` had an empty `onDispose {}` — every open created a new Engine, Renderer, Scene, View, Camera, two LightManager entities, AssetLoader, UbershaderProvider, ResourceLoader, the GLB asset, and a self-reposting Choreographer callback, NONE of which were freed. After ~7 tab switches GPU native handles exhausted → crash on next `Engine.create()`. Fix: full teardown in `onDispose` in reverse order (choreographer → swapchain → asset → assetLoader → materialProvider → lights → camera → view → scene → renderer → engine), `Utils.init()` BEFORE `Engine.create()`, GLB byte-read on `Dispatchers.IO`, 0×0 viewport guard, `catch` blocks log to logcat instead of swallowing silently. Filament is NOT garbage-collected — every `create*` must have a matching `destroy*`.
 
 ## File Locations (Quick Reference)
 - Wheel: `app/src/main/java/com/rajatxo/lutea/ui/screens/LuteaArc.kt`
