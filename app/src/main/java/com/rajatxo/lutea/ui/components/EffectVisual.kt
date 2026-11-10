@@ -35,7 +35,6 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.dp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
@@ -69,8 +68,10 @@ fun EffectVisual(
         // ── Sphere composition, anchored to top ──
         // Width = full screen so rings extend edge-to-edge.
         // Height = enough to fit the rings (which are width-driven, diameter ≈ width)
-        // plus a little headroom for the UP label above the rings.
-        val compositionHeightDp = with(density) { (widthPx + 24.dp.toPx()).toDp() }
+        // plus a small headroom for the UP label above the rings.
+        //   headroom = 6.67% of width (24dp ÷ 360dp on reference phone)
+        val compositionHeightFrac = 1.0f + 0.0667f
+        val compositionHeightDp = with(density) { (widthPx * compositionHeightFrac).toDp() }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -81,27 +82,34 @@ fun EffectVisual(
             SphereComposition(modifier = Modifier.fillMaxSize())
         }
 
-        // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 130dp ──
-        // composition bottom = compositionHeightDp (in px)
-        // DOWN label y = compositionHeightDp - 4dp - halfLabelWidth (approx)
-        // head top y = screenHeight - imgSizePx
-        // gap = headTop - DOWN_label_y = screenHeight - imgSize - (compositionHeightDp - 4dp - halfLabelWidth)
-        // Solve for imgSize so gap ≥ 130dp:
-        //   imgSize ≤ screenHeight - compositionHeightDp + 4dp + halfLabelWidth - 130dp
-        val headSizePx = with(density) {
-            val downLabelYPx = with(density) { widthPx + 24.dp.toPx() } - with(density) { 4.dp.toPx() } -
-                (widthPx * 0.024f * 4f * 0.55f / 2f)  // approx DOWN label y from top
-            val gapTargetPx = 130.dp.toPx()
+        // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 16.25% of screen height ──
+        // (User asked for 130dp. On reference phone 800dp tall, 130/800 = 16.25%.)
+        // DOWN label y ≈ compositionHeight - edgeGap - halfLabelWidth
+        // head top y = screenHeight - imgSize
+        // gap = headTop - DOWN_label_y
+        // Solve for imgSize so gap ≥ 0.1625 × screenHeight.
+        val headSizeDp = with(density) {
+            val edgeGapFrac = 0.0111f
+            val edgeGapPx = widthPx * edgeGapFrac
+            val labelTextSize = widthPx * 0.024f
+            val labelHalfWidth = labelTextSize * 4f * 0.55f / 2f
+            val downLabelYPx = widthPx * compositionHeightFrac - edgeGapPx - labelHalfWidth
+            val gapTargetPx = heightPx * 0.1625f
             val maxHeadForGap = heightPx - downLabelYPx - gapTargetPx
             val sideGapPx = widthPx * 0.075f
-            // Original size was min(width - 2*sideGap, height*0.50). Cap it by maxHeadForGap too.
-            minOf(widthPx - sideGapPx * 2, heightPx * 0.50f, maxOf(maxHeadForGap, widthPx * 0.30f)).toDp()
+            // Cap by width-minus-side-gaps, 50% of height, and the gap-driven max.
+            // Floor at 30% of width so the head doesn't get tiny on short screens.
+            minOf(
+                widthPx - sideGapPx * 2,
+                heightPx * 0.50f,
+                maxOf(maxHeadForGap, widthPx * 0.30f),
+            ).toDp()
         }
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Box(modifier = Modifier.size(headSizePx, headSizePx)) {
+            Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
                 Image(
                     painter = painterResource(headRes),
                     contentDescription = "Spatial audio head",
@@ -186,9 +194,14 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
     val tagPainter = painterResource(R.drawable.ic_effect_tag)
 
     Canvas(modifier = modifier) {
-        // 4dp in pixels — the user-requested gap from LEFT/RIGHT screen edges.
-        // DrawScope implements Density, so dp.toPx() works directly here.
-        val edgeGapPx = 4.dp.toPx()
+        // Universal Layout Law #7: sizes are fractions of screen dimensions.
+        // User asked for 4dp edge gap and 130dp DOWN-to-head gap (measured on a
+        // standard 360dp × 800dp phone). Converted to fractions so the layout
+        // scales proportionally on every screen size:
+        //   4dp ÷ 360dp = 1.11% of screen width
+        //   130dp ÷ 800dp = 16.25% of screen height (used in head sizing below)
+        val edgeGapFrac = 0.0111f
+        val edgeGapPx = size.width * edgeGapFrac
 
         // Text size — measured once to size the composition around it.
         val textSize = size.width * 0.024f
