@@ -1,8 +1,5 @@
 package com.rajatxo.lutea.ui.components
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -10,14 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -30,9 +21,10 @@ import com.rajatxo.lutea.ui.screens.blendStops
 import kotlin.math.min
 
 /**
- * Effect tab visual — 3D bust image, bottom-anchored, fills screen width,
- * with its lower half fading into pure black via the same Hermite-smoothstep
- * gradient the playlist cover uses ([blendStops]).
+ * Effect tab visual — 3D bust image, bottom-anchored, sized to leave the same
+ * 7.5% side gap the playlist wheel slider uses (so it lines up with the rest
+ * of the UI). Lower half blends into pure black via the same Hermite-smoothstep
+ * gradient as the playlist cover ([blendStops]).
  *
  * Universal Layout Law #7: sizes are fractions of BoxWithConstraints
  * maxWidth/maxHeight — works on every screen size, multi-window, foldables.
@@ -47,21 +39,13 @@ fun EffectVisual(
             .fillMaxSize()
             .windowInsetsPadding(LocalLuteaWindowInsets.current),
     ) {
-        // Law 7: fractional sizing, never screenHeightDp.
-        val imgSize = min(maxWidth.value, maxHeight.value * 0.55f).dp
-
-        var visible by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { visible = true }
-        val alpha by animateFloatAsState(
-            targetValue = if (visible) 1f else 0f,
-            animationSpec = tween(900, easing = FastOutSlowInEasing),
-            label = "effectFadeIn",
-        )
+        // Match the wheel slider's 7.5% side gap on BOTH edges — see
+        // LuteaArc.kt: trackPaddingEnd = maxWidth * 0.075f.
+        val sideGap = maxWidth * 0.075f
+        val imgSize = min(maxWidth - sideGap * 2, maxHeight * 0.5f).dp
 
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .alpha(alpha),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Box(modifier = Modifier.size(imgSize, imgSize)) {

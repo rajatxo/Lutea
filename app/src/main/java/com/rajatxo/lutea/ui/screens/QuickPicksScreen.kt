@@ -364,7 +364,7 @@ fun QuickPicksScreen(
     }
 }
 
-// ── Effect content — image-based bust with breathing glow ──
+// ── Effect content — image-based bust, blends into black ──
 @Composable
 private fun EffectContent() {
     Box(
