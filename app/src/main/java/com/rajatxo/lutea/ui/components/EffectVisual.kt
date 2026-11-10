@@ -40,7 +40,6 @@ import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
 import kotlin.math.cos
-import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -69,8 +68,9 @@ fun EffectVisual(
 
         // ── Sphere composition, anchored to top ──
         // Width = full screen so rings extend edge-to-edge.
-        // Height = capped at 0.45 of screen height (room left for the head).
-        val compositionHeightDp = with(density) { (heightPx * 0.45f).toDp() }
+        // Height = enough to fit the rings (which are width-driven, diameter ≈ width)
+        // plus a little headroom for the UP label above the rings.
+        val compositionHeightDp = with(density) { (widthPx + 24.dp.toPx()).toDp() }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -81,16 +81,27 @@ fun EffectVisual(
             SphereComposition(modifier = Modifier.fillMaxSize())
         }
 
-        // ── Head image at bottom (old position: 50% screen height) ──
-        val imgSizeDp = with(density) {
+        // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 130dp ──
+        // composition bottom = compositionHeightDp (in px)
+        // DOWN label y = compositionHeightDp - 4dp - halfLabelWidth (approx)
+        // head top y = screenHeight - imgSizePx
+        // gap = headTop - DOWN_label_y = screenHeight - imgSize - (compositionHeightDp - 4dp - halfLabelWidth)
+        // Solve for imgSize so gap ≥ 130dp:
+        //   imgSize ≤ screenHeight - compositionHeightDp + 4dp + halfLabelWidth - 130dp
+        val headSizePx = with(density) {
+            val downLabelYPx = with(density) { widthPx + 24.dp.toPx() } - with(density) { 4.dp.toPx() } -
+                (widthPx * 0.024f * 4f * 0.55f / 2f)  // approx DOWN label y from top
+            val gapTargetPx = 130.dp.toPx()
+            val maxHeadForGap = heightPx - downLabelYPx - gapTargetPx
             val sideGapPx = widthPx * 0.075f
-            min(widthPx - sideGapPx * 2, heightPx * 0.50f).toDp()
+            // Original size was min(width - 2*sideGap, height*0.50). Cap it by maxHeadForGap too.
+            minOf(widthPx - sideGapPx * 2, heightPx * 0.50f, maxOf(maxHeadForGap, widthPx * 0.30f)).toDp()
         }
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Box(modifier = Modifier.size(imgSizeDp, imgSizeDp)) {
+            Box(modifier = Modifier.size(headSizePx, headSizePx)) {
                 Image(
                     painter = painterResource(headRes),
                     contentDescription = "Spatial audio head",
@@ -175,34 +186,44 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
     val tagPainter = painterResource(R.drawable.ic_effect_tag)
 
     Canvas(modifier = modifier) {
-        // Width drives sizing so the composition fills left/right edges of screen.
-        val dim = size.width
+        // 4dp in pixels — the user-requested gap from LEFT/RIGHT screen edges.
+        // DrawScope implements Density, so dp.toPx() works directly here.
+        val edgeGapPx = 4.dp.toPx()
+
+        // Text size — measured once to size the composition around it.
+        val textSize = size.width * 0.024f
+        val labelTextSize = textSize   // LEFT/RIGHT/UP/DOWN same size
+        // Approximate width of "LEFT"/"RIGHT" — 4 chars × ~0.55 × textSize.
+        val labelHalfWidth = labelTextSize * 4f * 0.55f / 2f
+
+        // Geometry, driven by width so rings fill edge-to-edge:
+        //   outermost extent (LEFT/RIGHT label outer edge) = width/2 - edgeGapPx
+        //   label center = outer edge - labelHalfWidth
+        //   tag center  = label center - tagSize/2 - small gap
+        //   dotted ring = tag center - tagSize/2 - gap
+        //   thin ring   = dotted ring - gap
+        //   sphere      = thin ring - arrow - gap
+        val tagSize = size.width * 0.028f
+        val labelCenterFromCenter = size.width / 2f - edgeGapPx - labelHalfWidth
+        val tagR = labelCenterFromCenter - tagSize / 2f - size.width * 0.008f
+        val dottedR = tagR - tagSize / 2f - size.width * 0.008f
+        val ringR = dottedR - size.width * 0.012f
+        val arrowBaseR = ringR - size.width * 0.045f
+        val arrowH = size.width * 0.024f
+        val arrowW = size.width * 0.030f
+        val sphereR = arrowBaseR - size.width * 0.020f
+
         val cx = size.width / 2f
-        // Vertical center sits at half of width (since rings are circular and
-        // width-driven). The composition is top-aligned in its container, so the
-        // rings render near the top — leaves all remaining container height as
-        // empty space below, which becomes the gap to the head image.
-        val cy = dim / 2f
+        // Vertical center sits at half of width so rings are perfectly circular.
+        // Composition is top-anchored in its container, so rings render near the top.
+        val cy = size.width / 2f
 
-        // Radii — all scaled to width. LEFT/RIGHT labels need ~0.10 width outside
-        // the tag (tagSize/2 + labelOffset*2.4 ≈ 0.05 + 0.096 = 0.146 of width
-        // per side). So the outermost ring (tag) sits at 0.5 - 0.146 = 0.354 max.
-        val sphereR = dim * 0.22f
-        val arrowBaseR = dim * 0.235f
-        val arrowH = dim * 0.022f
-        val arrowW = dim * 0.028f
-        val ringR = dim * 0.285f          // thin + thick circle
-        val dottedR = dim * 0.310f
-        val tagR = dim * 0.335f          // tags sit OUTSIDE the dotted ring — no overlap
-        val tagSize = dim * 0.026f
-        val labelOffset = dim * 0.030f
-
-        val thinStroke = dim * 0.0028f
-        val thickStroke = dim * 0.0080f
+        val thinStroke = size.width * 0.0028f
+        val thickStroke = size.width * 0.0080f
 
         // ── Dotted circle (84 dots) ──
         val dotCount = 84
-        val dotR = dim * 0.0035f
+        val dotR = size.width * 0.0035f
         for (i in 0 until dotCount) {
             val a = (2.0 * Math.PI * i / dotCount).toFloat()
             val dx = cx + dottedR * cos(a)
@@ -223,8 +244,6 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         )
 
         // ── Thick arc segments at the 4 arrow directions ──
-        // Canvas angles: 0°=right, 90°=bottom, 180°=left, 270°=top (clockwise).
-        // Compass angles above are 0=right, 90=up. Convert: canvas = 360 - compass.
         val arcSweepDeg = 50f
         val halfSweep = arcSweepDeg / 2f
         val arcCenterCompass = floatArrayOf(0f, 90f, 180f, 270f)
@@ -245,7 +264,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
 
         // ── Four arrows ──
         val arrowColor = Cream.copy(alpha = 0.95f)
-        // Top (compass 90)
+        // Top
         drawPath(
             path = Path().apply {
                 moveTo(cx, cy - arrowBaseR - arrowH)
@@ -255,7 +274,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             },
             color = arrowColor,
         )
-        // Bottom (compass 270)
+        // Bottom
         drawPath(
             path = Path().apply {
                 moveTo(cx, cy + arrowBaseR + arrowH)
@@ -265,7 +284,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             },
             color = arrowColor,
         )
-        // Left (compass 180)
+        // Left
         drawPath(
             path = Path().apply {
                 moveTo(cx - arrowBaseR - arrowH, cy)
@@ -275,7 +294,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             },
             color = arrowColor,
         )
-        // Right (compass 0)
+        // Right
         drawPath(
             path = Path().apply {
                 moveTo(cx + arrowBaseR + arrowH, cy)
@@ -287,21 +306,10 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         )
 
         // ── Tag icons around the ring ──
-        // SVG points the "tip" left (negative X). We rotate the icon so its
-        // tip points INWARD toward the sphere — i.e. it "faces" the arrow.
-        // Compass angle → rotation (SVG points left = 180° baseline).
-        // To point inward at compass θ, rotation = θ + 180°.
         for (dir in tagDirs) {
             val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
             val tx = cx + tagR * cos(angleRad)
-            val ty = cy - tagR * sin(angleRad)  // flip Y because compass up = negative Y
-            // SVG tip points left at 0° rotation. We want it to point INWARD
-            // (toward center). Direction from this tag TO center is compass+180.
-            // SVG's "left" = 180°. So rotation_deg = (compass + 180) - 180 = compass.
-            // Wait — let's redo: SVG path's pointed end is at -X (left in canvas
-            // coords). To make that point face center from compass θ, the
-            // icon's local -X axis must point in direction (θ+180)°.
-            // rotate(deg) rotates clockwise in canvas. So set rotation = -compass.
+            val ty = cy - tagR * sin(angleRad)
             val rotationDeg = -dir.angleDeg
             rotate(degrees = rotationDeg, pivot = Offset(tx, ty)) {
                 translate(left = tx - tagSize / 2f, top = ty - tagSize / 2f) {
@@ -313,38 +321,38 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         }
 
         // ── Direction labels (LEFT/RIGHT/UP/DOWN) ──
-        // Place OUTSIDE the tag icon, further along the same compass direction.
-        // Use Compose's drawText via nativeCanvas — but Canvas drawScope doesn't
-        // have direct text. So draw text labels using drawIntoCanvas + native Paint.
+        // Position so the OUTER edge of LEFT/RIGHT text sits exactly 4dp from the
+        // screen edge. UP/DOWN are centered horizontally already.
         val paint = android.graphics.Paint().apply {
             color = android.graphics.Color.argb(245, 245, 240, 230)
-            textSize = dim * 0.022f
+            textSize = labelTextSize
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             textAlign = android.graphics.Paint.Align.CENTER
         }
         for (dir in tagDirs) {
             if (dir.label.isEmpty()) continue
             val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
-            // LEFT/RIGHT labels are wide horizontally — small extra offset so they
-            // don't sit on top of the tag icon. UP/DOWN are short, less offset.
-            val offsetForDir = when (dir.label) {
-                "LEFT", "RIGHT" -> labelOffset * 1.1f
-                else -> labelOffset
+            // For LEFT/RIGHT, use the precise labelCenterFromCenter so the outer
+            // edge sits at edgeGapPx from the screen edge. For UP/DOWN, sit just
+            // outside the tag icon.
+            val distFromCenter = when (dir.label) {
+                "LEFT", "RIGHT" -> labelCenterFromCenter
+                else -> tagR + tagSize / 2f + size.width * 0.020f
             }
-            val lx = cx + (tagR + tagSize / 2f + offsetForDir) * cos(angleRad)
-            val ly = cy - (tagR + tagSize / 2f + offsetForDir) * sin(angleRad)
+            val lx = cx + distFromCenter * cos(angleRad)
+            val ly = cy - distFromCenter * sin(angleRad)
             drawIntoCanvas { canvas ->
                 canvas.nativeCanvas.drawText(
                     dir.label,
                     lx,
-                    ly + paint.textSize / 3f,  // vertical centering approx
+                    ly + paint.textSize / 3f,
                     paint,
                 )
             }
         }
 
         // ── Dot sphere ──
-        val baseDot = dim * 0.0075f
+        val baseDot = size.width * 0.0075f
         val ang = Math.toRadians(rotation.toDouble()).toFloat()
         val cosA = cos(ang); val sinA = sin(ang)
         val projected = ArrayList<SpherePoint>(points.size)
