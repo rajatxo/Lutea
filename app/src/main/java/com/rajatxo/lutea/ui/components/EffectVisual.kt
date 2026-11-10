@@ -27,6 +27,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -42,17 +46,9 @@ import kotlin.math.sqrt
 private val Cream = Color(0xFFF5F0E6)
 
 /**
- * Effect tab — Behance-style dot sphere with concentric rings + outward arrows.
- *
- * Layers, innermost to outermost:
- *  1. Dot sphere (Fibonacci-spiral points, depth-shaded, slowly rotating)
- *  2. Four triangular arrows at top/bottom/left/right, tips pointing outward
- *  3. Thin full circle enclosing sphere + arrows
- *  4. Four thick arc segments — only at the four arrow directions, the rest
- *     of the circle stays thin so the thin ring shows through
- *  5. Dotted circle (outermost, made of small dots)
- *
- * Below all this sits the 3D head image, bottom-anchored, blending into black.
+ * Effect tab — dot sphere with concentric rings, outward arrows, 8 tag icons
+ * placed around the ring (4 facing the arrows + 4 at mid-arcs), and directional
+ * labels (LEFT/RIGHT/UP/DOWN) next to the arrow-facing tags.
  *
  * Universal Layout Law #7: BoxWithConstraints at root, fractional sizing.
  */
@@ -74,7 +70,7 @@ fun EffectVisual(
         val compositionSizeDp = with(density) {
             min(widthPx * 0.80f, heightPx * 0.50f).toDp()
         }
-        val compositionTopPad = with(density) { (heightPx * 0.02f).toDp() }
+        val compositionTopPad = with(density) { (heightPx * 0.005f).toDp() }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -84,7 +80,7 @@ fun EffectVisual(
             SphereComposition(modifier = Modifier.fillMaxSize())
         }
 
-        // ── Head image at bottom (same as before) ──
+        // ── Head image at bottom ──
         val imgSizeDp = with(density) {
             val sideGapPx = widthPx * 0.075f
             min(widthPx - sideGapPx * 2, heightPx * 0.50f).toDp()
@@ -114,7 +110,7 @@ fun EffectVisual(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sphere + arrows + concentric rings, all on one Canvas
+// Sphere + arrows + concentric rings + 8 tag icons + direction labels
 // ─────────────────────────────────────────────────────────────────────────────
 
 private data class SpherePoint(val x: Float, val y: Float, val z: Float)
@@ -130,6 +126,12 @@ private fun fibonacciSphere(n: Int): List<SpherePoint> {
     }
     return out
 }
+
+private data class Direction(
+    val angleDeg: Float,        // compass: 0=right, 90=up, 180=left, 270=down
+    val label: String,          // "UP"/"DOWN"/"LEFT"/"RIGHT" — empty for mid-arc tags
+    val facesArrow: Boolean,    // true = sits in front of an arrow, false = mid-arc
+)
 
 @Composable
 private fun SphereComposition(modifier: Modifier = Modifier) {
@@ -154,23 +156,43 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         label = "pulse",
     )
 
+    // 8 tag positions, clockwise from right (compass angles).
+    // Arrow positions are at 0/90/180/270. Mid-arcs at 45/135/225/315.
+    val tagDirs = remember {
+        listOf(
+            Direction(0f,   "RIGHT", true),
+            Direction(45f,  "",      false),
+            Direction(90f,  "UP",    true),
+            Direction(135f, "",      false),
+            Direction(180f, "LEFT",  true),
+            Direction(225f, "",      false),
+            Direction(270f, "DOWN",  true),
+            Direction(315f, "",      false),
+        )
+    }
+
+    val tagPainter = painterResource(R.drawable.ic_effect_tag)
+
     Canvas(modifier = modifier) {
         val dim = min(size.width, size.height)
         val cx = size.width / 2f
         val cy = size.height / 2f
 
-        // ── Radii, as fractions of the composition's min dimension ──
+        // Radii
         val sphereR = dim * 0.30f
-        val arrowBaseR = dim * 0.32f   // arrow base sits just outside the sphere
+        val arrowBaseR = dim * 0.32f
         val arrowH = dim * 0.030f
         val arrowW = dim * 0.038f
-        val ringR = dim * 0.38f        // thin + thick circle — small gap past arrow tips
-        val dottedR = dim * 0.415f     // outermost dotted ring
+        val ringR = dim * 0.39f          // slightly larger gap arrow → thick ring
+        val dottedR = dim * 0.425f
+        val tagR = dim * 0.425f          // tag icons sit ON the dotted ring
+        val tagSize = dim * 0.035f
+        val labelOffset = dim * 0.045f
 
         val thinStroke = dim * 0.0028f
         val thickStroke = dim * 0.0080f
 
-        // ── Layer 5: dotted circle (outermost, drawn first so it sits behind) ──
+        // ── Dotted circle (84 dots) ──
         val dotCount = 84
         val dotR = dim * 0.0035f
         for (i in 0 until dotCount) {
@@ -184,7 +206,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Layer 3: thin full circle ──
+        // ── Thin full circle ──
         drawCircle(
             color = Cream.copy(alpha = 0.30f),
             radius = ringR,
@@ -192,23 +214,19 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             style = Stroke(width = thinStroke),
         )
 
-        // ── Layer 4: thick arc segments — only in front of each arrow ──
-        // Compose Canvas angles: 0°=right, 90°=bottom, 180°=left, 270°=top (clockwise).
-        // Each arc centered on the arrow direction; the rest of the circle stays thin.
+        // ── Thick arc segments at the 4 arrow directions ──
+        // Canvas angles: 0°=right, 90°=bottom, 180°=left, 270°=top (clockwise).
+        // Compass angles above are 0=right, 90=up. Convert: canvas = 360 - compass.
         val arcSweepDeg = 50f
         val halfSweep = arcSweepDeg / 2f
-        val arcStarts = floatArrayOf(
-            360f - halfSweep,  // Right (centered on 0°/360°)
-            90f - halfSweep,    // Bottom (centered on 90°)
-            180f - halfSweep,   // Left (centered on 180°)
-            270f - halfSweep,   // Top (centered on 270°)
-        )
+        val arcCenterCompass = floatArrayOf(0f, 90f, 180f, 270f)
         val arcSize = Size(ringR * 2, ringR * 2)
         val arcTopLeft = Offset(cx - ringR, cy - ringR)
-        for (start in arcStarts) {
+        for (compass in arcCenterCompass) {
+            val canvasAngle = (360f - compass - halfSweep).mod(360f)
             drawArc(
                 color = Cream.copy(alpha = 0.90f),
-                startAngle = start,
+                startAngle = canvasAngle,
                 sweepAngle = arcSweepDeg,
                 useCenter = false,
                 topLeft = arcTopLeft,
@@ -217,9 +235,9 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Layer 2: four arrows, tips pointing outward ──
+        // ── Four arrows ──
         val arrowColor = Cream.copy(alpha = 0.95f)
-        // Top: tip up
+        // Top (compass 90)
         drawPath(
             path = Path().apply {
                 moveTo(cx, cy - arrowBaseR - arrowH)
@@ -229,7 +247,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             },
             color = arrowColor,
         )
-        // Bottom: tip down
+        // Bottom (compass 270)
         drawPath(
             path = Path().apply {
                 moveTo(cx, cy + arrowBaseR + arrowH)
@@ -239,7 +257,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             },
             color = arrowColor,
         )
-        // Left: tip left
+        // Left (compass 180)
         drawPath(
             path = Path().apply {
                 moveTo(cx - arrowBaseR - arrowH, cy)
@@ -249,7 +267,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             },
             color = arrowColor,
         )
-        // Right: tip right
+        // Right (compass 0)
         drawPath(
             path = Path().apply {
                 moveTo(cx + arrowBaseR + arrowH, cy)
@@ -260,7 +278,58 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
             color = arrowColor,
         )
 
-        // ── Layer 1: dot sphere (drawn last, on top in the center) ──
+        // ── Tag icons around the ring ──
+        // SVG points the "tip" left (negative X). We rotate the icon so its
+        // tip points INWARD toward the sphere — i.e. it "faces" the arrow.
+        // Compass angle → rotation (SVG points left = 180° baseline).
+        // To point inward at compass θ, rotation = θ + 180°.
+        for (dir in tagDirs) {
+            val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
+            val tx = cx + tagR * cos(angleRad)
+            val ty = cy - tagR * sin(angleRad)  // flip Y because compass up = negative Y
+            // SVG tip points left at 0° rotation. We want it to point INWARD
+            // (toward center). Direction from this tag TO center is compass+180.
+            // SVG's "left" = 180°. So rotation_deg = (compass + 180) - 180 = compass.
+            // Wait — let's redo: SVG path's pointed end is at -X (left in canvas
+            // coords). To make that point face center from compass θ, the
+            // icon's local -X axis must point in direction (θ+180)°.
+            // rotate(deg) rotates clockwise in canvas. So set rotation = -compass.
+            val rotationDeg = -dir.angleDeg
+            rotate(degrees = rotationDeg, pivot = Offset(tx, ty)) {
+                translate(left = tx - tagSize / 2f, top = ty - tagSize / 2f) {
+                    with(tagPainter) {
+                        draw(size = Size(tagSize, tagSize), colorFilter = null, alpha = 0.92f)
+                    }
+                }
+            }
+        }
+
+        // ── Direction labels (LEFT/RIGHT/UP/DOWN) ──
+        // Place OUTSIDE the tag icon, further along the same compass direction.
+        // Use Compose's drawText via nativeCanvas — but Canvas drawScope doesn't
+        // have direct text. So draw text labels using drawIntoCanvas + native Paint.
+        val paint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(245, 245, 240, 230)
+            textSize = dim * 0.030f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        for (dir in tagDirs) {
+            if (dir.label.isEmpty()) continue
+            val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
+            val lx = cx + (tagR + labelOffset) * cos(angleRad)
+            val ly = cy - (tagR + labelOffset) * sin(angleRad)
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawText(
+                    dir.label,
+                    lx,
+                    ly + paint.textSize / 3f,  // vertical centering approx
+                    paint,
+                )
+            }
+        }
+
+        // ── Dot sphere ──
         val baseDot = dim * 0.0075f
         val ang = Math.toRadians(rotation.toDouble()).toFloat()
         val cosA = cos(ang); val sinA = sin(ang)
