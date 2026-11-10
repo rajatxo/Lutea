@@ -87,7 +87,7 @@ fun EffectVisual(
         // ── Head image at bottom (same as before) ──
         val imgSizeDp = with(density) {
             val sideGapPx = widthPx * 0.075f
-            min(widthPx - sideGapPx * 2, heightPx * 0.42f).toDp()
+            min(widthPx - sideGapPx * 2, heightPx * 0.50f).toDp()
         }
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -161,9 +161,9 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
 
         // ── Radii, as fractions of the composition's min dimension ──
         val sphereR = dim * 0.30f
-        val arrowBaseR = dim * 0.36f   // distance from center to arrow base
-        val arrowH = dim * 0.06f
-        val arrowW = dim * 0.07f
+        val arrowBaseR = dim * 0.33f   // distance from center to arrow base (close to sphere edge)
+        val arrowH = dim * 0.030f
+        val arrowW = dim * 0.038f
         val ringR = dim * 0.45f        // thin + thick circle radius
         val dottedR = dim * 0.485f     // outermost dotted ring
 
@@ -195,7 +195,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         // ── Layer 4: thick arc segments — only in front of each arrow ──
         // Compose Canvas angles: 0°=right, 90°=bottom, 180°=left, 270°=top (clockwise).
         // Each arc centered on the arrow direction; the rest of the circle stays thin.
-        val arcSweepDeg = 24f
+        val arcSweepDeg = 50f
         val halfSweep = arcSweepDeg / 2f
         val arcStarts = floatArrayOf(
             360f - halfSweep,  // Right (centered on 0°/360°)
