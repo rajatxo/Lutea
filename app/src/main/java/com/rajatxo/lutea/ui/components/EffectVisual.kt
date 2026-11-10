@@ -49,11 +49,11 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  EffectVisual v2 — small, dark, glossy, featureless mannequin bust.
+//  EffectVisual v3 — small, dark, glossy sculpted head with a real face.
 //
 //  The bust is sculpted from signed-distance shapes and ray-marched once on a
 //  background thread (pure Kotlin math, no GL / Filament / assets). Form comes
-//  from reflections, not paint: the skin is near-black and a fake studio
+//  from reflections, not paint: the skin is dark charcoal and a fake studio
 //  environment (two tall softboxes + a top box) is reflected in it, so the
 //  cranium, jaw and shoulders are carved out by highlights and rim light.
 //
@@ -61,23 +61,22 @@ import kotlin.math.sqrt
 //   • banding  → triangular-PDF dither is added before 8-bit quantisation
 //                (dark gradients band badly on OLED without it)
 //   • jaggies  → silhouette pixels are 3x3 supersampled into real coverage
-//   • size     → the bust is ~28% of the screen height, sitting low, so the
+//   • size     → the head is ~28% of the screen height, sitting low, so the
 //                space above is free for UI
+//   Face is sculpted with natural proportions (eyes at mid-height, nose base and
+//   mouth at thirds of the lower face) and every feature is smooth-blended into
+//   the skin, so nothing reads as a sunken dent or a separate blob.
 //   • latency → pre-render is kicked off at app startup (LuteaRoot) so the
 //                bitmap is usually already cached by the time the user opens
-//                the Effect tab. Race-safe via a Mutex — if the user taps
-//                Effect while pre-render is still running, EffectVisual's
-//                own LaunchedEffect joins the same in-flight render instead
-//                of starting a second one.
+//                the Effect tab. Race-safe via a Mutex.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Pre-renders the bust into [BustCache]. Call from app startup (e.g. LuteaRoot)
+ * Pre-renders the bust into [BustCache]. Call from app startup (LuteaRoot)
  * so the bitmap is ready by the time the user opens the Effect tab.
  *
  * Race-safe: if EffectVisual mounts while this is still running, both callers
- * share the same render job via [renderMutex] + double-checked locking. No
- * second render is started.
+ * share the same render job via [renderMutex] + double-checked locking.
  */
 suspend fun preloadEffectVisual(accentColor: Color = Color(0xFFD4A03A)): ImageBitmap {
     val key = accentColor.toArgb()
@@ -180,7 +179,7 @@ fun EffectVisual(
 
 private class BustLayout(val left: Float, val top: Float, val size: Float) {
     val centerX get() = left + size / 2f
-    val headCenterY get() = top + size * 0.33f
+    val headCenterY get() = top + size * 0.346f
 }
 
 /**
@@ -210,6 +209,11 @@ private fun smin(a: Float, b: Float, k: Float): Float {
     return min(a, b) - h * h * k * 0.25f
 }
 
+private fun smax(a: Float, b: Float, k: Float) = -smin(-a, -b, k)
+
+private fun sph(x: Float, y: Float, z: Float, cx: Float, cy: Float, cz: Float, r: Float) =
+    len3(x - cx, y - cy, z - cz) - r
+
 private fun ell(
     x: Float, y: Float, z: Float,
     cx: Float, cy: Float, cz: Float,
@@ -233,29 +237,54 @@ private fun cap(
     return len3(pax - bax * h, pay - bay * h, paz - baz * h) - r
 }
 
-/** Blank sculptor's bust: cranium, soft face plane, jaw, chin, ears, neck, shoulders. No facial features. */
+/** Sculpted head: skull, face plane, jaw, brow, closed eyes, nose, lips, ears, neck, shoulders. */
 private fun bustSdf(x: Float, y: Float, z: Float): Float {
     val ax = abs(x)
-    var d = ell(x, y, z, 0f, 0.16f, -0.08f, 0.56f, 0.62f, 0.62f)                    // cranium
-    d = smin(d, ell(x, y, z, 0f, -0.10f, 0.16f, 0.42f, 0.55f, 0.46f), 0.30f)         // face plane
-    d = smin(d, ell(x, y, z, 0f, -0.30f, 0.14f, 0.45f, 0.38f, 0.46f), 0.30f)         // jaw
-    d = smin(d, ell(x, y, z, 0f, -0.64f, 0.30f, 0.20f, 0.12f, 0.15f), 0.20f)         // chin
-    d = smin(d, ell(ax, y, z, 0.30f, -0.18f, 0.30f, 0.16f, 0.14f, 0.16f), 0.18f)     // jaw angle
-    d = smin(d, ell(ax, y, z, 0.56f, -0.02f, -0.04f, 0.05f, 0.15f, 0.09f), 0.05f)    // ears
-    d = smin(d, cap(x * 0.85f, y, z, 0f, -0.70f, -0.02f, 0f, -2.0f, -0.02f, 0.28f), 0.16f) // neck
-    d = smin(d, ell(x, y, z, 0f, -1.95f, -0.08f, 1.35f, 0.48f, 0.50f), 0.60f)         // shoulders
+    var d = ell(x, y, z, 0f, 0.17f, -0.08f, 0.54f, 0.62f, 0.62f)                      // cranium
+    d = smin(d, ell(x, y, z, 0f, 0.00f, 0.18f, 0.40f, 0.52f, 0.44f), 0.30f)           // forehead / face plane
+    d = smin(d, ell(x, y, z, 0f, -0.30f, 0.12f, 0.38f, 0.36f, 0.43f), 0.26f)          // lower face
+    d = smin(d, ell(x, y, z, 0f, -0.69f, 0.31f, 0.155f, 0.105f, 0.12f), 0.16f)        // chin
+    d = smin(d, ell(ax, y, z, 0.34f, -0.38f, 0.02f, 0.10f, 0.17f, 0.22f), 0.10f)      // jaw angle (bone under skin)
+    d = smin(d, ell(ax, y, z, 0.29f, -0.04f, 0.33f, 0.13f, 0.075f, 0.13f), 0.14f)     // cheekbone
+    d = smin(d, ell(ax, y, z, 0.54f, -0.03f, -0.04f, 0.05f, 0.15f, 0.09f), 0.05f)     // ears
+    d = smin(d, cap(ax, y, z, 0f, 0.135f, 0.52f, 0.33f, 0.15f, 0.40f, 0.058f), 0.12f) // brow ridge
+
+    // Eyes: shallow orbit (big blend = no sharp socket), eyeball under a closed lid,
+    // one soft lid seam whose outer corner rises slightly.
+    val ys = y - 0.07f * (ax - 0.21f)
+    d = smax(d, -ell(ax, y, z, 0.21f, 0.05f, 0.62f, 0.16f, 0.10f, 0.13f), 0.14f)
+    d = smin(d, sph(ax, y, z, 0.21f, 0.045f, 0.47f, 0.098f), 0.055f)
+    d = smax(d, -ell(ax, ys, z, 0.21f, 0.036f, 0.585f, 0.095f, 0.010f, 0.08f), 0.02f)
+
+    // Nose: tapered bridge, tip, alae, faint nostril hints — all heavily blended.
+    d = smin(d, cap(x, y, z, 0f, 0.08f, 0.50f, 0f, -0.10f, 0.585f, 0.044f), 0.09f)
+    d = smin(d, cap(x, y, z, 0f, -0.10f, 0.585f, 0f, -0.27f, 0.665f, 0.056f), 0.09f)
+    d = smin(d, sph(x, y, z, 0f, -0.29f, 0.69f, 0.066f), 0.08f)
+    d = smin(d, ell(ax, y, z, 0.07f, -0.30f, 0.605f, 0.045f, 0.05f, 0.058f), 0.07f)
+    d = smax(d, -ell(ax, y, z, 0.045f, -0.335f, 0.64f, 0.028f, 0.012f, 0.045f), 0.02f)
+
+    // Mouth: muzzle, soft lips, a seam that curves up at the corners, chin crease.
+    d = smin(d, ell(x, y, z, 0f, -0.53f, 0.50f, 0.16f, 0.09f, 0.10f), 0.12f)
+    d = smin(d, ell(x, y, z, 0f, -0.485f, 0.565f, 0.12f, 0.028f, 0.06f), 0.06f)
+    d = smin(d, ell(x, y, z, 0f, -0.553f, 0.558f, 0.095f, 0.028f, 0.05f), 0.06f)
+    val ym = y - 0.4f * x * x
+    d = smax(d, -ell(x, ym, z, 0f, -0.522f, 0.60f, 0.125f, 0.008f, 0.07f), 0.016f)
+    d = smax(d, -ell(x, y, z, 0f, -0.625f, 0.585f, 0.07f, 0.014f, 0.05f), 0.035f)
+
+    d = smin(d, cap(x * 0.85f, y, z, 0f, -0.78f, -0.10f, 0f, -2.0f, -0.06f, 0.25f), 0.14f) // neck
+    d = smin(d, ell(x, y, z, 0f, -1.95f, -0.08f, 1.35f, 0.48f, 0.50f), 0.60f)               // shoulders
     return d
 }
 
 // ─────────────────────────────── renderer ───────────────────────────────
 
-private const val TILT = 0.05f
+private const val TILT = 0.04f
 private val COS_T = cos(TILT.toDouble()).toFloat()
 private val SIN_T = sin(TILT.toDouble()).toFloat()
 
-private const val IMG = 640
-private const val VIEW_H = 3.0f
-private const val CAM_Y = -0.5f
+private const val IMG = 704
+private const val VIEW_H = 2.6f
+private const val CAM_Y = -0.40f
 
 private fun sceneSdf(x: Float, y: Float, z: Float): Float =
     bustSdf(x, COS_T * y - SIN_T * z, SIN_T * y + COS_T * z)
@@ -321,7 +350,7 @@ private suspend fun renderBust(accent: Color): ImageBitmap = coroutineScope {
 }
 
 private fun shadeRow(j: Int, hitT: FloatArray, out: IntArray, accent: Color, rgb: FloatArray) {
-    val fadeY = 1f - smooth01((j.toFloat() / IMG - 0.74f) / 0.24f) // dissolve the cut-off bust into black
+    val fadeY = 1f - smooth01((j.toFloat() / IMG - 0.76f) / 0.22f) // dissolve the cut-off bust into black
 
     for (i in 0 until IMG) {
         val idx = j * IMG + i
@@ -385,7 +414,7 @@ private fun shade(u: Float, v: Float, t: Float, accent: Color, rgb: FloatArray) 
     val px = u; val py = v; val pz = 8f - t
 
     // normal (tetrahedron sampling)
-    val h = 0.0015f
+    val h = 0.0012f
     val n0 = sceneSdf(px + h, py - h, pz - h)
     val n1 = sceneSdf(px - h, py - h, pz + h)
     val n2 = sceneSdf(px - h, py + h, pz - h)
@@ -405,22 +434,22 @@ private fun shade(u: Float, v: Float, t: Float, accent: Color, rgb: FloatArray) 
 
     // soft shadow toward the key light (chin onto neck)
     var sh = 1f
-    var tt = 0.05f
+    var tt = 0.04f
     for (s in 0 until 16) {
         val dd = sceneSdf(px + L1[0] * tt, py + L1[1] * tt, pz + L1[2] * tt)
         sh = min(sh, (7f * dd / tt).coerceIn(0f, 1f))
-        tt += dd.coerceIn(0.03f, 0.25f)
+        tt += dd.coerceIn(0.02f, 0.25f)
     }
     sh = smooth01(sh)
 
     // ambient occlusion
     var ao = 0f
     for (k in 1..4) {
-        val hh = 0.06f * k
+        val hh = 0.04f * k
         val dd = sceneSdf(px + nx * hh, py + ny * hh, pz + nz * hh)
         ao += (hh - dd) / (1 shl k).toFloat()
     }
-    ao = (1f - 1.6f * ao).coerceIn(0f, 1f)
+    ao = (1f - 2.0f * ao).coerceIn(0f, 1f)
 
     val ndv = nvz.coerceIn(0f, 1f)
     val om = 1f - ndv
@@ -434,13 +463,13 @@ private fun shade(u: Float, v: Float, t: Float, accent: Color, rgb: FloatArray) 
     val env = 0.07f + 0.40f * up * up * up +
         1.3f * exp(-(rx + 0.62f) * (rx + 0.62f) * 14f) * win +
         0.85f * exp(-(rx - 0.70f) * (rx - 0.70f) * 16f) * win +
-        0.9f * exp(-((ry - 0.78f) * (ry - 0.78f) * 40f + rx * rx * 3f))
+        0.6f * exp(-((ry - 0.78f) * (ry - 0.78f) * 30f + rx * rx * 2.5f))
 
     val ndh = (nvx * HV[0] + nvy * HV[1] + nvz * HV[2]).coerceIn(0f, 1f)
 
-    var col = 0.028f + 0.12f * ndl1 * sh * ao + 0.04f * ndl2 * ao +
-        0.65f * env * (0.10f + 0.85f * fres) * ao +
-        0.9f * ndh.pow(140f) * sh
+    var col = 0.030f + 0.20f * ndl1 * sh * ao + 0.05f * ndl2 * ao +
+        0.55f * env * (0.10f + 0.85f * fres) * ao +
+        0.7f * ndh.pow(90f) * sh
     col += 0.20f * fres * (0.6f + 0.4f * nvy).coerceIn(0f, 1f) * ao
 
     // faint accent kicker on the right edge so the glow and the bust feel connected
