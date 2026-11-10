@@ -58,11 +58,11 @@ fun EffectVisual(
             .fillMaxSize()
             .windowInsetsPadding(LocalLuteaWindowInsets.current),
     ) {
-        // ── Sphere: top half of screen, centered horizontally ──
+        // ── Sphere: top of screen, centered horizontally ──
         val sphereSizeDp = with(density) {
-            (min(maxWidth.toPx(), maxHeight.toPx()) * 0.34f).toDp()
+            (min(maxWidth.toPx(), maxHeight.toPx()) * 0.60f).toDp()
         }
-        val sphereTopPad = with(density) { (maxHeight.toPx() * 0.04f).toDp() }
+        val sphereTopPad = with(density) { (maxHeight.toPx() * 0.02f).toDp() }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
