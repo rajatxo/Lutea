@@ -113,8 +113,7 @@ fun EffectVisual(
             SphereComposition(modifier = Modifier.fillMaxSize())
         }
 
-        // ── Head image with faded black rounded card behind ──
-        // Card sits below the sphere composition, doesn't cross it.
+        // ── Head image with dark-grey rounded card behind, blending to black at bottom ──
         val headSizeDp = with(density) {
             val edgeGapFrac = 0.08f
             val edgeGapPx = widthPx * edgeGapFrac
@@ -131,12 +130,12 @@ fun EffectVisual(
                 maxOf(maxHeadForGap, widthPx * 0.30f),
             ).toDp()
         }
-        // Card is wider/taller than head by 4% of width on each side, and is
-        // positioned so it sits just below the composition with a small gap.
-        val cardPadFrac = 0.04f
-        val cardExtraDp = with(density) { (widthPx * cardPadFrac * 2).toDp() }
-        val cardWidthDp = headSizeDp + cardExtraDp
-        val cardHeightDp = headSizeDp + cardExtraDp
+        // Card spans screen width minus 1% on each side. Height grows to whatever
+        // the head needs plus a small inner padding. Bottom-anchored.
+        val cardSideGapDp = with(density) { (widthPx * 0.01f).toDp() }
+        val cardWidthDp = with(density) { (widthPx - widthPx * 0.01f * 2).toDp() }
+        val cardInnerPadDp = with(density) { (widthPx * 0.04f).toDp() }
+        val cardHeightDp = headSizeDp + cardInnerPadDp * 2
         val cardCornerDp = with(density) { (widthPx * 0.05f).toDp() }
         val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
         Box(
@@ -145,23 +144,39 @@ fun EffectVisual(
         ) {
             Box(
                 modifier = Modifier
-                    .padding(bottom = cardBottomPadDp)
+                    .padding(
+                        start = cardSideGapDp,
+                        end = cardSideGapDp,
+                        bottom = cardBottomPadDp,
+                    )
                     .size(cardWidthDp, cardHeightDp)
                     .clip(RoundedCornerShape(cardCornerDp))
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.40f),
-                            1f to Color.Black.copy(alpha = 0.15f),
-                        ),
-                    )
-                    .border(
-                        width = with(density) { (widthPx * 0.002f).toDp() },
-                        color = Cream.copy(alpha = 0.10f),
-                        shape = RoundedCornerShape(cardCornerDp),
-                    ),
+                    .drawWithCache {
+                        // Dark grey flat fill on top, fading to pure black at the
+                        // bottom — same Hermite blend curve as the playlist cover.
+                        // Reuse blendStops() but map every stop color to either grey
+                        // (when alpha is low) or black (when alpha is high), so the
+                        // transition follows the same smooth fade.
+                        val grey = Color(0xFF1A1A1A)
+                        val stops = blendStops(Color.Black).map { (pos, c) ->
+                            val a = c.alpha
+                            pos to grey.copy(alpha = 1f - a)
+                        }
+                        // Prepend a solid-grey top section so the upper card is flat grey.
+                        val allStops = ArrayList<Pair<Float, Color>>()
+                        allStops.add(0f to grey)
+                        allStops.add(0.55f to grey)
+                        allStops.addAll(stops)
+                        val greyBrush = Brush.verticalGradient(allStops.toList())
+                        onDrawBehind { drawRect(greyBrush) }
+                    },
                 contentAlignment = Alignment.BottomCenter,
             ) {
-                Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
+                Box(
+                    modifier = Modifier
+                        .padding(bottom = cardInnerPadDp)
+                        .size(headSizeDp, headSizeDp),
+                ) {
                     Image(
                         painter = painterResource(headRes),
                         contentDescription = "Spatial audio head",
