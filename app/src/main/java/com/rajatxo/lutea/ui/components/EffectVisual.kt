@@ -3,23 +3,36 @@ package com.rajatxo.lutea.ui.components
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -35,6 +48,9 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
@@ -57,6 +73,7 @@ fun EffectVisual(
     headRes: Int = R.drawable.effect_head,
 ) {
     val density = LocalDensity.current
+    var eightDOn by remember { mutableStateOf(false) }
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -65,33 +82,46 @@ fun EffectVisual(
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
 
-        // ── Sphere composition, anchored to top ──
+        // ── Top bar: 8D Audio capsule + toggle, top-middle ──
+        // Sits ABOVE the sphere composition. Height = 5% of screen height.
+        val topBarHeightDp = with(density) { (heightPx * 0.05f).toDp() }
+        EffectTopBar(
+            enabled = eightDOn,
+            onToggle = { eightDOn = it },
+            label = "8D Audio",
+            screenWidthPx = widthPx,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(topBarHeightDp)
+                .align(Alignment.TopCenter),
+        )
+
+        // ── Sphere composition, anchored below the top bar ──
         // Width = full screen so rings extend edge-to-edge.
         // Height = enough to fit the rings (which are width-driven, diameter ≈ width)
         // plus a small headroom for the UP label above the rings.
-        //   headroom = 6.67% of width (24dp ÷ 360dp on reference phone)
         val compositionHeightFrac = 1.0f + 0.0667f
         val compositionHeightDp = with(density) { (widthPx * compositionHeightFrac).toDp() }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(compositionHeightDp)
-                .align(Alignment.TopCenter),
+                .align(Alignment.TopCenter)
+                .offset(y = topBarHeightDp),
             contentAlignment = Alignment.TopCenter,
         ) {
             SphereComposition(modifier = Modifier.fillMaxSize())
         }
 
-        // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 8% of screen height ──
-        // (User originally asked for 130dp = 16.25% of height, but that squeezed
-        // the head too small. Relaxed to 8% so the head can grow back closer to
-        // its original size while keeping a visible gap to the composition.)
+        // ── Head image with faded black rounded card behind ──
+        // Card sits below the sphere composition, doesn't cross it.
         val headSizeDp = with(density) {
             val edgeGapFrac = 0.08f
             val edgeGapPx = widthPx * edgeGapFrac
             val labelTextSize = widthPx * 0.024f
             val labelHalfWidth = labelTextSize * 4f * 0.55f / 2f
-            val downLabelYPx = widthPx * compositionHeightFrac - edgeGapPx - labelHalfWidth
+            val downLabelYPx = topBarHeightDp.toPx() +
+                widthPx * compositionHeightFrac - edgeGapPx - labelHalfWidth
             val gapTargetPx = heightPx * 0.04f
             val maxHeadForGap = heightPx - downLabelYPx - gapTargetPx
             val sideGapPx = widthPx * 0.075f
@@ -101,26 +131,119 @@ fun EffectVisual(
                 maxOf(maxHeadForGap, widthPx * 0.30f),
             ).toDp()
         }
+        // Card is wider/taller than head by 4% of width on each side, and is
+        // positioned so it sits just below the composition with a small gap.
+        val cardPadFrac = 0.04f
+        val cardExtraDp = with(density) { (widthPx * cardPadFrac * 2).toDp() }
+        val cardWidthDp = headSizeDp + cardExtraDp
+        val cardHeightDp = headSizeDp + cardExtraDp
+        val cardCornerDp = with(density) { (widthPx * 0.05f).toDp() }
+        val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
-                Image(
-                    painter = painterResource(headRes),
-                    contentDescription = "Spatial audio head",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .drawWithCache {
-                            val brush = Brush.verticalGradient(*blendStops(Color.Black))
-                            onDrawBehind { drawRect(brush) }
-                        },
-                )
+            Box(
+                modifier = Modifier
+                    .padding(bottom = cardBottomPadDp)
+                    .size(cardWidthDp, cardHeightDp)
+                    .clip(RoundedCornerShape(cardCornerDp))
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.40f),
+                            1f to Color.Black.copy(alpha = 0.15f),
+                        ),
+                    )
+                    .border(
+                        width = with(density) { (widthPx * 0.002f).toDp() },
+                        color = Cream.copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(cardCornerDp),
+                    ),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
+                    Image(
+                        painter = painterResource(headRes),
+                        contentDescription = "Spatial audio head",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .drawWithCache {
+                                val brush = Brush.verticalGradient(*blendStops(Color.Black))
+                                onDrawBehind { drawRect(brush) }
+                            },
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun EffectTopBar(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    label: String,
+    screenWidthPx: Float,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val widthPx = screenWidthPx
+    val labelTextSize = with(density) { (widthPx * 0.030f).toSp() }
+    val capsulePadHDp = with(density) { (widthPx * 0.025f).toDp() }
+    val capsulePadVDp = with(density) { (widthPx * 0.012f).toDp() }
+    val capsuleCornerDp = with(density) { (widthPx * 0.04f).toDp() }
+    val toggleSizeDp = with(density) { (widthPx * 0.045f).toDp() }
+
+    Row(
+        modifier = modifier
+            .padding(horizontal = with(density) { (widthPx * 0.04f).toDp() }),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        // Capsule label
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(capsuleCornerDp))
+                .background(Color.Black.copy(alpha = 0.45f))
+                .border(
+                    width = with(density) { (widthPx * 0.002f).toDp() },
+                    color = Cream.copy(alpha = 0.18f),
+                    shape = RoundedCornerShape(capsuleCornerDp),
+                )
+                .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),
+        ) {
+            Text(
+                text = label,
+                color = Cream,
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = labelTextSize,
+            )
+        }
+        // Toggle
+        Box(
+            modifier = Modifier
+                .padding(start = with(density) { (widthPx * 0.02f).toDp() })
+                .size(toggleSizeDp, toggleSizeDp * 0.55f)
+                .clip(RoundedCornerShape(50))
+                .background(
+                    if (enabled) Color(0xFFD4A03A) else Color.White.copy(alpha = 0.10f)
+                )
+                .clickable { onToggle(!enabled) }
+                .padding(with(density) { (widthPx * 0.005f).toDp() }),
+            contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            val knobSize = with(density) { (widthPx * 0.025f).toDp() }
+            Box(
+                modifier = Modifier
+                    .size(knobSize)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White),
+            )
         }
     }
 }
