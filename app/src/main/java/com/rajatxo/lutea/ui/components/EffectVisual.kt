@@ -92,7 +92,7 @@ fun EffectVisual(
             val labelTextSize = widthPx * 0.024f
             val labelHalfWidth = labelTextSize * 4f * 0.55f / 2f
             val downLabelYPx = widthPx * compositionHeightFrac - edgeGapPx - labelHalfWidth
-            val gapTargetPx = heightPx * 0.08f
+            val gapTargetPx = heightPx * 0.05f
             val maxHeadForGap = heightPx - downLabelYPx - gapTargetPx
             val sideGapPx = widthPx * 0.075f
             minOf(
@@ -210,7 +210,11 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         //   thin ring   = dotted ring - gap
         //   sphere      = thin ring - arrow - gap
         val tagSize = size.width * 0.028f
-        val labelCenterFromCenter = size.width / 2f - edgeGapPx - labelHalfWidth
+        // For LEFT/RIGHT: outer edge of label sits at edgeGapPx from screen edge.
+        // Add an extra small gap (1.5% of width) between the label's INNER edge
+        // and the tag icon so they don't overlap.
+        val labelToTagGap = size.width * 0.015f
+        val labelCenterFromCenter = size.width / 2f - edgeGapPx - labelHalfWidth - labelToTagGap
         val tagR = labelCenterFromCenter - tagSize / 2f - size.width * 0.008f
         val dottedR = tagR - tagSize / 2f - size.width * 0.008f
         val ringR = dottedR - size.width * 0.012f
