@@ -8,17 +8,28 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -34,7 +45,9 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
@@ -44,6 +57,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 private val Cream = Color(0xFFF5F0E6)
+private val GinkgoGold = Color(0xFFD4A03A)
 
 /**
  * Effect tab — dot sphere with concentric rings, outward arrows, 8 tag icons
@@ -56,6 +70,9 @@ private val Cream = Color(0xFFF5F0E6)
 fun EffectVisual(
     modifier: Modifier = Modifier,
     headRes: Int = R.drawable.effect_head,
+    title: String = "Spatial Audio",
+    buttonLabel: String = "Activate",
+    onButtonClick: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     BoxWithConstraints(
@@ -66,43 +83,84 @@ fun EffectVisual(
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
 
-        // ── Sphere composition at top ──
-        // Width × Height: wide enough to fit LEFT/RIGHT labels horizontally,
-        // short enough to leave a big gap to the head image below.
-        val compositionWidthDp = with(density) { (widthPx * 0.92f).toDp() }
-        val compositionHeightDp = with(density) { (heightPx * 0.40f).toDp() }
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .size(compositionWidthDp, compositionHeightDp),
-        ) {
-            SphereComposition(modifier = Modifier.fillMaxSize())
-        }
-
-        // ── Head image at bottom ──
-        val imgSizeDp = with(density) {
-            val sideGapPx = widthPx * 0.075f
-            min(widthPx - sideGapPx * 2, heightPx * 0.50f).toDp()
-        }
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            Box(modifier = Modifier.size(imgSizeDp, imgSizeDp)) {
-                Image(
-                    painter = painterResource(headRes),
-                    contentDescription = "Spatial audio head",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ── Top area: title + button (small) ──
+            val topHeight = with(density) { (heightPx * 0.08f).toDp() }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(topHeight)
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = title,
+                    color = Cream,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = with(density) { (min(widthPx, heightPx) * 0.040f).toSp() },
                 )
                 Box(
                     modifier = Modifier
-                        .matchParentSize()
-                        .drawWithCache {
-                            val brush = Brush.verticalGradient(*blendStops(Color.Black))
-                            onDrawBehind { drawRect(brush) }
-                        },
-                )
+                        .clip(RoundedCornerShape(50))
+                        .background(GinkgoGold)
+                        .clickable { onButtonClick() }
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        text = buttonLabel,
+                        color = Color.Black,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = with(density) { (min(widthPx, heightPx) * 0.025f).toSp() },
+                    )
+                }
+            }
+
+            // ── Sphere composition — fills remaining space above the head ──
+            // Width = full screen so rings extend edge-to-edge.
+            // Height = everything except top area and head.
+            val headFraction = 0.50f
+            val imgSizeDp = with(density) {
+                val sideGapPx = widthPx * 0.075f
+                min(widthPx - sideGapPx * 2, heightPx * headFraction).toDp()
+            }
+            val compositionHeightDp = with(density) {
+                (heightPx - with(density) { topHeight.toPx() } - with(density) { imgSizeDp.toPx() }).toDp()
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(compositionHeightDp),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                SphereComposition(modifier = Modifier.fillMaxSize())
+            }
+
+            // ── Head image at bottom ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(imgSizeDp),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Box(modifier = Modifier.size(imgSizeDp, imgSizeDp)) {
+                    Image(
+                        painter = painterResource(headRes),
+                        contentDescription = "Spatial audio head",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .drawWithCache {
+                                val brush = Brush.verticalGradient(*blendStops(Color.Black))
+                                onDrawBehind { drawRect(brush) }
+                            },
+                    )
+                }
             }
         }
     }
@@ -173,20 +231,27 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
     val tagPainter = painterResource(R.drawable.ic_effect_tag)
 
     Canvas(modifier = modifier) {
-        val dim = min(size.width, size.height)
+        // Width drives sizing so the composition fills left/right edges of screen.
+        val dim = size.width
         val cx = size.width / 2f
-        val cy = size.height / 2f
+        // Vertical center sits at half of width (since rings are circular and
+        // width-driven). The composition is top-aligned in its container, so the
+        // rings render near the top — leaves all remaining container height as
+        // empty space below, which becomes the gap to the head image.
+        val cy = dim / 2f
 
-        // Radii
-        val sphereR = dim * 0.30f
-        val arrowBaseR = dim * 0.32f
-        val arrowH = dim * 0.030f
-        val arrowW = dim * 0.038f
-        val ringR = dim * 0.39f          // thin + thick circle
-        val dottedR = dim * 0.425f
-        val tagR = dim * 0.460f          // tags sit OUTSIDE the dotted ring — no overlap
-        val tagSize = dim * 0.035f
-        val labelOffset = dim * 0.040f
+        // Radii — all scaled to width. LEFT/RIGHT labels need ~0.10 width outside
+        // the tag (tagSize/2 + labelOffset*2.4 ≈ 0.05 + 0.096 = 0.146 of width
+        // per side). So the outermost ring (tag) sits at 0.5 - 0.146 = 0.354 max.
+        val sphereR = dim * 0.22f
+        val arrowBaseR = dim * 0.235f
+        val arrowH = dim * 0.022f
+        val arrowW = dim * 0.028f
+        val ringR = dim * 0.285f          // thin + thick circle
+        val dottedR = dim * 0.310f
+        val tagR = dim * 0.335f          // tags sit OUTSIDE the dotted ring — no overlap
+        val tagSize = dim * 0.026f
+        val labelOffset = dim * 0.030f
 
         val thinStroke = dim * 0.0028f
         val thickStroke = dim * 0.0080f
@@ -309,15 +374,21 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         // have direct text. So draw text labels using drawIntoCanvas + native Paint.
         val paint = android.graphics.Paint().apply {
             color = android.graphics.Color.argb(245, 245, 240, 230)
-            textSize = dim * 0.030f
+            textSize = dim * 0.022f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             textAlign = android.graphics.Paint.Align.CENTER
         }
         for (dir in tagDirs) {
             if (dir.label.isEmpty()) continue
             val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
-            val lx = cx + (tagR + labelOffset) * cos(angleRad)
-            val ly = cy - (tagR + labelOffset) * sin(angleRad)
+            // LEFT/RIGHT labels are wide horizontally — push them further out so
+            // they don't sit on top of the tag icon. UP/DOWN are short, less offset.
+            val offsetForDir = when (dir.label) {
+                "LEFT", "RIGHT" -> labelOffset * 2.4f
+                else -> labelOffset
+            }
+            val lx = cx + (tagR + tagSize / 2f + offsetForDir) * cos(angleRad)
+            val ly = cy - (tagR + tagSize / 2f + offsetForDir) * sin(angleRad)
             drawIntoCanvas { canvas ->
                 canvas.nativeCanvas.drawText(
                     dir.label,
