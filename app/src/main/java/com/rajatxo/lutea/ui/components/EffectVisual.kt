@@ -18,19 +18,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
+import com.rajatxo.lutea.ui.screens.blendStops
 import kotlin.math.min
 
 /**
- * Effect tab visual — 3D bust image, bottom-anchored, fills screen width.
+ * Effect tab visual — 3D bust image, bottom-anchored, fills screen width,
+ * with its lower half fading into pure black via the same Hermite-smoothstep
+ * gradient the playlist cover uses ([blendStops]).
  *
  * Universal Layout Law #7: sizes are fractions of BoxWithConstraints
  * maxWidth/maxHeight — works on every screen size, multi-window, foldables.
- * No glow, no canvas tricks. Just the image, full-width, bottom-anchored.
  */
 @Composable
 fun EffectVisual(
@@ -43,9 +48,6 @@ fun EffectVisual(
             .windowInsetsPadding(LocalLuteaWindowInsets.current),
     ) {
         // Law 7: fractional sizing, never screenHeightDp.
-        // Source PNG is ~1:1, so a square sized by width fills the bottom
-        // ~45% of a typical phone screen. Cap by 55% of height so tablets
-        // don't drown the screen.
         val imgSize = min(maxWidth.value, maxHeight.value * 0.55f).dp
 
         var visible by remember { mutableStateOf(false) }
@@ -62,12 +64,24 @@ fun EffectVisual(
                 .alpha(alpha),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Image(
-                painter = painterResource(headRes),
-                contentDescription = "Spatial audio head",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.size(imgSize, imgSize),
-            )
+            Box(modifier = Modifier.size(imgSize, imgSize)) {
+                Image(
+                    painter = painterResource(headRes),
+                    contentDescription = "Spatial audio head",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // Bottom fade: transparent until 56%, ramps to black at 100%.
+                // Same blend curve as the playlist cover — reuse, don't reinvent.
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .drawWithCache {
+                            val brush = Brush.verticalGradient(*blendStops(Color.Black))
+                            onDrawBehind { drawRect(brush) }
+                        },
+                )
+            }
         }
     }
 }

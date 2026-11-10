@@ -223,8 +223,12 @@ fun PlaylistCoverBackground(
  *   0.56 -> clear
  *   0.84 -> background @ 78%
  *   1.00 -> background @ 100%
+ *
+ * Used by [PlaylistCoverBackground] and by the Effect tab image — both fade
+ * an image into a solid colour using the same Hermite-smoothed gradient, so
+ * the look is consistent across the app.
  */
-private fun blendStops(bg: Color): Array<Pair<Float, Color>> {
+internal fun blendStops(bg: Color): Array<Pair<Float, Color>> {
     val clear = bg.copy(alpha = 0f)
     val stops = ArrayList<Pair<Float, Color>>(2 + BLEND_STEPS * 2)
     stops.add(0f to clear)
@@ -247,7 +251,7 @@ private fun blendStops(bg: Color): Array<Pair<Float, Color>> {
 }
 
 /** Cubic Hermite. m0 / m1 are slopes already multiplied by the segment length. */
-private fun hermite(t: Float, p0: Float, m0: Float, p1: Float, m1: Float): Float {
+internal fun hermite(t: Float, p0: Float, m0: Float, p1: Float, m1: Float): Float {
     val t2 = t * t
     val t3 = t2 * t
     return (2f * t3 - 3f * t2 + 1f) * p0 +
