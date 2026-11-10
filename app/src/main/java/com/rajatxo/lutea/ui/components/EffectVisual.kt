@@ -82,23 +82,19 @@ fun EffectVisual(
             SphereComposition(modifier = Modifier.fillMaxSize())
         }
 
-        // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 16.25% of screen height ──
-        // (User asked for 130dp. On reference phone 800dp tall, 130/800 = 16.25%.)
-        // DOWN label y ≈ compositionHeight - edgeGap - halfLabelWidth
-        // head top y = screenHeight - imgSize
-        // gap = headTop - DOWN_label_y
-        // Solve for imgSize so gap ≥ 0.1625 × screenHeight.
+        // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 8% of screen height ──
+        // (User originally asked for 130dp = 16.25% of height, but that squeezed
+        // the head too small. Relaxed to 8% so the head can grow back closer to
+        // its original size while keeping a visible gap to the composition.)
         val headSizeDp = with(density) {
-            val edgeGapFrac = 0.0111f
+            val edgeGapFrac = 0.08f
             val edgeGapPx = widthPx * edgeGapFrac
             val labelTextSize = widthPx * 0.024f
             val labelHalfWidth = labelTextSize * 4f * 0.55f / 2f
             val downLabelYPx = widthPx * compositionHeightFrac - edgeGapPx - labelHalfWidth
-            val gapTargetPx = heightPx * 0.1625f
+            val gapTargetPx = heightPx * 0.08f
             val maxHeadForGap = heightPx - downLabelYPx - gapTargetPx
             val sideGapPx = widthPx * 0.075f
-            // Cap by width-minus-side-gaps, 50% of height, and the gap-driven max.
-            // Floor at 30% of width so the head doesn't get tiny on short screens.
             minOf(
                 widthPx - sideGapPx * 2,
                 heightPx * 0.50f,
@@ -195,12 +191,10 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
 
     Canvas(modifier = modifier) {
         // Universal Layout Law #7: sizes are fractions of screen dimensions.
-        // User asked for 4dp edge gap and 130dp DOWN-to-head gap (measured on a
-        // standard 360dp × 800dp phone). Converted to fractions so the layout
-        // scales proportionally on every screen size:
-        //   4dp ÷ 360dp = 1.11% of screen width
-        //   130dp ÷ 800dp = 16.25% of screen height (used in head sizing below)
-        val edgeGapFrac = 0.0111f
+        // User said "make the whole composition smaller" — so we widen the edge
+        // gap from 1.11% (4dp) to 8% of screen width. Everything (rings, arrows,
+        // tags, labels) scales inward proportionally.
+        val edgeGapFrac = 0.08f
         val edgeGapPx = size.width * edgeGapFrac
 
         // Text size — measured once to size the composition around it.
@@ -223,8 +217,8 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         val arrowBaseR = ringR - size.width * 0.045f
         val arrowH = size.width * 0.024f
         val arrowW = size.width * 0.030f
-        // Sphere sits inside the arrows with extra breathing room (gap doubled).
-        val sphereR = arrowBaseR - size.width * 0.060f
+        // Sphere sits inside the arrows with normal breathing room.
+        val sphereR = arrowBaseR - size.width * 0.020f
 
         val cx = size.width / 2f
         // Vertical center sits at half of width so rings are perfectly circular.
