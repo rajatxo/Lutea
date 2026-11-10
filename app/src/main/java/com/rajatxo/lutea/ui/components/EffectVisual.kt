@@ -36,6 +36,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.cos
@@ -47,50 +49,76 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  EffectVisual — a real, lit 3D mannequin head with over-ear headphones.
+//  EffectVisual v2 — small, dark, glossy, featureless mannequin bust.
 //
-//  Why this isn't a pile of Paths: gradients on a silhouette can never produce
-//  believable form. Instead the head is *sculpted* from signed-distance shapes
-//  (ellipsoids, capsules, smooth unions) and ray-marched once on a background
-//  thread into a 360x450 bitmap with real lighting: key + fill light, soft
-//  shadows, ambient occlusion, a studio-reflection sheen and a rim.
-//  Pure Kotlin math — no OpenGL, no Filament, no assets, no dependencies.
-//  The bitmap is cached per accent colour, so it renders only once per run.
+//  The bust is sculpted from signed-distance shapes and ray-marched once on a
+//  background thread (pure Kotlin math, no GL / Filament / assets). Form comes
+//  from reflections, not paint: the skin is near-black and a fake studio
+//  environment (two tall softboxes + a top box) is reflected in it, so the
+//  cranium, jaw and shoulders are carved out by highlights and rim light.
+//
+//  Quality fixes vs v1:
+//   • banding  → triangular-PDF dither is added before 8-bit quantisation
+//                (dark gradients band badly on OLED without it)
+//   • jaggies  → silhouette pixels are 3x3 supersampled into real coverage
+//   • size     → the bust is ~28% of the screen height, sitting low, so the
+//                space above is free for UI
+//   • latency → pre-render is kicked off at app startup (LuteaRoot) so the
+//                bitmap is usually already cached by the time the user opens
+//                the Effect tab. Race-safe via a Mutex — if the user taps
+//                Effect while pre-render is still running, EffectVisual's
+//                own LaunchedEffect joins the same in-flight render instead
+//                of starting a second one.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pre-renders the bust into [BustCache]. Call from app startup (e.g. LuteaRoot)
+ * so the bitmap is ready by the time the user opens the Effect tab.
+ *
+ * Race-safe: if EffectVisual mounts while this is still running, both callers
+ * share the same render job via [renderMutex] + double-checked locking. No
+ * second render is started.
+ */
+suspend fun preloadEffectVisual(accentColor: Color = Color(0xFFD4A03A)): ImageBitmap {
+    val key = accentColor.toArgb()
+    BustCache.get(key)?.let { return it }
+    renderMutex.withLock {
+        BustCache.get(key)?.let { return it }
+        val img = withContext(Dispatchers.Default) { renderBust(accentColor) }
+        BustCache.put(key, img)
+        return img
+    }
+}
+
+private val renderMutex = Mutex()
 
 @Composable
 fun EffectVisual(
     modifier: Modifier = Modifier,
     accentColor: Color = Color(0xFFD4A03A),
-    showEarcupRing: Boolean = true,
 ) {
-    val key = accentColor.toArgb() * 31 + if (showEarcupRing) 1 else 0
-    var image by remember(key) { mutableStateOf(HeadCache.get(key)) }
+    val key = accentColor.toArgb()
+    var image by remember(key) { mutableStateOf(BustCache.get(key)) }
 
     LaunchedEffect(key) {
         if (image == null) {
-            val rendered = withContext(Dispatchers.Default) {
-                renderHead(accentColor, showEarcupRing)
-            }
-            HeadCache.put(key, rendered)
-            image = rendered
+            image = preloadEffectVisual(accentColor)
         }
     }
 
     val reveal by animateFloatAsState(
         targetValue = if (image != null) 1f else 0f,
-        animationSpec = tween(800),
-        label = "headReveal",
+        animationSpec = tween(900),
+        label = "bustReveal",
     )
-    val infinite = rememberInfiniteTransition(label = "headIdle")
-    // Slow breathing of the accent backlight.
+    val infinite = rememberInfiniteTransition(label = "bustIdle")
     val pulse by infinite.animateFloat(
-        initialValue = 0.10f,
-        targetValue = 0.18f,
+        initialValue = 0.07f,
+        targetValue = 0.14f,
         animationSpec = infiniteRepeatable(tween(4000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse",
     )
-    // The *light* drifts across the head; the geometry never rotates.
+    // The light drifts; the geometry never moves.
     val drift by infinite.animateFloat(
         initialValue = -1f,
         targetValue = 1f,
@@ -99,11 +127,11 @@ fun EffectVisual(
     )
 
     Box(modifier = modifier.background(Color.Black)) {
-        // Layer 1: ambient accent glow behind the head.
+        // Layer 1: faint accent backlight behind the head.
         Canvas(Modifier.fillMaxSize()) {
-            val layout = headLayout(size.width, size.height)
-            val c = Offset(layout.centerX, layout.headCenterY)
-            val r = layout.w * 0.62f
+            val l = bustLayout(size.width, size.height)
+            val c = Offset(l.centerX, l.headCenterY)
+            val r = l.size * 0.55f
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(accentColor.copy(alpha = pulse * reveal), Color.Transparent),
@@ -115,7 +143,7 @@ fun EffectVisual(
             )
         }
 
-        // Layer 2: the rendered head. Offscreen so the sheen only lands on head pixels.
+        // Layer 2: the rendered bust (offscreen so the sheen only touches bust pixels).
         Canvas(
             Modifier
                 .fillMaxSize()
@@ -125,21 +153,20 @@ fun EffectVisual(
                 },
         ) {
             val img = image ?: return@Canvas
-            val layout = headLayout(size.width, size.height)
+            val l = bustLayout(size.width, size.height)
             drawImage(
                 image = img,
                 srcOffset = IntOffset.Zero,
                 srcSize = IntSize(img.width, img.height),
-                dstOffset = IntOffset(layout.left.toInt(), layout.top.toInt()),
-                dstSize = IntSize(layout.w.toInt(), layout.h.toInt()),
+                dstOffset = IntOffset(l.left.toInt(), l.top.toInt()),
+                dstSize = IntSize(l.size.toInt(), l.size.toInt()),
                 filterQuality = FilterQuality.High,
             )
-            // Moving soft highlight (SrcAtop = only brightens pixels that already exist).
-            val sc = Offset(layout.centerX + drift * layout.w * 0.14f, layout.top + layout.h * 0.30f)
-            val sr = layout.w * 0.30f
+            val sc = Offset(l.centerX + drift * l.size * 0.10f, l.top + l.size * 0.20f)
+            val sr = l.size * 0.22f
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color.White.copy(alpha = 0.13f), Color.Transparent),
+                    colors = listOf(Color.White.copy(alpha = 0.07f), Color.Transparent),
                     center = sc,
                     radius = sr,
                 ),
@@ -151,18 +178,21 @@ fun EffectVisual(
     }
 }
 
-private class HeadLayout(val left: Float, val top: Float, val w: Float, val h: Float) {
-    val centerX get() = left + w / 2f
-    val headCenterY get() = top + h * 0.35f
+private class BustLayout(val left: Float, val top: Float, val size: Float) {
+    val centerX get() = left + size / 2f
+    val headCenterY get() = top + size * 0.33f
 }
 
-private fun headLayout(cw: Float, ch: Float): HeadLayout {
-    val h = min(ch * 0.80f, cw * 1.45f / 0.8f)
-    val w = h * 0.8f
-    return HeadLayout((cw - w) / 2f, (ch - h) * 0.45f, w, h)
+/**
+ * The bitmap is square; the head + chin span ~53% of its height. Scaling the bitmap to
+ * 53% of the screen height therefore makes the head ~28% of the screen height.
+ */
+private fun bustLayout(cw: Float, ch: Float): BustLayout {
+    val s = ch * 0.53f
+    return BustLayout((cw - s) / 2f, ch * 0.97f - s, s)
 }
 
-private object HeadCache {
+private object BustCache {
     private var key = 0
     private var image: ImageBitmap? = null
     fun get(k: Int): ImageBitmap? = if (image != null && key == k) image else null
@@ -179,8 +209,6 @@ private fun smin(a: Float, b: Float, k: Float): Float {
     return min(a, b) - h * h * k * 0.25f
 }
 
-private fun smax(a: Float, b: Float, k: Float) = -smin(-a, -b, k)
-
 private fun ell(
     x: Float, y: Float, z: Float,
     cx: Float, cy: Float, cz: Float,
@@ -191,9 +219,6 @@ private fun ell(
     val k1 = len3(px / rx, py / ry, pz / rz) + 1e-9f
     return k0 * (k0 - 1f) / k1
 }
-
-private fun sph(x: Float, y: Float, z: Float, cx: Float, cy: Float, cz: Float, r: Float) =
-    len3(x - cx, y - cy, z - cz) - r
 
 private fun cap(
     x: Float, y: Float, z: Float,
@@ -207,70 +232,42 @@ private fun cap(
     return len3(pax - bax * h, pay - bay * h, paz - baz * h) - r
 }
 
-/** The sculpted mannequin: cranium, jaw, brow, eyelids, nose, lips, neck, shoulders. */
-private fun headSdf(x: Float, y: Float, z: Float): Float {
+/** Blank sculptor's bust: cranium, soft face plane, jaw, chin, ears, neck, shoulders. No facial features. */
+private fun bustSdf(x: Float, y: Float, z: Float): Float {
     val ax = abs(x)
-    var d = ell(x, y, z, 0f, 0.16f, -0.08f, 0.58f, 0.62f, 0.62f)
-    d = smin(d, ell(x, y, z, 0f, -0.30f, 0.14f, 0.43f, 0.40f, 0.46f), 0.30f)      // jaw
-    d = smin(d, ell(x, y, z, 0f, -0.68f, 0.32f, 0.17f, 0.12f, 0.14f), 0.18f)      // chin
-    d = smin(d, ell(ax, y, z, 0.28f, -0.12f, 0.36f, 0.17f, 0.12f, 0.14f), 0.15f)  // cheekbones
-    d = smin(d, cap(ax, y, z, 0f, 0.12f, 0.50f, 0.32f, 0.13f, 0.44f, 0.075f), 0.10f) // brow ridge
-    d = smax(d, -ell(ax, y, z, 0.24f, 0.06f, 0.62f, 0.14f, 0.085f, 0.10f), 0.08f) // eye sockets
-    d = smin(d, sph(ax, y, z, 0.24f, 0.045f, 0.465f, 0.095f), 0.05f)             // closed lids
-    d = smin(d, cap(x, y, z, 0f, 0.04f, 0.52f, 0f, -0.22f, 0.66f, 0.065f), 0.08f) // nose bridge
-    d = smin(d, sph(x, y, z, 0f, -0.27f, 0.70f, 0.095f), 0.07f)                   // nose tip
-    d = smin(d, ell(ax, y, z, 0.09f, -0.27f, 0.62f, 0.06f, 0.055f, 0.06f), 0.05f) // nostril wings
-    d = smin(d, ell(x, y, z, 0f, -0.47f, 0.57f, 0.12f, 0.035f, 0.06f), 0.04f)     // upper lip
-    d = smin(d, ell(x, y, z, 0f, -0.55f, 0.56f, 0.10f, 0.035f, 0.055f), 0.04f)    // lower lip
-    d = smax(d, -ell(x, y, z, 0f, -0.51f, 0.61f, 0.15f, 0.008f, 0.07f), 0.02f)    // mouth line
-    d = smin(d, cap(x * 0.85f, y, z, 0f, -0.70f, -0.02f, 0f, -2.0f, -0.02f, 0.30f), 0.14f) // neck
-    d = smin(d, ell(x, y, z, 0f, -2.0f, -0.08f, 1.5f, 0.5f, 0.52f), 0.65f)        // shoulders
-    return d
-}
-
-/** Over-ear headphones: rounded earcups, soft cushions, headband, slider arms. */
-private fun phonesSdf(x: Float, y: Float, z: Float): Float {
-    val ax = abs(x)
-    // earcup
-    val r2 = len2((y + 0.02f) / 1.10f, z * 1.15f) - 0.30f
-    val wx = abs(ax - 0.66f) - 0.12f
-    val cup = min(max(wx, r2), 0f) + len2(max(wx, 0f), max(r2, 0f)) - 0.10f
-    // cushion
-    val r3 = len2(y / 1.08f, z * 1.15f) - 0.26f
-    val wx2 = abs(ax - 0.55f) - 0.05f
-    val cush = min(max(wx2, r3), 0f) + len2(max(wx2, 0f), max(r3, 0f)) - 0.06f
-    var d = smin(cup, cush, 0.05f)
-    // headband: scaled torus section so it hugs the skull
-    val rr = len2(x / 0.68f * 0.8f, y / 0.90f * 0.8f)
-    var ring = len2(rr - 0.8f, z * 0.45f) - 0.085f
-    ring *= 0.78f
-    ring = max(ring, -(y - 0.30f))
-    d = smin(d, ring, 0.04f)
-    // slider arm
-    d = smin(d, cap(ax, y, z, 0.64f, 0.40f, 0f, 0.66f, 0.18f, 0f, 0.06f), 0.04f)
+    var d = ell(x, y, z, 0f, 0.16f, -0.08f, 0.56f, 0.62f, 0.62f)                    // cranium
+    d = smin(d, ell(x, y, z, 0f, -0.10f, 0.16f, 0.42f, 0.55f, 0.46f), 0.30f)         // face plane
+    d = smin(d, ell(x, y, z, 0f, -0.30f, 0.14f, 0.45f, 0.38f, 0.46f), 0.30f)         // jaw
+    d = smin(d, ell(x, y, z, 0f, -0.64f, 0.30f, 0.20f, 0.12f, 0.15f), 0.20f)         // chin
+    d = smin(d, ell(ax, y, z, 0.30f, -0.18f, 0.30f, 0.16f, 0.14f, 0.16f), 0.18f)     // jaw angle
+    d = smin(d, ell(ax, y, z, 0.56f, -0.02f, -0.04f, 0.05f, 0.15f, 0.09f), 0.05f)    // ears
+    d = smin(d, cap(x * 0.85f, y, z, 0f, -0.70f, -0.02f, 0f, -2.0f, -0.02f, 0.28f), 0.16f) // neck
+    d = smin(d, ell(x, y, z, 0f, -1.95f, -0.08f, 1.35f, 0.48f, 0.50f), 0.60f)         // shoulders
     return d
 }
 
 // ─────────────────────────────── renderer ───────────────────────────────
 
-private const val TILT = 0.08f // chin-down tilt: reads friendlier than a dead-flat frontal bust
+private const val TILT = 0.05f
 private val COS_T = cos(TILT.toDouble()).toFloat()
 private val SIN_T = sin(TILT.toDouble()).toFloat()
 
-private const val IMG_W = 360
-private const val IMG_H = 450
-private const val VIEW_H = 3.7f
-private const val CAM_Y = -0.40f
+private const val IMG = 640
+private const val VIEW_H = 3.0f
+private const val CAM_Y = -0.5f
 
-private fun sceneSdf(x: Float, y: Float, z: Float): Float {
-    val qy = COS_T * y - SIN_T * z
-    val qz = SIN_T * y + COS_T * z
-    return min(headSdf(x, qy, qz), phonesSdf(x, qy, qz))
-}
+private fun sceneSdf(x: Float, y: Float, z: Float): Float =
+    bustSdf(x, COS_T * y - SIN_T * z, SIN_T * y + COS_T * z)
 
-private fun norm3(x: Float, y: Float, z: Float): FloatArray {
-    val l = len3(x, y, z)
-    return floatArrayOf(x / l, y / l, z / l)
+/** Orthographic ray down -Z. Returns hit distance t, or -1 on a miss. */
+private fun marchT(u: Float, v: Float): Float {
+    var t = 6.5f
+    while (t < 9.6f) {
+        val d = sceneSdf(u, v, 8f - t)
+        if (d < 0.0012f) return t
+        t += d * 0.9f
+    }
+    return -1f
 }
 
 private fun smooth01(x: Float): Float {
@@ -278,145 +275,177 @@ private fun smooth01(x: Float): Float {
     return c * c * (3f - 2f * c)
 }
 
-private suspend fun renderHead(accent: Color, ring: Boolean): ImageBitmap = coroutineScope {
-    val pixels = IntArray(IMG_W * IMG_H)
+/** Cheap integer hash → [0,1). */
+private fun hash01(i: Int, j: Int, seed: Int): Float {
+    var h = i * 374761393 + j * 668265263 + seed * 1442695041
+    h = (h xor (h ushr 13)) * 1274126177
+    h = h xor (h ushr 16)
+    return (h and 0xFFFFFF) / 16777216f
+}
+
+private fun pixelU(i: Float) = (i / IMG - 0.5f) * VIEW_H
+private fun pixelV(j: Float) = (0.5f - j / IMG) * VIEW_H + CAM_Y
+
+private suspend fun renderBust(accent: Color): ImageBitmap = coroutineScope {
+    val hitT = FloatArray(IMG * IMG)
+    val pixels = IntArray(IMG * IMG)
     val workers = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+
+    // Phase 1: primary rays.
     (0 until workers).map { w ->
         async(Dispatchers.Default) {
             var j = w
-            while (j < IMG_H) {
-                shadeRow(j, pixels, accent, ring)
-                j += workers // interleaved rows balance the load across threads
+            while (j < IMG) {
+                for (i in 0 until IMG) hitT[j * IMG + i] = marchT(pixelU(i + 0.5f), pixelV(j + 0.5f))
+                j += workers
             }
         }
     }.awaitAll()
-    val bmp = Bitmap.createBitmap(IMG_W, IMG_H, Bitmap.Config.ARGB_8888)
-    bmp.setPixels(pixels, 0, IMG_W, 0, 0, IMG_W, IMG_H)
+
+    // Phase 2: shading + edge supersampling (needs neighbours, hence the barrier).
+    (0 until workers).map { w ->
+        async(Dispatchers.Default) {
+            val rgb = FloatArray(3)
+            var j = w
+            while (j < IMG) {
+                shadeRow(j, hitT, pixels, accent, rgb)
+                j += workers
+            }
+        }
+    }.awaitAll()
+
+    val bmp = Bitmap.createBitmap(IMG, IMG, Bitmap.Config.ARGB_8888)
+    bmp.setPixels(pixels, 0, IMG, 0, 0, IMG, IMG)
     bmp.asImageBitmap()
 }
 
-private fun shadeRow(j: Int, out: IntArray, accent: Color, ring: Boolean) {
-    val asp = IMG_W.toFloat() / IMG_H
-    val pw = VIEW_H / IMG_H
-    val l1 = norm3(-0.45f, 0.75f, 0.65f)
-    val l2 = norm3(0.7f, 0.2f, 0.4f)
-    val hv = norm3(l1[0], l1[1], l1[2] + 1f)
-    val accR = accent.red; val accG = accent.green; val accB = accent.blue
+private fun shadeRow(j: Int, hitT: FloatArray, out: IntArray, accent: Color, rgb: FloatArray) {
+    val fadeY = 1f - smooth01((j.toFloat() / IMG - 0.74f) / 0.24f) // dissolve the cut-off bust into black
 
-    val v = (0.5f - (j + 0.5f) / IMG_H) * VIEW_H + CAM_Y
-    // fade the cut-off bust into black at the bottom
-    val fadeY = 1f - smooth01(((j.toFloat() / IMG_H) - 0.70f) / 0.26f)
+    for (i in 0 until IMG) {
+        val idx = j * IMG + i
+        val tc = hitT[idx]
+        val centreHit = tc >= 0f
 
-    for (i in 0 until IMG_W) {
-        val u = ((i + 0.5f) / IMG_W - 0.5f) * VIEW_H * asp
-        val fadeX = smooth01(min(i, IMG_W - 1 - i) / (0.10f * IMG_W))
+        // Is any neighbour different? Then this pixel straddles the silhouette.
+        var edge = false
+        loop@ for (dj in -1..1) for (di in -1..1) {
+            val ni = i + di; val nj = j + dj
+            if (ni < 0 || nj < 0 || ni >= IMG || nj >= IMG) continue
+            if ((hitT[nj * IMG + ni] >= 0f) != centreHit) { edge = true; break@loop }
+        }
+        if (!centreHit && !edge) { out[idx] = 0; continue }
 
-        // ── ray march (orthographic, looking down -Z) ──
-        var t = 6.3f
-        var hit = false
-        var dmin = 1e9f
-        while (t < 10f) {
-            val d = sceneSdf(u, v, 8f - t)
-            if (d < dmin) dmin = d
-            if (d < 0.0015f) { hit = true; break }
-            t += d * 0.9f
+        var coverage = 1f
+        var su = pixelU(i + 0.5f)
+        var sv = pixelV(j + 0.5f)
+        var st = tc
+        if (edge) {
+            var hits = 0
+            var found = centreHit
+            for (sj in 0 until 3) for (si in 0 until 3) {
+                val u = pixelU(i + (si + 0.5f) / 3f)
+                val v = pixelV(j + (sj + 0.5f) / 3f)
+                val t = marchT(u, v)
+                if (t >= 0f) {
+                    hits++
+                    if (!found) { found = true; su = u; sv = v; st = t }
+                }
+            }
+            if (hits == 0) { out[idx] = 0; continue }
+            coverage = hits / 9f
         }
 
-        if (!hit) {
-            val edge = (1f - dmin / pw).coerceIn(0f, 1f) * 0.6f
-            val a = (edge * fadeX * fadeY * 255f).toInt()
-            out[j * IMG_W + i] = if (a <= 0) 0 else (a shl 24) or 0x595959
-            continue
-        }
+        shade(su, sv, st, accent, rgb)
 
-        val px = u; val py = v; val pz = 8f - t
-
-        // normal (tetrahedron sampling)
-        val h = 0.0015f
-        val n0 = sceneSdf(px + h, py - h, pz - h)
-        val n1 = sceneSdf(px - h, py - h, pz + h)
-        val n2 = sceneSdf(px - h, py + h, pz - h)
-        val n3 = sceneSdf(px + h, py + h, pz + h)
-        var nx = n0 - n1 - n2 + n3
-        var ny = -n0 - n1 + n2 + n3
-        var nz = -n0 + n1 - n2 + n3
-        val nl = len3(nx, ny, nz) + 1e-9f
-        nx /= nl; ny /= nl; nz /= nl
-
-        // lighting frame (slightly tilted, matches the look tuned in the prototype)
-        val nvx = nx
-        val nvy = COS_T * ny + SIN_T * nz
-        val nvz = -SIN_T * ny + COS_T * nz
-
-        // which material did we hit?
-        val qy = COS_T * py - SIN_T * pz
-        val qz = SIN_T * py + COS_T * pz
-        val isPhones = phonesSdf(px, qy, qz) < headSdf(px, qy, qz)
-
-        val ndl1 = (nvx * l1[0] + nvy * l1[1] + nvz * l1[2]).coerceIn(0f, 1f)
-        val ndl2 = (nvx * l2[0] + nvy * l2[1] + nvz * l2[2]).coerceIn(0f, 1f)
-
-        // soft shadow toward the key light
-        var sh = 1f
-        var tt = 0.05f
-        for (s in 0 until 24) {
-            val dd = sceneSdf(px + l1[0] * tt, py + l1[1] * tt, pz + l1[2] * tt)
-            sh = min(sh, (7f * dd / tt).coerceIn(0f, 1f))
-            tt += dd.coerceIn(0.03f, 0.25f)
-        }
-        sh = smooth01(sh)
-
-        // ambient occlusion
-        var ao = 0f
-        for (k in 1..5) {
-            val hh = 0.05f * k
-            val dd = sceneSdf(px + nx * hh, py + ny * hh, pz + nz * hh)
-            ao += (hh - dd) / (1 shl k).toFloat()
-        }
-        ao = (1f - 1.6f * ao).coerceIn(0f, 1f)
-
-        val ndv = nvz.coerceIn(0f, 1f)
-        val omn = 1f - ndv
-        val fres = omn * omn * omn
-        val rx = 2f * ndv * nvx
-        val ry = 2f * ndv * nvy
-        // fake studio environment: gradient + two softboxes
-        val up = (ry * 0.5f + 0.5f).coerceIn(0f, 1f)
-        val env = 0.10f + 0.55f * up * up +
-            0.9f * exp(-((rx + 0.5f) * (rx + 0.5f) * 6f + (ry - 0.5f) * (ry - 0.5f) * 9f)) +
-            0.5f * exp(-((rx - 0.8f) * (rx - 0.8f) * 8f + (ry - 0.1f) * (ry - 0.1f) * 20f))
-
-        val ndh = (nvx * hv[0] + nvy * hv[1] + nvz * hv[2]).coerceIn(0f, 1f)
-        val specH = ndh.pow(40f)
-        val specP = ndh.pow(90f)
-
-        var col: Float
-        if (isPhones) {
-            val base = 0.16f * ndl1 * sh + 0.04f * ndl2 + 0.03f
-            col = base * ao + 0.7f * specP * sh + 0.30f * env * (0.2f + 0.8f * fres) * ao
-        } else {
-            val base = 0.50f * ndl1 * sh + 0.12f * ndl2 + 0.10f * (0.5f + 0.5f * nvy)
-            col = (base * ao + 0.30f * specH * sh + 0.22f * env * fres * ao + 0.05f * env * ao).pow(0.95f)
-        }
-        col += 0.25f * fres * (0.6f + 0.4f * nvy).coerceIn(0f, 1f) * ao
-
-        var r = col * 0.98f
-        var g = col
-        var b = col * 1.03f
-
-        // thin glowing accent ring on each earcup's outer face
-        if (ring && isPhones && abs(px) > 0.74f) {
-            val re = len2((qy + 0.02f) / 1.10f, qz * 1.15f)
-            val dr = (re - 0.16f)
-            val e = (exp(-(dr / 0.010f) * (dr / 0.010f)) + 0.18f * exp(-(dr / 0.05f) * (dr / 0.05f))) *
-                ((abs(nx) - 0.6f) / 0.3f).coerceIn(0f, 1f)
-            r += accR * e * 0.9f; g += accG * e * 0.9f; b += accB * e * 0.9f
-        }
-
-        val a = (fadeX * fadeY * 255f).toInt().coerceIn(0, 255)
-        val ri = (r.coerceIn(0f, 1f) * 255f).toInt()
-        val gi = (g.coerceIn(0f, 1f) * 255f).toInt()
-        val bi = (b.coerceIn(0f, 1f) * 255f).toInt()
-        out[j * IMG_W + i] = (a shl 24) or (ri shl 16) or (gi shl 8) or bi
+        // Triangular dither (±1 LSB) so dark gradients don't band.
+        val n = hash01(i, j, 1) + hash01(i, j, 2) - 1f
+        val fadeX = smooth01(min(i, IMG - 1 - i) / (0.05f * IMG))
+        val a = (coverage * fadeY * fadeX * 255f + n + 0.5f).toInt().coerceIn(0, 255)
+        if (a == 0) { out[idx] = 0; continue }
+        val ri = (rgb[0] * 255f + n + 0.5f).toInt().coerceIn(0, 255)
+        val gi = (rgb[1] * 255f + n + 0.5f).toInt().coerceIn(0, 255)
+        val bi = (rgb[2] * 255f + n + 0.5f).toInt().coerceIn(0, 255)
+        out[idx] = (a shl 24) or (ri shl 16) or (gi shl 8) or bi
     }
+}
+
+private val L1 = normalise(-0.45f, 0.75f, 0.65f)
+private val L2 = normalise(0.7f, 0.2f, 0.4f)
+private val HV = normalise(L1[0], L1[1], L1[2] + 1f)
+
+private fun normalise(x: Float, y: Float, z: Float): FloatArray {
+    val l = len3(x, y, z)
+    return floatArrayOf(x / l, y / l, z / l)
+}
+
+/** Lit colour at the surface point found by marching ray (u,v) to distance t. Writes linear 0..1 RGB. */
+private fun shade(u: Float, v: Float, t: Float, accent: Color, rgb: FloatArray) {
+    val px = u; val py = v; val pz = 8f - t
+
+    // normal (tetrahedron sampling)
+    val h = 0.0015f
+    val n0 = sceneSdf(px + h, py - h, pz - h)
+    val n1 = sceneSdf(px - h, py - h, pz + h)
+    val n2 = sceneSdf(px - h, py + h, pz - h)
+    val n3 = sceneSdf(px + h, py + h, pz + h)
+    var nx = n0 - n1 - n2 + n3
+    var ny = -n0 - n1 + n2 + n3
+    var nz = -n0 + n1 - n2 + n3
+    val nl = len3(nx, ny, nz) + 1e-9f
+    nx /= nl; ny /= nl; nz /= nl
+
+    val nvx = nx
+    val nvy = COS_T * ny + SIN_T * nz
+    val nvz = -SIN_T * ny + COS_T * nz
+
+    val ndl1 = (nvx * L1[0] + nvy * L1[1] + nvz * L1[2]).coerceIn(0f, 1f)
+    val ndl2 = (nvx * L2[0] + nvy * L2[1] + nvz * L2[2]).coerceIn(0f, 1f)
+
+    // soft shadow toward the key light (chin onto neck)
+    var sh = 1f
+    var tt = 0.05f
+    for (s in 0 until 16) {
+        val dd = sceneSdf(px + L1[0] * tt, py + L1[1] * tt, pz + L1[2] * tt)
+        sh = min(sh, (7f * dd / tt).coerceIn(0f, 1f))
+        tt += dd.coerceIn(0.03f, 0.25f)
+    }
+    sh = smooth01(sh)
+
+    // ambient occlusion
+    var ao = 0f
+    for (k in 1..4) {
+        val hh = 0.06f * k
+        val dd = sceneSdf(px + nx * hh, py + ny * hh, pz + nz * hh)
+        ao += (hh - dd) / (1 shl k).toFloat()
+    }
+    ao = (1f - 1.6f * ao).coerceIn(0f, 1f)
+
+    val ndv = nvz.coerceIn(0f, 1f)
+    val om = 1f - ndv
+    val fres = om * om * om
+    val rx = 2f * ndv * nvx
+    val ry = 2f * ndv * nvy
+
+    // Fake studio: two tall softboxes left/right + a top box. This is what carves the form.
+    val win = smooth01((ry + 0.5f) / 0.6f) * smooth01((0.9f - ry) / 0.4f)
+    val up = (ry * 0.5f + 0.5f).coerceIn(0f, 1f)
+    val env = 0.07f + 0.40f * up * up * up +
+        1.3f * exp(-(rx + 0.62f) * (rx + 0.62f) * 14f) * win +
+        0.85f * exp(-(rx - 0.70f) * (rx - 0.70f) * 16f) * win +
+        0.9f * exp(-((ry - 0.78f) * (ry - 0.78f) * 40f + rx * rx * 3f))
+
+    val ndh = (nvx * HV[0] + nvy * HV[1] + nvz * HV[2]).coerceIn(0f, 1f)
+
+    var col = 0.028f + 0.12f * ndl1 * sh * ao + 0.04f * ndl2 * ao +
+        0.65f * env * (0.10f + 0.85f * fres) * ao +
+        0.9f * ndh.pow(140f) * sh
+    col += 0.20f * fres * (0.6f + 0.4f * nvy).coerceIn(0f, 1f) * ao
+
+    // faint accent kicker on the right edge so the glow and the bust feel connected
+    val kick = 0.22f * fres * (nvx * 0.8f + nvy * 0.2f).coerceIn(0f, 1f) * ao
+
+    rgb[0] = (col * 0.96f + accent.red * kick).coerceIn(0f, 1f)
+    rgb[1] = (col * 0.99f + accent.green * kick).coerceIn(0f, 1f)
+    rgb[2] = (col * 1.06f + accent.blue * kick).coerceIn(0f, 1f)
 }
