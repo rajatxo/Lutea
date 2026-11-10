@@ -223,7 +223,8 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         val arrowBaseR = ringR - size.width * 0.045f
         val arrowH = size.width * 0.024f
         val arrowW = size.width * 0.030f
-        val sphereR = arrowBaseR - size.width * 0.020f
+        // Sphere sits inside the arrows with extra breathing room (gap doubled).
+        val sphereR = arrowBaseR - size.width * 0.060f
 
         val cx = size.width / 2f
         // Vertical center sits at half of width so rings are perfectly circular.
