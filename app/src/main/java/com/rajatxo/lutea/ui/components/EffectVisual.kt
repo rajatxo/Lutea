@@ -204,10 +204,9 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         val edgeGapPx = size.width * edgeGapFrac
 
         // Text size — measured once to size the composition around it.
-        val textSize = size.width * 0.024f
-        val labelTextSize = textSize   // LEFT/RIGHT/UP/DOWN same size
-        // Approximate width of "LEFT"/"RIGHT" — 4 chars × ~0.55 × textSize.
-        val labelHalfWidth = labelTextSize * 4f * 0.55f / 2f
+        val labelFontSize = size.width * 0.024f   // LEFT/RIGHT/UP/DOWN same size
+        // Approximate width of "LEFT"/"RIGHT" — 4 chars × ~0.55 × fontSize.
+        val labelHalfWidth = labelFontSize * 4f * 0.55f / 2f
 
         // Geometry, driven by width so rings fill edge-to-edge:
         //   outermost extent (LEFT/RIGHT label outer edge) = width/2 - edgeGapPx
@@ -338,7 +337,7 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         // screen edge. UP/DOWN are centered horizontally already.
         val paint = android.graphics.Paint().apply {
             color = android.graphics.Color.argb(245, 245, 240, 230)
-            textSize = labelTextSize
+            this.textSize = labelFontSize
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             textAlign = android.graphics.Paint.Align.CENTER
         }
