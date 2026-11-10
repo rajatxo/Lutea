@@ -120,9 +120,4 @@ dependencies {
 
     // ★ Kotlinx Serialization — playlist persistence
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-
-    // ★ Filament — 3D rendering engine for the 8D audio head model
-    implementation("com.google.android.filament:filament-android:1.56.0")
-    implementation("com.google.android.filament:gltfio-android:1.56.0")
-    implementation("com.google.android.filament:filament-utils-android:1.56.0")
 }

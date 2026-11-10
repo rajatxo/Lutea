@@ -59,7 +59,7 @@ import com.rajatxo.lutea.ui.player.PlayerNavigation
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
 import com.rajatxo.lutea.ui.components.CalSansFamily
-import com.rajatxo.lutea.ui.components.FilamentViewport
+import com.rajatxo.lutea.ui.components.EffectVisual
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.util.LuteaTab
 import kotlinx.coroutines.Dispatchers
@@ -364,27 +364,10 @@ fun QuickPicksScreen(
     }
 }
 
-// ── Effect content — 3D head rendered with Filament ──
+// ── Effect content — 2D ray-marched head with headphones (pure Canvas, no Filament) ──
 @Composable
 private fun EffectContent() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0D0D0D),  // 5% grey at very top
-                        Color(0xFF000000),  // 95% black
-                    ),
-                ),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        FilamentViewport(
-            assetPath = "models/head.glb",
-            modifier = Modifier.fillMaxSize(),
-        )
-    }
+    EffectVisual(modifier = Modifier.fillMaxSize())
 }
 
 // ── Search content — basic placeholder, will be polished later ──
