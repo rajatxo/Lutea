@@ -184,12 +184,13 @@ private class BustLayout(val left: Float, val top: Float, val size: Float) {
 }
 
 /**
- * The bitmap is square; the head + chin span ~53% of its height. Scaling the bitmap to
- * 53% of the screen height therefore makes the head ~28% of the screen height.
+ * The bitmap is square; the visible bust (head + neck + shoulders) fills ~80% of
+ * its height. Scaling the bitmap to 35% of the screen height makes the visible
+ * bust ~28% of the screen height — small, bottom-anchored, lots of space above.
  */
 private fun bustLayout(cw: Float, ch: Float): BustLayout {
-    val s = ch * 0.53f
-    return BustLayout((cw - s) / 2f, ch * 0.97f - s, s)
+    val s = ch * 0.35f
+    return BustLayout((cw - s) / 2f, ch * 0.95f - s, s)
 }
 
 private object BustCache {
