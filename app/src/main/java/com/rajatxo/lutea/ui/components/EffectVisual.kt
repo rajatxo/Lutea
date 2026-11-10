@@ -235,7 +235,7 @@ private fun CloseButton(onClick: () -> Unit, size: androidx.compose.ui.unit.Dp) 
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val s = size.minDimension
+            val s = minOf(this.size.width, this.size.height)
             val inset = s * 0.28f
             drawLine(
                 color = Cream.copy(alpha = 0.85f),
