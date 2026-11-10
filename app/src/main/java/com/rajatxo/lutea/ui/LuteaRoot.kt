@@ -9,7 +9,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.rajatxo.lutea.data.prefs.UserNameManager
-import com.rajatxo.lutea.ui.components.preloadEffectVisual
 import com.rajatxo.lutea.ui.screens.NameCardScreen
 import com.rajatxo.lutea.ui.screens.QuickPicksScreen
 
@@ -27,10 +26,6 @@ import com.rajatxo.lutea.ui.screens.QuickPicksScreen
 fun LuteaRoot() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("lutea_prefs", Context.MODE_PRIVATE) }
-
-    // Kick off the Effect tab's bust render in the background so it's already
-    // cached by the time the user navigates there. Race-safe (Mutex inside).
-    LaunchedEffect(Unit) { preloadEffectVisual() }
 
     // Read the persisted flag ONCE on first composition.
     // If onboarding was already completed (saved in prefs), skip straight to Quick Picks.

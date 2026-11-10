@@ -59,7 +59,7 @@ import com.rajatxo.lutea.ui.player.PlayerNavigation
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
 import com.rajatxo.lutea.ui.components.CalSansFamily
-import com.rajatxo.lutea.ui.components.EffectVisual
+import com.rajatxo.lutea.ui.components.SpatialAudioControllerCard
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.util.LuteaTab
 import kotlinx.coroutines.Dispatchers
@@ -364,10 +364,19 @@ fun QuickPicksScreen(
     }
 }
 
-// ── Effect content — 2D ray-marched head with headphones (pure Canvas, no Filament) ──
+// ── Effect content — spatial audio controller card (pure Canvas, Gemini design) ──
 @Composable
 private fun EffectContent() {
-    EffectVisual(modifier = Modifier.fillMaxSize())
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF000000)),
+        contentAlignment = Alignment.Center,
+    ) {
+        SpatialAudioControllerCard(
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+    }
 }
 
 // ── Search content — basic placeholder, will be polished later ──
