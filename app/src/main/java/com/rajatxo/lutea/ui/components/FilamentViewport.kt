@@ -1,7 +1,7 @@
 package com.rajatxo.lutea.ui.components
 
-import android.content.Context
 import android.view.Choreographer
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -9,16 +9,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import com.google.android.filament.Camera
 import com.google.android.filament.Engine
 import com.google.android.filament.EntityManager
 import com.google.android.filament.LightManager
-import com.google.android.filament.Renderer
-import com.google.android.filament.Scene
 import com.google.android.filament.SwapChain
 import com.google.android.filament.View
 import com.google.android.filament.Viewport
-import com.google.android.filament.android.UiHelper
 import com.google.android.filament.gltfio.AssetLoader
 import com.google.android.filament.gltfio.ResourceLoader
 import com.google.android.filament.gltfio.UbershaderProvider
@@ -43,29 +39,28 @@ fun FilamentViewport(
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            // Init native libraries
             Utils.init()
 
             val surfaceView = SurfaceView(ctx)
 
-            val uiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK)
-            uiHelper.renderCallback = object : UiHelper.RendererCallback {
-                override fun onNativeWindowChanged(surface: android.view.Surface) {
-                    swapChainRef[0]?.let { engine.destroySwapChain(it) }
-                    swapChainRef[0] = engine.createSwapChain(surface)
+            // Use standard SurfaceHolder.Callback instead of UiHelper
+            surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: SurfaceHolder) {
+                    swapChainRef[0] = engine.createSwapChain(holder.surface)
                     view.viewport = Viewport(0, 0, surfaceView.width, surfaceView.height)
                 }
-                override fun onDetachedFromSurface() {
+
+                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                    view.viewport = Viewport(0, 0, width, height)
+                    val aspect = width.toDouble() / height.toDouble()
+                    camera.setProjection(45.0, aspect, 0.1, 100.0)
+                }
+
+                override fun surfaceDestroyed(holder: SurfaceHolder) {
                     swapChainRef[0]?.let { engine.destroySwapChain(it) }
                     swapChainRef[0] = null
                 }
-                override fun onResized(width: Int, height: Int) {
-                    view.viewport = Viewport(0, 0, width, height)
-                    val aspect = width.toFloat() / height.toFloat()
-                    camera.setProjection(45.0, aspect, 0.1, 100.0)
-                }
             })
-            uiHelper.attachTo(surfaceView)
 
             view.scene = scene
             view.camera = camera
@@ -103,17 +98,11 @@ fun FilamentViewport(
                     scene.addEntities(asset.entities)
                     asset.releaseSourceData()
                 }
-            } catch (e: Exception) {
-                // Model load failed
-            }
+            } catch (_: Exception) {}
 
-            // Camera
+            // Camera — Double, not Float
             camera.setProjection(45.0, 1.0, 0.1, 100.0)
-            camera.lookAt(
-                0.0f, 0.0f, 3.5f,
-                0.0f, 0.0f, 0.0f,
-                0.0f, 1.0f, 0.0f,
-            )
+            camera.lookAt(0.0, 0.0, 3.5, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
 
             // Render loop
             val choreographer = Choreographer.getInstance()
@@ -134,6 +123,6 @@ fun FilamentViewport(
     )
 
     DisposableEffect(Unit) {
-        onDispose { }
+        onDispose {}
     }
 }
