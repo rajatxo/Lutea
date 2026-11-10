@@ -350,7 +350,9 @@ fun QuickPicksScreen(
             when (activeTab) {
                 LuteaTab.Home -> QuickPicksContent()
                 LuteaTab.Search -> SearchContent()
-                LuteaTab.Effect -> EffectContent()
+                LuteaTab.Effect -> EffectContent(
+                    onClose = { activeTab = LuteaTab.Library },
+                )
                 LuteaTab.Library -> PlaylistsContent(
                     onOpenPlaylist = { selectedPlaylist = it },
                     playlistStyle = playlistStyle,
@@ -364,15 +366,15 @@ fun QuickPicksScreen(
     }
 }
 
-// ── Effect content — Behance dot sphere on top + head image at bottom ──
+// ── Effect content — Behance 3D Audio Controller look ──
 @Composable
-private fun EffectContent() {
+private fun EffectContent(onClose: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF000000)),
     ) {
-        EffectVisual()
+        EffectVisual(onClose = onClose)
     }
 }
 
