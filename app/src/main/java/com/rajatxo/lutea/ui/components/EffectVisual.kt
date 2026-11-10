@@ -237,43 +237,47 @@ private fun cap(
     return len3(pax - bax * h, pay - bay * h, paz - baz * h) - r
 }
 
+// The head is sculpted in the units of the MEASURED reference model (chin ≈ 0.14,
+// crown ≈ 1.02, +Z = face, nose tip z ≈ 0.86) and mapped into the scene with one
+// uniform scale + shift. Renderer, camera, layout and lighting are untouched.
+// Feature positions come from the silhouettes of the reference depth renders
+// (front: skull half-width 0.31, jaw 0.23; side: brow z 0.79, nose tip z 0.86, lips z 0.80).
+private const val HEAD_SCALE = 1.8f  // scene units per measured unit
+private const val HEAD_Y0 = 0.575f   // measured y that sits at scene y = 0 (mid-head)
+private const val HEAD_Z0 = 0.447f   // measured z that sits at scene z = 0
+
 /** Sculpted head: skull, face plane, jaw, brow, closed eyes, nose, lips, ears, neck, shoulders. */
 private fun bustSdf(x: Float, y: Float, z: Float): Float {
-    val ax = abs(x)
-    var d = ell(x, y, z, 0f, 0.17f, -0.08f, 0.54f, 0.62f, 0.62f)                      // cranium
-    d = smin(d, ell(x, y, z, 0f, 0.00f, 0.18f, 0.40f, 0.52f, 0.44f), 0.30f)           // forehead / face plane
-    d = smin(d, ell(x, y, z, 0f, -0.30f, 0.12f, 0.38f, 0.36f, 0.43f), 0.26f)          // lower face
-    d = smin(d, ell(x, y, z, 0f, -0.69f, 0.31f, 0.155f, 0.105f, 0.12f), 0.16f)        // chin
-    d = smin(d, ell(ax, y, z, 0.34f, -0.38f, 0.02f, 0.10f, 0.17f, 0.22f), 0.10f)      // jaw angle (bone under skin)
-    d = smin(d, ell(ax, y, z, 0.29f, -0.04f, 0.33f, 0.13f, 0.075f, 0.13f), 0.14f)     // cheekbone
-    d = smin(d, ell(ax, y, z, 0.54f, -0.03f, -0.04f, 0.05f, 0.15f, 0.09f), 0.05f)     // ears
-    d = smin(d, cap(ax, y, z, 0f, 0.135f, 0.52f, 0.33f, 0.15f, 0.40f, 0.058f), 0.12f) // brow ridge
+    val hx = x / HEAD_SCALE
+    val hy = y / HEAD_SCALE + HEAD_Y0
+    val hz = z / HEAD_SCALE + HEAD_Z0
+    val ax = abs(hx)
 
-    // Eyes: shallow orbit (big blend = no sharp socket), eyeball under a closed lid,
-    // one soft lid seam whose outer corner rises slightly.
-    val ys = y - 0.07f * (ax - 0.21f)
-    d = smax(d, -ell(ax, y, z, 0.21f, 0.05f, 0.62f, 0.16f, 0.10f, 0.13f), 0.14f)
-    d = smin(d, sph(ax, y, z, 0.21f, 0.045f, 0.47f, 0.098f), 0.055f)
-    d = smax(d, -ell(ax, ys, z, 0.21f, 0.036f, 0.585f, 0.095f, 0.010f, 0.08f), 0.02f)
-
-    // Nose: tapered bridge, tip, alae, faint nostril hints — all heavily blended.
-    d = smin(d, cap(x, y, z, 0f, 0.08f, 0.50f, 0f, -0.10f, 0.585f, 0.044f), 0.09f)
-    d = smin(d, cap(x, y, z, 0f, -0.10f, 0.585f, 0f, -0.27f, 0.665f, 0.056f), 0.09f)
-    d = smin(d, sph(x, y, z, 0f, -0.29f, 0.69f, 0.066f), 0.08f)
-    d = smin(d, ell(ax, y, z, 0.07f, -0.30f, 0.605f, 0.045f, 0.05f, 0.058f), 0.07f)
-    d = smax(d, -ell(ax, y, z, 0.045f, -0.335f, 0.64f, 0.028f, 0.012f, 0.045f), 0.02f)
-
-    // Mouth: muzzle, soft lips, a seam that curves up at the corners, chin crease.
-    d = smin(d, ell(x, y, z, 0f, -0.53f, 0.50f, 0.16f, 0.09f, 0.10f), 0.12f)
-    d = smin(d, ell(x, y, z, 0f, -0.485f, 0.565f, 0.12f, 0.028f, 0.06f), 0.06f)
-    d = smin(d, ell(x, y, z, 0f, -0.553f, 0.558f, 0.095f, 0.028f, 0.05f), 0.06f)
-    val ym = y - 0.4f * x * x
-    d = smax(d, -ell(x, ym, z, 0f, -0.522f, 0.60f, 0.125f, 0.008f, 0.07f), 0.016f)
-    d = smax(d, -ell(x, y, z, 0f, -0.625f, 0.585f, 0.07f, 0.014f, 0.05f), 0.035f)
-
-    d = smin(d, cap(x * 0.85f, y, z, 0f, -0.78f, -0.10f, 0f, -2.0f, -0.06f, 0.25f), 0.14f) // neck
-    d = smin(d, ell(x, y, z, 0f, -1.95f, -0.08f, 1.35f, 0.48f, 0.50f), 0.60f)               // shoulders
-    return d
+    var d = ell(hx, hy, hz, 0f, 0.77f, 0.385f, 0.315f, 0.255f, 0.375f)                // cranium
+    d = smin(d, ell(hx, hy, hz, 0f, 0.57f, 0.385f, 0.275f, 0.22f, 0.385f), 0.12f)     // temples / mid skull
+    d = smin(d, ell(hx, hy, hz, 0f, 0.33f, 0.27f, 0.235f, 0.25f, 0.22f), 0.12f)       // lower skull / occiput
+    d = smin(d, ell(hx, hy, hz, 0f, 0.4f, 0.46f, 0.225f, 0.31f, 0.34f), 0.16f)        // face plane (forehead to cheeks)
+    d = smin(d, ell(ax, hy, hz, 0.13f, 0.225f, 0.38f, 0.075f, 0.07f, 0.21f), 0.09f)   // mandible body
+    d = smin(d, ell(hx, hy, hz, 0f, 0.235f, 0.63f, 0.1f, 0.085f, 0.15f), 0.07f)       // chin
+    d = smin(d, ell(ax, hy, hz, 0.2f, 0.5f, 0.52f, 0.07f, 0.06f, 0.1f), 0.1f)         // cheekbone
+    d = smin(d, ell(ax, hy, hz, 0.318f, 0.535f, 0.335f, 0.036f, 0.118f, 0.068f), 0.06f)// ear
+    d = smin(d, cap(ax, hy, hz, 0f, 0.625f, 0.735f, 0.2f, 0.63f, 0.65f, 0.038f), 0.07f)// brow ridge
+    d = smax(d, -ell(ax, hy, hz, 0.13f, 0.565f, 0.8f, 0.075f, 0.04f, 0.12f), 0.07f)   // soft orbit hollow
+    d = smin(d, sph(ax, hy, hz, 0.13f, 0.56f, 0.64f, 0.055f), 0.03f)                  // eyeball under closed lid
+    d = smax(d, -ell(ax, hy - 0.30f*(ax - 0.13f), hz, 0.13f, 0.553f, 0.7f, 0.062f, 0.006f, 0.05f), 0.012f)// lid seam, outer corner rises
+    d = smin(d, cap(hx, hy, hz, 0f, 0.595f, 0.725f, 0f, 0.455f, 0.79f, 0.034f), 0.05f)// nose bridge
+    d = smin(d, sph(hx, hy, hz, 0f, 0.44f, 0.812f, 0.05f), 0.045f)                    // nose tip
+    d = smin(d, cap(hx, hy, hz, 0f, 0.44f, 0.8f, 0f, 0.375f, 0.775f, 0.03f), 0.04f)   // columella
+    d = smin(d, ell(ax, hy, hz, 0.047f, 0.405f, 0.765f, 0.032f, 0.036f, 0.042f), 0.04f)// nostril wings
+    d = smax(d, -ell(ax, hy, hz, 0.03f, 0.375f, 0.83f, 0.016f, 0.01f, 0.03f), 0.012f) // nostril hint
+    d = smin(d, ell(hx, hy, hz, 0f, 0.3f, 0.65f, 0.115f, 0.07f, 0.15f), 0.07f)        // muzzle
+    d = smin(d, ell(hx, hy, hz, 0f, 0.325f, 0.765f, 0.085f, 0.022f, 0.04f), 0.03f)    // upper lip
+    d = smin(d, ell(hx, hy, hz, 0f, 0.283f, 0.752f, 0.075f, 0.025f, 0.04f), 0.03f)    // lower lip
+    d = smax(d, -ell(hx, hy - 0.70f*hx*hx, hz, 0f, 0.307f, 0.8f, 0.095f, 0.005f, 0.05f), 0.009f)// mouth seam, corners curl up
+    d = smax(d, -ell(hx, hy, hz, 0f, 0.248f, 0.78f, 0.045f, 0.007f, 0.035f), 0.03f)   // chin crease
+    d = smin(d, cap(hx*0.88f, hy, hz, 0f, 0.25f, 0.36f, 0f, -0.62f, 0.3f, 0.175f), 0.1f)// neck
+    d = smin(d, ell(hx, hy, hz, 0f, -0.508f, 0.25f, 0.75f, 0.267f, 0.28f), 0.33f)     // shoulders
+    return d * HEAD_SCALE
 }
 
 // ─────────────────────────────── renderer ───────────────────────────────
