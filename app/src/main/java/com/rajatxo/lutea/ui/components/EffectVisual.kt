@@ -8,28 +8,18 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -45,9 +35,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
@@ -57,7 +45,6 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 private val Cream = Color(0xFFF5F0E6)
-private val GinkgoGold = Color(0xFFD4A03A)
 
 /**
  * Effect tab — dot sphere with concentric rings, outward arrows, 8 tag icons
@@ -70,9 +57,6 @@ private val GinkgoGold = Color(0xFFD4A03A)
 fun EffectVisual(
     modifier: Modifier = Modifier,
     headRes: Int = R.drawable.effect_head,
-    title: String = "Spatial Audio",
-    buttonLabel: String = "Activate",
-    onButtonClick: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     BoxWithConstraints(
@@ -83,84 +67,44 @@ fun EffectVisual(
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ── Top area: title + button (small) ──
-            val topHeight = with(density) { (heightPx * 0.08f).toDp() }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(topHeight)
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = title,
-                    color = Cream,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = with(density) { (min(widthPx, heightPx) * 0.040f).toSp() },
+        // ── Sphere composition, anchored to top ──
+        // Width = full screen so rings extend edge-to-edge.
+        // Height = capped at 0.45 of screen height (room left for the head).
+        val compositionHeightDp = with(density) { (heightPx * 0.45f).toDp() }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(compositionHeightDp)
+                .align(Alignment.TopCenter),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            SphereComposition(modifier = Modifier.fillMaxSize())
+        }
+
+        // ── Head image at bottom (old position: 50% screen height) ──
+        val imgSizeDp = with(density) {
+            val sideGapPx = widthPx * 0.075f
+            min(widthPx - sideGapPx * 2, heightPx * 0.50f).toDp()
+        }
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Box(modifier = Modifier.size(imgSizeDp, imgSizeDp)) {
+                Image(
+                    painter = painterResource(headRes),
+                    contentDescription = "Spatial audio head",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
                 )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(GinkgoGold)
-                        .clickable { onButtonClick() }
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        text = buttonLabel,
-                        color = Color.Black,
-                        fontFamily = CalSansFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = with(density) { (min(widthPx, heightPx) * 0.025f).toSp() },
-                    )
-                }
-            }
-
-            // ── Sphere composition — fills remaining space above the head ──
-            // Width = full screen so rings extend edge-to-edge.
-            // Height = everything except top area and head.
-            val headFraction = 0.50f
-            val imgSizeDp = with(density) {
-                val sideGapPx = widthPx * 0.075f
-                min(widthPx - sideGapPx * 2, heightPx * headFraction).toDp()
-            }
-            val compositionHeightDp = with(density) {
-                (heightPx - with(density) { topHeight.toPx() } - with(density) { imgSizeDp.toPx() }).toDp()
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(compositionHeightDp),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                SphereComposition(modifier = Modifier.fillMaxSize())
-            }
-
-            // ── Head image at bottom ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(imgSizeDp),
-                contentAlignment = Alignment.BottomCenter,
-            ) {
-                Box(modifier = Modifier.size(imgSizeDp, imgSizeDp)) {
-                    Image(
-                        painter = painterResource(headRes),
-                        contentDescription = "Spatial audio head",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .drawWithCache {
-                                val brush = Brush.verticalGradient(*blendStops(Color.Black))
-                                onDrawBehind { drawRect(brush) }
-                            },
-                    )
-                }
+                        .matchParentSize()
+                        .drawWithCache {
+                            val brush = Brush.verticalGradient(*blendStops(Color.Black))
+                            onDrawBehind { drawRect(brush) }
+                        },
+                )
             }
         }
     }
@@ -381,10 +325,10 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         for (dir in tagDirs) {
             if (dir.label.isEmpty()) continue
             val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
-            // LEFT/RIGHT labels are wide horizontally — push them further out so
-            // they don't sit on top of the tag icon. UP/DOWN are short, less offset.
+            // LEFT/RIGHT labels are wide horizontally — small extra offset so they
+            // don't sit on top of the tag icon. UP/DOWN are short, less offset.
             val offsetForDir = when (dir.label) {
-                "LEFT", "RIGHT" -> labelOffset * 2.4f
+                "LEFT", "RIGHT" -> labelOffset * 1.1f
                 else -> labelOffset
             }
             val lx = cx + (tagR + tagSize / 2f + offsetForDir) * cos(angleRad)
