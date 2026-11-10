@@ -59,7 +59,7 @@ import com.rajatxo.lutea.ui.player.PlayerNavigation
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
 import com.rajatxo.lutea.ui.components.CalSansFamily
-import com.rajatxo.lutea.ui.components.SpatialHead3D
+import com.rajatxo.lutea.ui.components.FilamentViewport
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.util.LuteaTab
 import kotlinx.coroutines.Dispatchers
@@ -364,7 +364,7 @@ fun QuickPicksScreen(
     }
 }
 
-// ── Effect content — 8D audio UI with 3D head ──
+// ── Effect content — 3D head rendered with Filament ──
 @Composable
 private fun EffectContent() {
     Box(
@@ -380,9 +380,9 @@ private fun EffectContent() {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        SpatialHead3D(
-            modifier = Modifier.size(220.dp),
-            accentColor = Color(0xFFFF8C24),
+        FilamentViewport(
+            assetPath = "models/head.glb",
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
