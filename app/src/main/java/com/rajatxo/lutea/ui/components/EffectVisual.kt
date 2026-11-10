@@ -161,11 +161,11 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
 
         // ── Radii, as fractions of the composition's min dimension ──
         val sphereR = dim * 0.30f
-        val arrowBaseR = dim * 0.40f   // distance from center to arrow base (tip near ring)
+        val arrowBaseR = dim * 0.32f   // arrow base sits just outside the sphere
         val arrowH = dim * 0.030f
         val arrowW = dim * 0.038f
-        val ringR = dim * 0.45f        // thin + thick circle radius
-        val dottedR = dim * 0.485f     // outermost dotted ring
+        val ringR = dim * 0.36f        // thin + thick circle just past arrow tips
+        val dottedR = dim * 0.395f     // outermost dotted ring
 
         val thinStroke = dim * 0.0028f
         val thickStroke = dim * 0.0080f
