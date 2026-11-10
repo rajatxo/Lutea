@@ -1,13 +1,21 @@
 package com.rajatxo.lutea.ui.components
 
-import androidx.compose.foundation.Image
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,10 +62,11 @@ fun EffectVisual(
         val sphereSizeDp = with(density) {
             (min(maxWidth.toPx(), maxHeight.toPx()) * 0.34f).toDp()
         }
+        val sphereTopPad = with(density) { (maxHeight.toPx() * 0.04f).toDp() }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = with(density) { (maxHeight.toPx() * 0.04f).toDp() }),
+                .padding(top = sphereTopPad),
         ) {
             DotSphere(modifier = Modifier.size(sphereSizeDp, sphereSizeDp))
         }
@@ -71,8 +80,7 @@ fun EffectVisual(
             sizePx.toDp()
         }
         Box(
-            modifier = Modifier
-                .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Box(modifier = Modifier.size(imgSizeDp, imgSizeDp)) {
@@ -113,22 +121,22 @@ private fun fibonacciSphere(n: Int): List<SpherePoint> {
 @Composable
 private fun DotSphere(modifier: Modifier = Modifier) {
     val points = remember { fibonacciSphere(180) }
-    val infinite = androidx.compose.animation.core.rememberInfiniteTransition(label = "sphere")
+    val infinite = rememberInfiniteTransition(label = "sphere")
     val rotation by infinite.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(9000, easing = androidx.compose.animation.core.LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
+        animationSpec = infiniteRepeatable(
+            animation = tween(9000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
         ),
         label = "rot",
     )
     val pulse by infinite.animateFloat(
         initialValue = 0f,
         targetValue = (2f * Math.PI).toFloat(),
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(2400, easing = androidx.compose.animation.core.LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
         ),
         label = "pulse",
     )
