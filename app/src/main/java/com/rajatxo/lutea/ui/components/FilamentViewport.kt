@@ -49,7 +49,7 @@ fun FilamentViewport(
             val surfaceView = SurfaceView(ctx)
 
             val uiHelper = UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK)
-            uiHelper.setRenderCallback(object : UiHelper.RendererCallback {
+            uiHelper.renderCallback = object : UiHelper.RendererCallback {
                 override fun onNativeWindowChanged(surface: android.view.Surface) {
                     swapChainRef[0]?.let { engine.destroySwapChain(it) }
                     swapChainRef[0] = engine.createSwapChain(surface)
@@ -110,9 +110,9 @@ fun FilamentViewport(
             // Camera
             camera.setProjection(45.0, 1.0, 0.1, 100.0)
             camera.lookAt(
-                0.0, 0.0, 3.5,
-                0.0, 0.0, 0.0,
-                0.0, 1.0, 0.0,
+                0.0f, 0.0f, 3.5f,
+                0.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f,
             )
 
             // Render loop
