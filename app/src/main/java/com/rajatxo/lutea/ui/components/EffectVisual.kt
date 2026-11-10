@@ -67,15 +67,14 @@ fun EffectVisual(
         val heightPx = with(density) { maxHeight.toPx() }
 
         // ── Sphere composition at top ──
-        val compositionSizeDp = with(density) {
-            min(widthPx * 0.80f, heightPx * 0.50f).toDp()
-        }
-        val compositionTopPad = with(density) { (heightPx * 0.005f).toDp() }
+        // Width × Height: wide enough to fit LEFT/RIGHT labels horizontally,
+        // short enough to leave a big gap to the head image below.
+        val compositionWidthDp = with(density) { (widthPx * 0.92f).toDp() }
+        val compositionHeightDp = with(density) { (heightPx * 0.40f).toDp() }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = compositionTopPad)
-                .size(compositionSizeDp),
+                .size(compositionWidthDp, compositionHeightDp),
         ) {
             SphereComposition(modifier = Modifier.fillMaxSize())
         }
@@ -183,11 +182,11 @@ private fun SphereComposition(modifier: Modifier = Modifier) {
         val arrowBaseR = dim * 0.32f
         val arrowH = dim * 0.030f
         val arrowW = dim * 0.038f
-        val ringR = dim * 0.39f          // slightly larger gap arrow → thick ring
+        val ringR = dim * 0.39f          // thin + thick circle
         val dottedR = dim * 0.425f
-        val tagR = dim * 0.425f          // tag icons sit ON the dotted ring
+        val tagR = dim * 0.460f          // tags sit OUTSIDE the dotted ring — no overlap
         val tagSize = dim * 0.035f
-        val labelOffset = dim * 0.045f
+        val labelOffset = dim * 0.040f
 
         val thinStroke = dim * 0.0028f
         val thickStroke = dim * 0.0080f
