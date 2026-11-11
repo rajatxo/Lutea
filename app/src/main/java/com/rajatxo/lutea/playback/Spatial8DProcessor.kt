@@ -51,27 +51,49 @@ class Spatial8DProcessor : BaseAudioProcessor() {
             inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
             throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
         }
-        // Force stereo output — 8D needs L/R channels to pan between
+        // Force stereo output — 8D needs L/R channels to pan between.
+        // Even when 8D is OFF, we still output stereo (the bypass path duplicates
+        // mono to stereo). This keeps the AudioSink's expected format stable
+        // regardless of the 8D toggle state, so toggling doesn't trigger a
+        // re-configure glitch that could stall playback.
         return AudioProcessor.AudioFormat(inputAudioFormat.sampleRate, 2, inputAudioFormat.encoding)
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
-        if (!enabled || inputAudioFormat.sampleRate <= 0) {
-            // Pass through unchanged — replaceOutputBuffer + copy + flip
-            val outBuffer = replaceOutputBuffer(inputBuffer.remaining())
-            outBuffer.put(inputBuffer)
-            outBuffer.flip()
-            return
-        }
-
         val isStereo = inputAudioFormat.channelCount == 2
         val is16Bit = inputAudioFormat.encoding == C.ENCODING_PCM_16BIT
         val bytesPerSample = if (is16Bit) 2 else 4
         val inputFrameSize = bytesPerSample * inputAudioFormat.channelCount
         val frameCount = inputBuffer.remaining() / inputFrameSize
-        // Output is forced stereo (2 channels)
+        // Output is always stereo (2 channels) regardless of 8D state.
         val outBuffer = replaceOutputBuffer(frameCount * bytesPerSample * 2)
 
+        if (!enabled || inputAudioFormat.sampleRate <= 0) {
+            // Pass through unchanged but still convert to stereo if input is mono
+            // (otherwise byte counts mismatch the onConfigure output format).
+            if (isStereo) {
+                outBuffer.put(inputBuffer)
+            } else {
+                // Mono → stereo: duplicate each sample to L and R
+                if (is16Bit) {
+                    repeat(frameCount) {
+                        val s = inputBuffer.short
+                        outBuffer.putShort(s)
+                        outBuffer.putShort(s)
+                    }
+                } else {
+                    repeat(frameCount) {
+                        val s = inputBuffer.float
+                        outBuffer.putFloat(s)
+                        outBuffer.putFloat(s)
+                    }
+                }
+            }
+            outBuffer.flip()
+            return
+        }
+
+        // 8D active: LFO modulates L/R volume per-sample.
         // Phase advances per sample: 2π × hz / sampleRate per sample
         val phaseStep = 2.0 * PI * hz.toDouble() / inputAudioFormat.sampleRate.toDouble()
 
