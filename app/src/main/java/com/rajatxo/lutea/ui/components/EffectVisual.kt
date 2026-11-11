@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -93,8 +94,11 @@ fun EffectVisual(
         }
 
         // ── 8D Audio capsule + toggle — OVERLAY layer (doesn't push the sphere) ──
-        // Sits at the very top of the content area, above the sphere's UP label
-        // empty space. No offset to the sphere composition.
+        // Sits just below the status bar — offset UP by the LuteaScaffold's
+        // username-header inset (56dp = 15.6% of screen width on a 360dp phone)
+        // so it appears at the very top of the content area, right under the
+        // status bar. Sphere composition and head are NOT touched.
+        val headerInsetFrac = 0.156f  // 56dp ÷ 360dp reference phone
         EffectTopBar(
             enabled = false,
             onToggle = { /* wired later — no LFO, no crash */ },
@@ -102,6 +106,7 @@ fun EffectVisual(
             screenWidthPx = widthPx,
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .offset(y = with(density) { (-(widthPx * headerInsetFrac)).toDp() })
                 .padding(top = with(density) { (heightPx * 0.005f).toDp() }),
         )
 
