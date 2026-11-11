@@ -78,6 +78,20 @@ fun EffectVisual(
     val orbitSlider by PlaybackConnection.orbitSlider.collectAsState()
     val ambienceSlider by PlaybackConnection.ambienceSlider.collectAsState()
 
+    // Local UI state: when true, the sphere shows the new structure (1-25 top + 2-24 bottom)
+    // with a fade-in rotation animation. When false, shows the OLD look (8 tag icons +
+    // LEFT/RIGHT/UP/DOWN text). Tapping Orbit Speed or Spatial Ambience toggles this.
+    var expandedView by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // Animation progress: 0 = old look, 1 = new structure. Animated for the cool transition.
+    val expandProgress = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (expandedView) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = 800,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+        ),
+        label = "expandProgress",
+    ).value
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -101,19 +115,25 @@ fun EffectVisual(
             contentAlignment = Alignment.TopCenter,
         ) {
             // Pass enabled flag — sphere only rotates when 8D is on.
+            // Pass expandProgress so the sphere can cross-fade between old (8 labels +
+            // LEFT/RIGHT/UP/DOWN text) and new (1-25 top + 2-24 bottom) structures.
             SphereComposition(
                 modifier = Modifier.fillMaxSize(),
                 rotationEnabled = eightDOn,
                 arrowsHighlighted = eightDOn,
+                expandProgress = expandProgress,
             )
         }
 
         // ── 8D Audio capsule + toggle + flanking Orbit Speed / Spatial Ambience capsules ──
         EffectHeaderRow(
             enabled = eightDOn,
-            onToggle = { PlaybackConnection.set8DEnabled(it) },
-            orbitSlider = orbitSlider,
-            ambienceSlider = ambienceSlider,
+            onToggle = {
+                PlaybackConnection.set8DEnabled(it)
+                if (!it) expandedView = false   // collapse when toggling off
+            },
+            onOrbitSpeedClick = { expandedView = !expandedView },
+            onSpatialAmbienceClick = { expandedView = !expandedView },
             screenWidthPx = widthPx,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -172,15 +192,15 @@ fun EffectVisual(
 private fun EffectHeaderRow(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,
-    orbitSlider: Int,
-    ambienceSlider: Int,
+    onOrbitSpeedClick: () -> Unit,
+    onSpatialAmbienceClick: () -> Unit,
     screenWidthPx: Float,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     val widthPx = screenWidthPx
     val labelTextSize = with(density) { (widthPx * 0.030f).toSp() }
-    val valueTextSize = with(density) { (widthPx * 0.022f).toSp() }
+    val sideLabelSize = with(density) { (widthPx * 0.024f).toSp() }
     val capsulePadHDp = with(density) { (widthPx * 0.025f).toDp() }
     val capsulePadVDp = with(density) { (widthPx * 0.012f).toDp() }
     val capsuleCornerDp = with(density) { (widthPx * 0.04f).toDp() }
@@ -193,18 +213,20 @@ private fun EffectHeaderRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(sideCapsuleSpacing, Alignment.CenterHorizontally),
     ) {
+        // Left capsule — Orbit Speed (only when 8D is on). Tapping toggles the
+        // expanded sphere structure (1-25 + 2-24 numbers with fade-in animation).
         if (enabled) {
             SideCapsule(
                 label = "Orbit Speed",
-                value = orbitSlider.toString(),
-                labelTextSize = valueTextSize,
-                valueTextSize = valueTextSize,
+                labelTextSize = sideLabelSize,
                 padH = capsulePadHDp,
                 padV = capsulePadVDp,
                 corner = capsuleCornerDp,
+                onClick = onOrbitSpeedClick,
             )
         }
 
+        // Center: 8D Audio capsule + toggle
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
@@ -245,15 +267,16 @@ private fun EffectHeaderRow(
             }
         }
 
+        // Right capsule — Spatial Ambience (only when 8D is on). Tapping toggles
+        // the expanded sphere structure too.
         if (enabled) {
             SideCapsule(
                 label = "Spatial Ambience",
-                value = ambienceSlider.toString(),
-                labelTextSize = valueTextSize,
-                valueTextSize = valueTextSize,
+                labelTextSize = sideLabelSize,
                 padH = capsulePadHDp,
                 padV = capsulePadVDp,
                 corner = capsuleCornerDp,
+                onClick = onSpatialAmbienceClick,
             )
         }
     }
@@ -262,14 +285,13 @@ private fun EffectHeaderRow(
 @Composable
 private fun SideCapsule(
     label: String,
-    value: String,
     labelTextSize: androidx.compose.ui.unit.TextUnit,
-    valueTextSize: androidx.compose.ui.unit.TextUnit,
     padH: androidx.compose.ui.unit.Dp,
     padV: androidx.compose.ui.unit.Dp,
     corner: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
 ) {
-    Column(
+    Box(
         modifier = Modifier
             .clip(RoundedCornerShape(corner))
             .background(Color.Black.copy(alpha = 0.45f))
@@ -278,21 +300,16 @@ private fun SideCapsule(
                 color = Color(0xFFD4A03A).copy(alpha = 0.4f),
                 shape = RoundedCornerShape(corner),
             )
+            .clickable { onClick() }
             .padding(horizontal = padH, vertical = padV),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            color = Cream.copy(alpha = 0.7f),
+            color = Cream,
             fontFamily = CalSansFamily,
+            fontWeight = FontWeight.SemiBold,
             fontSize = labelTextSize,
-        )
-        Text(
-            text = value,
-            color = Color(0xFFD4A03A),
-            fontFamily = CalSansFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = valueTextSize,
         )
     }
 }
@@ -572,11 +589,17 @@ private fun fibonacciSphere(n: Int): List<SpherePoint> {
     return out
 }
 
+private data class Direction(
+    val angleDeg: Float,
+    val label: String,
+)
+
 @Composable
 private fun SphereComposition(
     modifier: Modifier = Modifier,
     rotationEnabled: Boolean = true,
     arrowsHighlighted: Boolean = false,
+    expandProgress: Float = 0f,   // 0 = old 8-label look, 1 = new 1-25/2-24 structure
 ) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
@@ -603,6 +626,22 @@ private fun SphereComposition(
         ),
         label = "pulse",
     )
+
+    // OLD look: 8 tag icons at compass positions + LEFT/RIGHT/UP/DOWN text labels.
+    // Shown when expandProgress = 0 (default). Cross-fades to the new 1-25/2-24
+    // structure as expandProgress → 1.
+    val oldTagDirs = remember {
+        listOf(
+            Direction(0f,   "RIGHT"),
+            Direction(45f,  ""),
+            Direction(90f,  "UP"),
+            Direction(135f, ""),
+            Direction(180f, "LEFT"),
+            Direction(225f, ""),
+            Direction(270f, "DOWN"),
+            Direction(315f, ""),
+        )
+    }
 
     val tagPainter = painterResource(R.drawable.ic_effect_tag)
 
@@ -739,28 +778,11 @@ private fun SphereComposition(
             color = whiteArrowColor,
         )
 
-        // ── Tag icons (80, one per dot) ──
+        // ── Tags + labels: cross-fade between OLD look (8 tags + LEFT/RIGHT/UP/DOWN)
+        // and NEW look (80 small tags + 1-25 top + 2-24 bottom) based on expandProgress.
+        // 0 = old look fully visible, 1 = new look fully visible, 0.5 = both at 50% alpha.
+        // Cool fade-in rotation transition when user taps Orbit Speed / Spatial Ambience.
         val smallTagSize = size.width * 0.018f
-        val tagPainterAlpha = 0.85f
-        for (i in 0 until dotCount) {
-            val screenAngleRad = (2.0 * Math.PI * i / dotCount).toFloat()
-            val compassDeg = (-Math.toDegrees(screenAngleRad.toDouble())).toFloat().mod(360f)
-            val tx = cx + dottedR * cos(screenAngleRad)
-            val ty = cy + dottedR * sin(screenAngleRad)
-            rotate(degrees = -compassDeg, pivot = Offset(tx, ty)) {
-                translate(left = tx - smallTagSize / 2f, top = ty - smallTagSize / 2f) {
-                    with(tagPainter) {
-                        draw(size = Size(smallTagSize, smallTagSize), colorFilter = null, alpha = tagPainterAlpha)
-                    }
-                }
-            }
-        }
-
-        // ── Numbers around the circle ──
-        // Top semicircle: 25 numbers (1 to 25), LEFT=1 → UP=13 → RIGHT=25
-        // Bottom semicircle: 23 numbers (2 to 24), LEFT-below=2 → DOWN=13 → RIGHT-below=24
-        // (1 and 25 are shared endpoints at LEFT and RIGHT, so bottom skips them)
-        // When 8D is on (arrowsHighlighted=true), the two "13" labels turn gold.
         val numberFontSize = size.width * 0.028f
         val numberDistance = smallTagSize / 2f + size.width * 0.030f
         val creamArgb = android.graphics.Color.argb(245, 245, 240, 230)
@@ -772,31 +794,113 @@ private fun SphereComposition(
             textAlign = android.graphics.Paint.Align.CENTER
         }
 
-        // Top: 25 numbers from LEFT (π) through UP (3π/2) to RIGHT (2π)
-        val topCount = 25
-        for (k in 0 until topCount) {
-            val num = (k + 1)
-            val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / (topCount - 1).toFloat())
-            val labelR = dottedR + numberDistance
-            val lx = cx + labelR * cos(angleRad)
-            val ly = cy + labelR * sin(angleRad)
-            numberPaint.color = if (arrowsHighlighted && num == 13) goldArgb else creamArgb
-            drawIntoCanvas { canvas ->
-                canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
+        // ════════════════════════════════════════════════════════════════════
+        // OLD LOOK: 8 tag icons + LEFT/RIGHT/UP/DOWN text labels
+        // ════════════════════════════════════════════════════════════════════
+        // Alpha = (1 - expandProgress). Fades out as the new structure fades in.
+        val oldAlpha = (1f - expandProgress).coerceIn(0f, 1f)
+        if (oldAlpha > 0.01f) {
+            val oldTagSize = size.width * 0.028f
+            val oldTagAlpha = oldAlpha * 0.92f
+            for (dir in oldTagDirs) {
+                val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
+                val tx = cx + tagR * cos(angleRad)
+                val ty = cy - tagR * sin(angleRad)
+                val rotationDeg = -dir.angleDeg
+                rotate(degrees = rotationDeg, pivot = Offset(tx, ty)) {
+                    translate(left = tx - oldTagSize / 2f, top = ty - oldTagSize / 2f) {
+                        with(tagPainter) {
+                            draw(size = Size(oldTagSize, oldTagSize), colorFilter = null, alpha = oldTagAlpha)
+                        }
+                    }
+                }
+            }
+
+            // Old direction labels (LEFT/RIGHT/UP/DOWN)
+            val oldLabelFontSize = size.width * 0.024f
+            val oldPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.argb((245 * oldAlpha).toInt(), 245, 240, 230)
+                this.textSize = oldLabelFontSize
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            for (dir in oldTagDirs) {
+                if (dir.label.isEmpty()) continue
+                val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
+                val distFromCenter = when (dir.label) {
+                    "LEFT", "RIGHT" -> labelCenterFromCenter
+                    else -> tagR + size.width * 0.028f * 0.5f + size.width * 0.020f
+                }
+                val lx = cx + distFromCenter * cos(angleRad)
+                val ly = cy - distFromCenter * sin(angleRad)
+                drawIntoCanvas { canvas ->
+                    canvas.nativeCanvas.drawText(dir.label, lx, ly + oldPaint.textSize / 3f, oldPaint)
+                }
             }
         }
 
-        // Bottom: 23 numbers (2 to 24) from LEFT-below through DOWN to RIGHT-below
-        val bottomCount = 23
-        for (k in 0 until bottomCount) {
-            val num = (k + 2)
-            val angleRad = Math.PI.toFloat() - ((k + 1).toFloat() * Math.PI.toFloat() / 24f)
-            val labelR = dottedR + numberDistance
-            val lx = cx + labelR * cos(angleRad)
-            val ly = cy + labelR * sin(angleRad)
-            numberPaint.color = if (arrowsHighlighted && num == 13) goldArgb else creamArgb
-            drawIntoCanvas { canvas ->
-                canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
+        // ════════════════════════════════════════════════════════════════════
+        // NEW LOOK: 80 small tag icons + 25 top numbers + 23 bottom numbers
+        // ════════════════════════════════════════════════════════════════════
+        // Alpha = expandProgress. Fades in as the old look fades out.
+        val newAlpha = expandProgress.coerceIn(0f, 1f)
+        if (newAlpha > 0.01f) {
+            val newTagAlpha = newAlpha * 0.85f
+            // 80 small tag icons — one per dot
+            for (i in 0 until dotCount) {
+                val screenAngleRad = (2.0 * Math.PI * i / dotCount).toFloat()
+                val compassDeg = (-Math.toDegrees(screenAngleRad.toDouble())).toFloat().mod(360f)
+                val tx = cx + dottedR * cos(screenAngleRad)
+                val ty = cy + dottedR * sin(screenAngleRad)
+                rotate(degrees = -compassDeg, pivot = Offset(tx, ty)) {
+                    translate(left = tx - smallTagSize / 2f, top = ty - smallTagSize / 2f) {
+                        with(tagPainter) {
+                            draw(size = Size(smallTagSize, smallTagSize), colorFilter = null, alpha = newTagAlpha)
+                        }
+                    }
+                }
+            }
+
+            // Top: 25 numbers from LEFT (π) through UP (3π/2) to RIGHT (2π)
+            val topCount = 25
+            for (k in 0 until topCount) {
+                val num = (k + 1)
+                val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / (topCount - 1).toFloat())
+                val labelR = dottedR + numberDistance
+                val lx = cx + labelR * cos(angleRad)
+                val ly = cy + labelR * sin(angleRad)
+                val isHighlight = arrowsHighlighted && num == 13
+                val baseColor = if (isHighlight) goldArgb else creamArgb
+                numberPaint.color = android.graphics.Color.argb(
+                    ((android.graphics.Color.alpha(baseColor)) * newAlpha).toInt(),
+                    android.graphics.Color.red(baseColor),
+                    android.graphics.Color.green(baseColor),
+                    android.graphics.Color.blue(baseColor),
+                )
+                drawIntoCanvas { canvas ->
+                    canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
+                }
+            }
+
+            // Bottom: 23 numbers (2 to 24)
+            val bottomCount = 23
+            for (k in 0 until bottomCount) {
+                val num = (k + 2)
+                val angleRad = Math.PI.toFloat() - ((k + 1).toFloat() * Math.PI.toFloat() / 24f)
+                val labelR = dottedR + numberDistance
+                val lx = cx + labelR * cos(angleRad)
+                val ly = cy + labelR * sin(angleRad)
+                val isHighlight = arrowsHighlighted && num == 13
+                val baseColor = if (isHighlight) goldArgb else creamArgb
+                numberPaint.color = android.graphics.Color.argb(
+                    ((android.graphics.Color.alpha(baseColor)) * newAlpha).toInt(),
+                    android.graphics.Color.red(baseColor),
+                    android.graphics.Color.green(baseColor),
+                    android.graphics.Color.blue(baseColor),
+                )
+                drawIntoCanvas { canvas ->
+                    canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
+                }
             }
         }
 
