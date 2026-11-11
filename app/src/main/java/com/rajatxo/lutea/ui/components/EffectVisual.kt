@@ -73,15 +73,10 @@ fun EffectVisual(
     headRes: Int = R.drawable.effect_head,
 ) {
     val density = LocalDensity.current
-    // 8D state wired to PlaybackConnection — drives real-time AudioProcessor.
+    // 8D state — we only need the enabled flag for the sphere rotation.
+    // The overlay UI (sliders, toggle, presets) has been removed. Controls
+    // will be re-implemented inside the sphere component later.
     val eightDOn by PlaybackConnection.is8DEnabled.collectAsState()
-    val orbitSpeed by PlaybackConnection.orbitSpeed.collectAsState()
-    val spatialAmbience by PlaybackConnection.spatialAmbience.collectAsState()
-    val isProcessing by PlaybackConnection.isProcessing8D.collectAsState()
-    val processingProgress by PlaybackConnection.processingProgress.collectAsState()
-    val lastError by PlaybackConnection.eightDLastError.collectAsState()
-    val is8DActive by PlaybackConnection.is8DActive.collectAsState()
-    val preset by PlaybackConnection.preset.collectAsState()
 
     BoxWithConstraints(
         modifier = modifier
@@ -111,34 +106,6 @@ fun EffectVisual(
                 rotationEnabled = eightDOn,
             )
         }
-
-        // ── 8D Audio capsule + sliders — OVERLAY layer (doesn't push the sphere) ──
-        // Sits just below the status bar — offset UP by the LuteaScaffold's
-        // username-header inset (56dp = 15.6% of screen width on a 360dp phone)
-        // so it appears at the very top of the content area. Sphere + head untouched.
-        val headerInsetFrac = 0.156f  // 56dp ÷ 360dp reference phone
-        EffectOverlay(
-            enabled = eightDOn,
-            onToggle = { PlaybackConnection.set8DEnabled(it) },
-            label = "8D Audio",
-            orbitSpeed = orbitSpeed,
-            onOrbitSpeedChange = { PlaybackConnection.setOrbitSpeed(it) },
-            onOrbitSpeedFinished = { PlaybackConnection.apply8DParams() },
-            spatialAmbience = spatialAmbience,
-            onSpatialAmbienceChange = { PlaybackConnection.setSpatialAmbience(it) },
-            onSpatialAmbienceFinished = { PlaybackConnection.apply8DParams() },
-            isProcessing = isProcessing,
-            processingProgress = processingProgress,
-            lastError = lastError,
-            isActive = is8DActive,
-            preset = preset,
-            onPresetChange = { PlaybackConnection.set8DPreset(it) },
-            screenWidthPx = widthPx,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = with(density) { (-(widthPx * headerInsetFrac)).toDp() })
-                .padding(top = with(density) { (heightPx * 0.005f).toDp() }),
-        )
 
         // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 8% of screen height ──
         // (User originally asked for 130dp = 16.25% of height, but that squeezed
@@ -620,28 +587,9 @@ private fun SphereComposition(
             color = arrowColor,
         )
 
-        // ── Tag icons + numbers (1-30) around the dotted circle ──
-        // 80 small tag icons total — one in front of each dot.
-        // 30 numbers spread evenly across the top semicircle (LEFT=1 → UP=15 → RIGHT=30).
-        // Bottom half is bare tag icons (no numbers).
-        //
-        // Numbers sit at their own radius, OUTSIDE the tag icons, so they have
-        // breathable space and don't crowd the dotted circle.
-        val smallTagSize = size.width * 0.018f   // small tag icon, same as before
+        // ── Tag icons (80, one per dot) ──
+        val smallTagSize = size.width * 0.018f
         val tagPainterAlpha = 0.85f
-        val numberFontSize = size.width * 0.028f   // 40% larger than before (was 0.020)
-        // Distance from dotted circle to number center — enough gap that number
-        // doesn't touch the tag icon. Tag sits ON the dotted circle (radius dottedR).
-        // Number center is at: dottedR + tagRadius + gap + halfNumberHeight
-        val numberDistance = smallTagSize / 2f + size.width * 0.030f
-        val numberPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.argb(245, 245, 240, 230)
-            this.textSize = numberFontSize
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            textAlign = android.graphics.Paint.Align.CENTER
-        }
-
-        // ── 80 tag icons (one per dot) ──
         for (i in 0 until dotCount) {
             val screenAngleRad = (2.0 * Math.PI * i / dotCount).toFloat()
             val compassDeg = (-Math.toDegrees(screenAngleRad.toDouble())).toFloat().mod(360f)
@@ -656,25 +604,48 @@ private fun SphereComposition(
             }
         }
 
-        // ── 30 numbers on the top semicircle (LEFT=1 → UP=15 → RIGHT=30) ──
-        // Top semicircle = canvas angles from π (LEFT) through 3π/2 (UP) to 2π (RIGHT).
-        // 30 numbers evenly spaced across 180°, so each step = π/29 radians.
-        // k=0 → LEFT (angle π), k=14 → ~267° (just before UP at 270°), k=29 → RIGHT (angle 2π).
-        val numberCount = 30
-        for (k in 0 until numberCount) {
+        // ── Numbers around the circle ──
+        // Top semicircle: 25 numbers (1 to 25), LEFT=1 → UP=13 → RIGHT=25
+        // Bottom semicircle: 23 numbers (2 to 24), LEFT-below=2 → DOWN=13 → RIGHT-below=24
+        // (1 and 25 are shared endpoints at LEFT and RIGHT, so bottom skips them)
+        val numberFontSize = size.width * 0.028f
+        val numberDistance = smallTagSize / 2f + size.width * 0.030f
+        val numberPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(245, 245, 240, 230)
+            this.textSize = numberFontSize
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+
+        // Top: 25 numbers from LEFT (π) through UP (3π/2) to RIGHT (2π)
+        val topCount = 25
+        for (k in 0 until topCount) {
             val num = (k + 1).toString()
-            // Canvas angle: π + k × π/29 (going counterclockwise through UP).
-            val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / (numberCount - 1).toFloat())
+            val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / (topCount - 1).toFloat())
             val labelR = dottedR + numberDistance
             val lx = cx + labelR * cos(angleRad)
             val ly = cy + labelR * sin(angleRad)
             drawIntoCanvas { canvas ->
-                canvas.nativeCanvas.drawText(
-                    num,
-                    lx,
-                    ly + numberPaint.textSize / 3f,
-                    numberPaint,
-                )
+                canvas.nativeCanvas.drawText(num, lx, ly + numberPaint.textSize / 3f, numberPaint)
+            }
+        }
+
+        // Bottom: 23 numbers (2 to 24) from LEFT-below through DOWN to RIGHT-below
+        // Going clockwise: angle from just-below-π through π/2 (DOWN) to just-above-0
+        val bottomCount = 23
+        for (k in 0 until bottomCount) {
+            val num = (k + 2).toString()   // 2 to 24
+            // angle goes from π - π/24 (just below LEFT) clockwise to π/24 (just below RIGHT)
+            // step = (π - 2*π/24) / 22 = π * (1 - 1/12) / 22 = π * 11/12 / 22 = π * 11 / 264 = π / 24
+            // Actually: total arc = π - 2*(π/24) = π * 22/24 = 11π/12
+            // step = (11π/12) / 22 = π/24
+            // angle(k) = π - π/24 - k * π/24 = π - (k+1) * π/24
+            val angleRad = Math.PI.toFloat() - ((k + 1).toFloat() * Math.PI.toFloat() / 24f)
+            val labelR = dottedR + numberDistance
+            val lx = cx + labelR * cos(angleRad)
+            val ly = cy + labelR * sin(angleRad)
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawText(num, lx, ly + numberPaint.textSize / 3f, numberPaint)
             }
         }
 
