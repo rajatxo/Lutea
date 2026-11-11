@@ -52,10 +52,11 @@ class Effect8DProcessor(
 
     private data class Params(val speed: Float, val ambience: Float)
 
-    init {
-        // Disable FFmpegKit's session history — we don't use it, saves memory.
-        FFmpegKitConfig.setLogLevel(com.arthenica.ffmpegkit.Level.AV_LOG_ERROR)
-    }
+    // Note: do NOT call FFmpegKitConfig or any FFmpegKit method in init or on
+    // app launch — it forces native library load which can crash on certain
+    // devices if the native lib packaging is misconfigured. All FFmpegKit
+    // access happens lazily inside processSong(), only when the user toggles
+    // 8D on.
 
     fun enable(song: Song, orbitSpeed: Float, spatialAmbience: Float) {
         val newParams = Params(orbitSpeed, spatialAmbience)
@@ -68,7 +69,15 @@ class Effect8DProcessor(
         currentSong = song
         currentParams = newParams
         currentJob = scope.launch {
-            processSong(song, newParams)
+            try {
+                processSong(song, newParams)
+            } catch (t: Throwable) {
+                // Catch Throwable (not just Exception) — native UnsatisfiedLinkError
+                // and NoClassDefFoundError on FFmpegKit init would otherwise crash
+                // the app. Log and bail.
+                Log.e("Effect8DProcessor", "FFmpegKit failed to load or run", t)
+                _isProcessing.value = false
+            }
         }
     }
 

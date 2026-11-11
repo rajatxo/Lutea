@@ -43,7 +43,11 @@ object PlaybackConnection {
     // producing a temp file the player switches to. When toggled off, we
     // restore the original song.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // LAZY: processor is only created the first time the user toggles 8D on.
+    // Creating it in connect() would force FFmpegKit native library load on
+    // every app launch — and if that native load crashes, the whole app dies.
     private var eightDProcessor: Effect8DProcessor? = null
+    private var appContext: Context? = null
 
     private val _is8DEnabled = MutableStateFlow(false)
     val is8DEnabled: StateFlow<Boolean> = _is8DEnabled.asStateFlow()
@@ -72,16 +76,8 @@ object PlaybackConnection {
             val controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
             val c = controllerFuture.await()
             controller = c
-
-            // Initialize the 8D processor now that we have a context.
-            if (eightDProcessor == null) {
-                eightDProcessor = Effect8DProcessor(
-                    context = context.applicationContext,
-                    scope = scope,
-                    onProcessedUri = { uri -> swapTo8DFile(uri) },
-                    onRestoreOriginal = { restoreOriginal() },
-                )
-            }
+            // Stash app context for lazy 8D processor creation later.
+            appContext = context.applicationContext
 
             c.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -121,6 +117,16 @@ object PlaybackConnection {
     fun set8DEnabled(enabled: Boolean) {
         _is8DEnabled.value = enabled
         if (enabled) {
+            // Lazy-init the processor on first use, NOT in connect().
+            val ctx = appContext ?: return
+            if (eightDProcessor == null) {
+                eightDProcessor = Effect8DProcessor(
+                    context = ctx,
+                    scope = scope,
+                    onProcessedUri = { uri -> swapTo8DFile(uri) },
+                    onRestoreOriginal = { restoreOriginal() },
+                )
+            }
             // Save current playback position so we can restore it after FFmpeg swap
             val c = controller
             val song = _currentSong.value
