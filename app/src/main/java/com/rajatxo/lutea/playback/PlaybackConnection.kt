@@ -161,19 +161,27 @@ object PlaybackConnection {
 
     fun setOrbitSpeed(rotationsPerSecond: Float) {
         _orbitSpeed.value = rotationsPerSecond.coerceIn(0.05f, 1.5f)
-        val c = controller ?: return
-        val song = _currentSong.value
-        if (_is8DEnabled.value && song != null && c.isPlaying) {
-            eightDProcessor?.updateParams(song, _orbitSpeed.value, _spatialAmbience.value, c.currentPosition)
-        }
+        scheduleReprocess()
     }
 
     fun setSpatialAmbience(level: Float) {
         _spatialAmbience.value = level.coerceIn(0f, 1f)
+        scheduleReprocess()
+    }
+
+    // Debounce slider changes — when user drags, many value updates fire in
+    // rapid succession. Don't re-run FFmpeg on each one. Wait 500ms after the
+    // last drag, then process once with the final values.
+    private var reprocessJob: kotlinx.coroutines.Job? = null
+    private fun scheduleReprocess() {
         val c = controller ?: return
-        val song = _currentSong.value
-        if (_is8DEnabled.value && song != null && c.isPlaying) {
-            eightDProcessor?.updateParams(song, _orbitSpeed.value, _spatialAmbience.value, c.currentPosition)
+        val song = _currentSong.value ?: return
+        if (!_is8DEnabled.value) return
+        reprocessJob?.cancel()
+        reprocessJob = scope.launch {
+            kotlinx.coroutines.delay(500)
+            val pos = c.currentPosition
+            eightDProcessor?.updateParams(song, _orbitSpeed.value, _spatialAmbience.value, pos)
         }
     }
 
@@ -188,8 +196,6 @@ object PlaybackConnection {
         }
         Log.i("PlaybackConnection", "swapTo8DFile: uri=$uri song=${song.title} position=$position")
         try {
-            // Build a new MediaItem pointing at the processed temp file.
-            // Keep the same metadata (title/artist/album art) so the UI doesn't jump.
             val mediaItem = MediaItem.Builder()
                 .setUri(uri)
                 .setMediaId(song.id.toString())
@@ -202,17 +208,21 @@ object PlaybackConnection {
                         .build()
                 )
                 .build()
-            // SpatialFlow pattern: setMediaItem, seekTo, prepare, play.
-            // Stop the player first so the swap is clean — without this, sometimes
-            // the player keeps decoding the old file in parallel with loading the
-            // new one, and the swap is inaudible.
-            c.pause()
+            // EXACT SpatialFlow pattern (loadProcessedAudio):
+            //   player.setMediaItem(mediaItem)
+            //   player.seekTo(currentPos)
+            //   player.prepare()
+            //   play()
+            // NO pause before setMediaItem — setMediaItem already resets the player.
+            // Pausing first caused a race where seekTo happened before the new media
+            // item was loaded, and ExoPlayer saw the previous media item's duration
+            // (2s) which clipped playback to that range.
             c.setMediaItem(mediaItem)
             c.seekTo(position)
             c.prepare()
             c.play()
             _is8DActive.value = true
-            Log.i("PlaybackConnection", "swapTo8DFile: swap complete, playing 8D file")
+            Log.i("PlaybackConnection", "swapTo8DFile: swap complete, playing 8D file at pos=$position")
         } catch (e: Exception) {
             Log.e("PlaybackConnection", "swapTo8DFile failed", e)
         }
@@ -241,7 +251,6 @@ object PlaybackConnection {
                         .build()
                 )
                 .build()
-            c.pause()
             c.setMediaItem(mediaItem)
             c.seekTo(position)
             c.prepare()

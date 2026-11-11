@@ -146,7 +146,9 @@ class Effect8DProcessor(
         _progress.value = 0f
         try {
             // Copy source URI content to a temp file FFmpeg can read directly.
-            val sourceTemp = File(context.cacheDir, "8d_source_${song.id}")
+            // Use a UNIQUE temp file name per processing run so slider changes
+            // mid-process don't delete a file FFmpeg is still reading.
+            val sourceTemp = File(context.cacheDir, "8d_source_${song.id}_${System.currentTimeMillis()}")
             Log.i("Effect8DProcessor", "copying source URI → ${sourceTemp.absolutePath}")
             var sourceOpened = false
             withContext(Dispatchers.IO) {
