@@ -632,11 +632,11 @@ private fun SpatialOrbBall(
         val cx = size.width / 2f
         val cy = size.height / 2f
 
-        // Semi-elliptical arc path — follows the headphones/head shape.
-        // The arc should be WIDE and FLAT at the top (like a headphone band),
-        // then curve DOWN sharply at the ears. Not a simple semi-circle.
-        val orbitW = headSizePx * 0.50f   // half-width: reaches to the ears
-        val orbitH = headSizePx * 0.52f   // height: taller so arc goes well above head
+        // Arc path — hugs the head/headphones shape like a band.
+        // Tight radius: stays close to the head, not a wide circle.
+        // Ball is always in FRONT or above the head, NEVER behind.
+        val orbitW = headSizePx * 0.38f   // half-width: stays within ear cup area
+        val orbitH = headSizePx * 0.42f   // height: just above the headphone band
         val ballR = headSizePx * 0.035f
         val glowR = ballR * 3.5f
 
@@ -645,18 +645,14 @@ private fun SpatialOrbBall(
         // sin > 0 → sound RIGHT → user's right ear → SCREEN RIGHT ✓
         val sinP = kotlin.math.sin(phase.toDouble()).toFloat()
 
-        // Ball Y: we want the arc to be FLAT at the top and CURVE DOWN sharply
-        // near the ears. Using a power curve on |cos| achieves this:
-        //   - Near center (|cos| ≈ 1): ball is high up (flat top)
-        //   - Near ears (|cos| ≈ 0): ball drops down to ear level (sharp curve)
-        // absCos^1.5 makes the top flatter than a plain cosine while still
-        // curving smoothly. Higher exponent = flatter top + sharper ear drop.
+        // Ball Y: follow the head shape. The ball should be CLOSE to the head:
+        // - At ears (sin = ±1, cos = 0) → ball at ear level (Y ≈ cy)
+        // - At center (sin = 0, cos = ±1) → ball just above the headphone band (Y ≈ cy - orbitH)
+        // Use |cos|^0.7 for a shape that's rounder than a pure ellipse but
+        // still has a flatter top than a circle. Snug fit.
         val cosP = kotlin.math.cos(phase.toDouble()).toFloat()
         val absCos = kotlin.math.abs(cosP)
-        // Flatten the top of the arc — makes it hug the headphone band shape.
-        // Power 0.6 raises the middle (flatter top), power 1.0 = normal ellipse,
-        // power 2.0 = very flat top with steep drops. 0.6 gives a nice band shape.
-        val arcShape = kotlin.math.pow(absCos.toDouble(), 0.6).toFloat()
+        val arcShape = kotlin.math.pow(absCos.toDouble(), 0.7).toFloat()
 
         val ballX = cx + sinP * orbitW
         val ballY = cy - arcShape * orbitH
