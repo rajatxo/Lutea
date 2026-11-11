@@ -84,7 +84,8 @@ fun EffectVisual(
     // with a fade-in rotation animation. When false, shows the OLD look (8 tag icons +
     // LEFT/RIGHT/UP/DOWN text). Tapping Orbit Speed or Spatial Ambience toggles this.
     var expandedView by remember { mutableStateOf(false) }
-    // Animation progress: 0 = old look, 1 = new structure. Animated for the cool transition.
+    // Which side is highlighted: 0=none, 1=orbit(top), 2=ambience(bottom)
+    var expandedSide by remember { mutableStateOf(0) }
     val expandProgress = androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (expandedView) 1f else 0f,
         animationSpec = androidx.compose.animation.core.tween(
@@ -124,6 +125,7 @@ fun EffectVisual(
                 rotationEnabled = eightDOn,
                 arrowsHighlighted = eightDOn,
                 expandProgress = expandProgress,
+                expandedSide = expandedSide,
             )
         }
 
@@ -134,8 +136,14 @@ fun EffectVisual(
                 PlaybackConnection.set8DEnabled(it)
                 if (!it) expandedView = false   // collapse when toggling off
             },
-            onOrbitSpeedClick = { expandedView = !expandedView },
-            onSpatialAmbienceClick = { expandedView = !expandedView },
+            onOrbitSpeedClick = {
+                if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
+                else { expandedView = true; expandedSide = 1 }
+            },
+            onSpatialAmbienceClick = {
+                if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
+                else { expandedView = true; expandedSide = 2 }
+            },
             screenWidthPx = widthPx,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -299,7 +307,7 @@ private fun SideCapsule(
             .background(Color.Black.copy(alpha = 0.45f))
             .border(
                 width = padH / 12f,
-                color = Color(0xFFD4A03A).copy(alpha = 0.4f),
+                color = Cream.copy(alpha = 0.18f),
                 shape = RoundedCornerShape(corner),
             )
             .clickable { onClick() }
@@ -601,7 +609,8 @@ private fun SphereComposition(
     modifier: Modifier = Modifier,
     rotationEnabled: Boolean = true,
     arrowsHighlighted: Boolean = false,
-    expandProgress: Float = 0f,   // 0 = old 8-label look, 1 = new 1-25/2-24 structure
+    expandProgress: Float = 0f,
+    expandedSide: Int = 0,   // 0=none, 1=orbit(top), 2=ambience(bottom)
 ) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
@@ -634,14 +643,14 @@ private fun SphereComposition(
     // structure as expandProgress → 1.
     val oldTagDirs = remember {
         listOf(
-            Direction(0f,   "RIGHT"),
-            Direction(45f,  ""),
-            Direction(90f,  "UP"),
-            Direction(135f, ""),
-            Direction(180f, "LEFT"),
-            Direction(225f, ""),
-            Direction(270f, "DOWN"),
-            Direction(315f, ""),
+            Direction(0f,   "Plate"),
+            Direction(45f,  "Hall"),
+            Direction(90f,  "None"),
+            Direction(135f, "Chamber"),
+            Direction(180f, "Spring"),
+            Direction(225f, "Room"),
+            Direction(270f, "Stadium"),
+            Direction(315f, "Cathedral"),
         )
     }
 
@@ -787,8 +796,41 @@ private fun SphereComposition(
         val smallTagSize = size.width * 0.018f
         val numberFontSize = size.width * 0.028f
         val numberDistance = smallTagSize / 2f + size.width * 0.030f
+        // Sunset palette: EA6113 (deepest) → F88F22 → FBB931 → FFE3B3 (lightest)
+        // 13 = deepest, gradually lighter outward.
         val creamArgb = android.graphics.Color.argb(245, 245, 240, 230)
-        val goldArgb = android.graphics.Color.argb(255, 212, 160, 58)
+        val palette = intArrayOf(
+            0xFFEA6113.toInt(),  // distance 0 (num=13) — deepest
+            0xFFF88F22.toInt(),  // distance 1 (num=12,14)
+            0xFFFBB931.toInt(),  // distance 2 (num=11,15)
+            0xFFFFE3B3.toInt(),  // distance 3 (num=10,16)
+            0xFFFFE3B3.toInt(),  // distance 4+ (lighter, will fade alpha)
+        )
+
+        // Returns the ARGB color for a number given which side is active.
+        // If the number is on the active side → sunset gradient based on distance from 13.
+        // If on the inactive side → dimmed cream (30% alpha).
+        fun numColor(num: Int, isActiveSide: Boolean, alpha: Float): Int {
+            if (!isActiveSide) {
+                // Dimmed — low opacity cream
+                return android.graphics.Color.argb((70 * alpha).toInt(), 245, 240, 230)
+            }
+            val dist = kotlin.math.abs(num - 13)
+            val baseColor = palette[dist.coerceIn(0, palette.lastIndex)]
+            val baseAlpha = when {
+                dist == 0 -> 255
+                dist <= 3 -> 245
+                dist <= 6 -> 200
+                dist <= 9 -> 150
+                else -> 100
+            }
+            return android.graphics.Color.argb(
+                (baseAlpha * alpha).toInt(),
+                android.graphics.Color.red(baseColor),
+                android.graphics.Color.green(baseColor),
+                android.graphics.Color.blue(baseColor),
+            )
+        }
         val numberPaint = android.graphics.Paint().apply {
             color = creamArgb
             this.textSize = numberFontSize
@@ -800,7 +842,10 @@ private fun SphereComposition(
         // OLD LOOK: 8 tag icons + LEFT/RIGHT/UP/DOWN text labels
         // ════════════════════════════════════════════════════════════════════
         // Alpha = (1 - expandProgress). Fades out as the new structure fades in.
-        val oldAlpha = (1f - expandProgress).coerceIn(0f, 1f)
+        // Sequential cross-fade: old fades out during 0→0.5, new fades in during 0.5→1.
+        // This prevents the visual "breaking" where both old+new are visible at the
+        // same time during the transition.
+        val oldAlpha = ((0.5f - expandProgress) / 0.5f).coerceIn(0f, 1f)
         if (oldAlpha > 0.01f) {
             val oldTagSize = size.width * 0.028f
             val oldTagAlpha = oldAlpha * 0.92f
@@ -845,7 +890,7 @@ private fun SphereComposition(
         // NEW LOOK: 80 small tag icons + 25 top numbers + 23 bottom numbers
         // ════════════════════════════════════════════════════════════════════
         // Alpha = expandProgress. Fades in as the old look fades out.
-        val newAlpha = expandProgress.coerceIn(0f, 1f)
+        val newAlpha = ((expandProgress - 0.5f) / 0.5f).coerceIn(0f, 1f)
         if (newAlpha > 0.01f) {
             val newTagAlpha = newAlpha * 0.85f
             // 80 small tag icons — one per dot
@@ -865,20 +910,14 @@ private fun SphereComposition(
 
             // Top: 25 numbers from LEFT (π) through UP (3π/2) to RIGHT (2π)
             val topCount = 25
+            val topIsActive = expandedSide == 1
             for (k in 0 until topCount) {
                 val num = (k + 1)
                 val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / (topCount - 1).toFloat())
                 val labelR = dottedR + numberDistance
                 val lx = cx + labelR * cos(angleRad)
                 val ly = cy + labelR * sin(angleRad)
-                val isHighlight = arrowsHighlighted && num == 13
-                val baseColor = if (isHighlight) goldArgb else creamArgb
-                numberPaint.color = android.graphics.Color.argb(
-                    ((android.graphics.Color.alpha(baseColor)) * newAlpha).toInt(),
-                    android.graphics.Color.red(baseColor),
-                    android.graphics.Color.green(baseColor),
-                    android.graphics.Color.blue(baseColor),
-                )
+                numberPaint.color = numColor(num, topIsActive, newAlpha)
                 drawIntoCanvas { canvas ->
                     canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
                 }
@@ -886,20 +925,14 @@ private fun SphereComposition(
 
             // Bottom: 23 numbers (2 to 24)
             val bottomCount = 23
+            val bottomIsActive = expandedSide == 2
             for (k in 0 until bottomCount) {
                 val num = (k + 2)
                 val angleRad = Math.PI.toFloat() - ((k + 1).toFloat() * Math.PI.toFloat() / 24f)
                 val labelR = dottedR + numberDistance
                 val lx = cx + labelR * cos(angleRad)
                 val ly = cy + labelR * sin(angleRad)
-                val isHighlight = arrowsHighlighted && num == 13
-                val baseColor = if (isHighlight) goldArgb else creamArgb
-                numberPaint.color = android.graphics.Color.argb(
-                    ((android.graphics.Color.alpha(baseColor)) * newAlpha).toInt(),
-                    android.graphics.Color.red(baseColor),
-                    android.graphics.Color.green(baseColor),
-                    android.graphics.Color.blue(baseColor),
-                )
+                numberPaint.color = numColor(num, bottomIsActive, newAlpha)
                 drawIntoCanvas { canvas ->
                     canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
                 }
