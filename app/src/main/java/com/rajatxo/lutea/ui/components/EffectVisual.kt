@@ -324,17 +324,17 @@ private fun EffectOverlay(
                         fontSize = subLabelTextSize,
                     )
                     Text(
-                        text = "%.2f rps".format(orbitSpeed),
+                        text = "${(orbitSpeed * 100f).toInt()}",
                         color = Cream.copy(alpha = 0.6f),
                         fontFamily = CalSansFamily,
                         fontSize = valueTextSize,
                     )
                 }
                 androidx.compose.material3.Slider(
-                    value = orbitSpeed,
-                    onValueChange = onOrbitSpeedChange,
+                    value = orbitSpeed * 100f,
+                    onValueChange = { onOrbitSpeedChange(it / 100f) },
                     onValueChangeFinished = onOrbitSpeedFinished,
-                    valueRange = 0.05f..1.5f,
+                    valueRange = 1f..100f,
                     colors = androidx.compose.material3.SliderDefaults.colors(
                         thumbColor = sliderActiveColor,
                         activeTrackColor = sliderActiveColor,
@@ -499,14 +499,14 @@ private fun SphereComposition(
     // Arrow positions are at 0/90/180/270. Mid-arcs at 45/135/225/315.
     val tagDirs = remember {
         listOf(
-            Direction(0f,   "RIGHT", true),
-            Direction(45f,  "",      false),
-            Direction(90f,  "UP",    true),
-            Direction(135f, "",      false),
-            Direction(180f, "LEFT",  true),
-            Direction(225f, "",      false),
-            Direction(270f, "DOWN",  true),
-            Direction(315f, "",      false),
+            Direction(0f,   "100", true),   // RIGHT
+            Direction(45f,  "75",  false),   // UP-RIGHT (mid-arc)
+            Direction(90f,  "50",  true),    // UP
+            Direction(135f, "25",  false),   // UP-LEFT (mid-arc)
+            Direction(180f, "1",   true),    // LEFT
+            Direction(225f, "25",  false),   // DOWN-LEFT (mid-arc)
+            Direction(270f, "50",  true),    // DOWN
+            Direction(315f, "75",  false),   // DOWN-RIGHT (mid-arc)
         )
     }
 
@@ -656,9 +656,9 @@ private fun SphereComposition(
             }
         }
 
-        // ── Direction labels (LEFT/RIGHT/UP/DOWN) ──
-        // Position so the OUTER edge of LEFT/RIGHT text sits exactly 4dp from the
-        // screen edge. UP/DOWN are centered horizontally already.
+        // ── Numeric labels (1-100) around the circle ──
+        // LEFT=1, UP=50, RIGHT=100, DOWN=50. Both halves mirror.
+        // Mid-arc positions (45/135/225/315) get 25/75/25/75 respectively.
         val paint = android.graphics.Paint().apply {
             color = android.graphics.Color.argb(245, 245, 240, 230)
             this.textSize = labelFontSize
@@ -668,11 +668,11 @@ private fun SphereComposition(
         for (dir in tagDirs) {
             if (dir.label.isEmpty()) continue
             val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
-            // For LEFT/RIGHT, use the precise labelCenterFromCenter so the outer
-            // edge sits at edgeGapPx from the screen edge. For UP/DOWN, sit just
-            // outside the tag icon.
-            val distFromCenter = when (dir.label) {
-                "LEFT", "RIGHT" -> labelCenterFromCenter
+            // For LEFT/RIGHT (compass 180/0), use the precise labelCenterFromCenter
+            // so the outer edge sits at edgeGapPx from the screen edge. For other
+            // positions, sit just outside the tag icon.
+            val distFromCenter = when (dir.angleDeg) {
+                0f, 180f -> labelCenterFromCenter
                 else -> tagR + tagSize / 2f + size.width * 0.020f
             }
             val lx = cx + distFromCenter * cos(angleRad)

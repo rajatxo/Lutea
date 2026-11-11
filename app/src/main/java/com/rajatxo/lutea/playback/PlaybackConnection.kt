@@ -172,9 +172,10 @@ object PlaybackConnection {
     }
 
     /** Slider drag: updates the processor's Hz in real-time. Per-drag-tick writes
-     *  are fine — the processor reads @Volatile fields, no allocation. */
+     *  are fine — the processor reads @Volatile fields, no allocation.
+     *  Value is in rps internally (0.01..1.0). UI converts slider 1-100 to rps. */
     fun setOrbitSpeed(value: Float) {
-        val clamped = value.coerceIn(0.05f, 1.5f)
+        val clamped = value.coerceIn(0.01f, 1.0f)
         _orbitSpeed.value = clamped
         LuteaAudioProcessors.spatial8D.setOrbitHz(clamped)
     }

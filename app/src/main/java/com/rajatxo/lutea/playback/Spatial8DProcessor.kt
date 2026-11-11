@@ -39,7 +39,7 @@ class Spatial8DProcessor : BaseAudioProcessor() {
     }
 
     fun setOrbitHz(h: Float) {
-        hz = h.coerceIn(0.03f, 1.5f)
+        hz = h.coerceIn(0.01f, 1.5f)
     }
 
     fun setSpatialWidth(w: Float) {
