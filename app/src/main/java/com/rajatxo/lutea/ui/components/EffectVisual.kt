@@ -27,7 +27,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,9 +72,9 @@ fun EffectVisual(
 ) {
     val density = LocalDensity.current
     // Local UI state — sliders + toggle. Wired to PlaybackConnection in stage 2.
-    var eightDOn by remember { androidx.compose.runtime.mutableStateOf(false) }
-    var orbitSpeed by remember { androidx.compose.runtime.mutableStateOf(0.10f) }
-    var spatialAmbience by remember { androidx.compose.runtime.mutableStateOf(0.50f) }
+    var eightDOn by remember { mutableStateOf(false) }
+    var orbitSpeed by remember { mutableStateOf(0.10f) }
+    var spatialAmbience by remember { mutableStateOf(0.50f) }
 
     BoxWithConstraints(
         modifier = modifier
@@ -354,20 +356,21 @@ private fun SphereComposition(
 ) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
-    // When 8D is off, the rotation stays at 0 (no infinite repeat). When on,
-    // it spins. We do this by swapping the animationSpec — a tween(0) one-shot
-    // at value 0 when off, infiniteRepeatable when on.
+    // When 8D is off, rotation stays at 0 (no infinite repeat). When on,
+    // it spins. We use FiniteAnimationSpec<Float> as the common type so the
+    // if/else can return either tween or infiniteRepeatable.
+    val rotationSpec: androidx.compose.animation.core.FiniteAnimationSpec<Float> = if (rotationEnabled) {
+        infiniteRepeatable(
+            animation = tween(9000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        )
+    } else {
+        tween(0)
+    }
     val rotation by infinite.animateFloat(
         initialValue = 0f,
         targetValue = if (rotationEnabled) 360f else 0f,
-        animationSpec = if (rotationEnabled) {
-            infiniteRepeatable(
-                animation = tween(9000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            )
-        } else {
-            tween(0)
-        },
+        animationSpec = rotationSpec,
         label = "rot",
     )
     val pulse by infinite.animateFloat(
