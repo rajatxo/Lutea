@@ -103,6 +103,26 @@ object PlaybackConnection {
                     if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                         if (!c.isPlaying) c.play()
                     }
+                    // Auto-apply 8D when song changes AND 8D is enabled.
+                    // SpatialFlow's pattern: loadAudioInternal cancels any in-flight
+                    // FFmpeg if 8D is on (line 1144). Then onMediaItemTransition fires,
+                    // and applyEffectsFromViewModelAsync re-applies effects — but for 8D
+                    // specifically, the song transition itself triggers re-processing.
+                    //
+                    // We do the same: if 8D is on, kick off processing for the new song
+                    // immediately. If cache hits, swap is instant.
+                    if (_is8DEnabled.value && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                        _currentSong.value?.let { newSong ->
+                            scope.launch {
+                                kotlinx.coroutines.delay(300)  // let player settle
+                                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                    if (_is8DEnabled.value && _currentSong.value?.id == newSong.id) {
+                                        applyEffects(true, _orbitSpeed.value, _spatialAmbience.value)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 override fun onPlayerErrorChanged(error: androidx.media3.common.PlaybackException?) {
@@ -172,6 +192,7 @@ object PlaybackConnection {
             c.seekTo(pos)
             c.prepare()
             c.play()
+            c.volume = 1.0f  // SpatialFlow updateBaseVolume pattern
             _is8DActive.value = true
             Log.i("PlaybackConnection", "8D cache hit on slider change — instant swap")
             return
@@ -216,6 +237,7 @@ object PlaybackConnection {
             c.seekTo(pos)
             c.prepare()
             c.play()
+            c.volume = 1.0f  // SpatialFlow updateBaseVolume pattern
             Log.i("PlaybackConnection", "8D disabled — restored original at pos=$pos")
             return
         }
@@ -230,6 +252,7 @@ object PlaybackConnection {
             c.seekTo(pos)
             c.prepare()
             c.play()
+            c.volume = 1.0f  // SpatialFlow updateBaseVolume pattern
             _is8DActive.value = true
             Log.i("PlaybackConnection", "8D cache hit — swapped to processed at pos=$pos")
             return
@@ -292,15 +315,29 @@ object PlaybackConnection {
                                     _progressUpdate(1f)
                                     isProcessing = false
                                     _isProcessing8D.value = false
-                                    // loadProcessedAudio pattern: swap to processed file
+                                    // loadProcessedAudio pattern (SpatialFlow lines 1114-1122):
+                                    //   val currentPos = player.currentPosition
+                                    //   currentlyLoadedPath = path
+                                    //   player.setMediaItem(buildMediaItem(Uri.fromFile(File(path))))
+                                    //   player.seekTo(currentPos)
+                                    //   player.prepare()
+                                    //   setPlaybackSpeed(speed, ...)   ← preserves speed
+                                    //   if (autoPlay) play()
+                                    // PLUS updateBaseVolume() to reset volume to 1.0f
                                     val pos = c.currentPosition
                                     val mediaItem = buildMediaItem(Uri.fromFile(outputFile), song)
                                     c.setMediaItem(mediaItem)
                                     c.seekTo(pos)
                                     c.prepare()
                                     c.play()
+                                    // ★ Volume fix: after swap, force volume back to 1.0f.
+                                    // SpatialFlow calls updateBaseVolume() after loadAudioInternal
+                                    // which sets player.volume = currentBaseVolume (default 1.0f).
+                                    // Without this, the swap to the AAC-encoded 8D file plays at
+                                    // a much lower perceived volume than the original.
+                                    c.volume = 1.0f
                                     _is8DActive.value = true
-                                    Log.i("PlaybackConnection", "8D swap complete at pos=$pos")
+                                    Log.i("PlaybackConnection", "8D swap complete at pos=$pos, volume reset to 1.0")
                                 } else if (ReturnCode.isCancel(session.returnCode)) {
                                     Log.i("PlaybackConnection", "FFmpeg cancelled (expected)")
                                     sourceTemp.delete()
