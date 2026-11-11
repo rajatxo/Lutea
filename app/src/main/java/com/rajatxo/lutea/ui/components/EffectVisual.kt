@@ -620,65 +620,61 @@ private fun SphereComposition(
             color = arrowColor,
         )
 
-        // ── Tag icons + numbers (1-40) around the dotted circle ──
-        // 80 tags total — one in front of each dot.
-        // Top 40 (going LEFT=1 → UP=20 → RIGHT=40) get numeric labels.
-        // Bottom 40 are bare tag icons.
+        // ── Tag icons + numbers (1-30) around the dotted circle ──
+        // 80 small tag icons total — one in front of each dot.
+        // 30 numbers spread evenly across the top semicircle (LEFT=1 → UP=15 → RIGHT=30).
+        // Bottom half is bare tag icons (no numbers).
         //
-        // Dot indexing: i=0 is at screen-angle 0 (RIGHT), i increases clockwise
-        // (because canvas +y is down). So:
-        //   i=0  → RIGHT (angle 0)
-        //   i=20 → DOWN  (angle 90°, +y)
-        //   i=40 → LEFT  (angle 180°)
-        //   i=60 → UP    (angle 270°, -y)
-        // Top half = i in 40..79 (LEFT → UP → RIGHT).
-        // Numbering: i=40 → "1", i=60 → "20" (UP), i=79 → "40" (almost RIGHT).
-        val smallTagSize = size.width * 0.018f   // smaller than the 8 old compass tags
+        // Numbers sit at their own radius, OUTSIDE the tag icons, so they have
+        // breathable space and don't crowd the dotted circle.
+        val smallTagSize = size.width * 0.018f   // small tag icon, same as before
         val tagPainterAlpha = 0.85f
-        val numberFontSize = size.width * 0.020f
-        val numberDistance = smallTagSize / 2f + size.width * 0.012f   // how far outside the tag the number sits
+        val numberFontSize = size.width * 0.028f   // 40% larger than before (was 0.020)
+        // Distance from dotted circle to number center — enough gap that number
+        // doesn't touch the tag icon. Tag sits ON the dotted circle (radius dottedR).
+        // Number center is at: dottedR + tagRadius + gap + halfNumberHeight
+        val numberDistance = smallTagSize / 2f + size.width * 0.030f
         val numberPaint = android.graphics.Paint().apply {
             color = android.graphics.Color.argb(245, 245, 240, 230)
             this.textSize = numberFontSize
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             textAlign = android.graphics.Paint.Align.CENTER
         }
-        for (i in 0 until dotCount) {
-            // Screen angle (radians) for this dot — same as the dot's angle.
-            val screenAngleRad = (2.0 * Math.PI * i / dotCount).toFloat()
-            // Compass angle (degrees) for rotation — 0=R, 90=U, 180=L, 270=D.
-            // Convert: compassDeg = 90 - screenAngleDeg, but screenAngle goes clockwise
-            // from RIGHT, so compassDeg = -Math.toDegrees(screenAngleRad.toDouble()).toFloat()
-            val compassDeg = (-Math.toDegrees(screenAngleRad.toDouble())).toFloat().mod(360f)
 
-            // Tag icon at dottedR
+        // ── 80 tag icons (one per dot) ──
+        for (i in 0 until dotCount) {
+            val screenAngleRad = (2.0 * Math.PI * i / dotCount).toFloat()
+            val compassDeg = (-Math.toDegrees(screenAngleRad.toDouble())).toFloat().mod(360f)
             val tx = cx + dottedR * cos(screenAngleRad)
             val ty = cy + dottedR * sin(screenAngleRad)
-            val rotationDeg = -compassDeg
-            rotate(degrees = rotationDeg, pivot = Offset(tx, ty)) {
+            rotate(degrees = -compassDeg, pivot = Offset(tx, ty)) {
                 translate(left = tx - smallTagSize / 2f, top = ty - smallTagSize / 2f) {
                     with(tagPainter) {
                         draw(size = Size(smallTagSize, smallTagSize), colorFilter = null, alpha = tagPainterAlpha)
                     }
                 }
             }
+        }
 
-            // Number label — only for top half (i in 40..79)
-            if (i in 40..79) {
-                // i=40 → "1", i=79 → "40". (i-39) maps 40→1, 79→40.
-                val num = (i - 39).toString()
-                // Position outside the tag, radially outward from the dotted circle.
-                val labelR = dottedR + numberDistance
-                val lx = cx + labelR * cos(screenAngleRad)
-                val ly = cy + labelR * sin(screenAngleRad)
-                drawIntoCanvas { canvas ->
-                    canvas.nativeCanvas.drawText(
-                        num,
-                        lx,
-                        ly + numberPaint.textSize / 3f,
-                        numberPaint,
-                    )
-                }
+        // ── 30 numbers on the top semicircle (LEFT=1 → UP=15 → RIGHT=30) ──
+        // Top semicircle = canvas angles from π (LEFT) through 3π/2 (UP) to 2π (RIGHT).
+        // 30 numbers evenly spaced across 180°, so each step = π/29 radians.
+        // k=0 → LEFT (angle π), k=14 → ~267° (just before UP at 270°), k=29 → RIGHT (angle 2π).
+        val numberCount = 30
+        for (k in 0 until numberCount) {
+            val num = (k + 1).toString()
+            // Canvas angle: π + k × π/29 (going counterclockwise through UP).
+            val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / (numberCount - 1).toFloat())
+            val labelR = dottedR + numberDistance
+            val lx = cx + labelR * cos(angleRad)
+            val ly = cy + labelR * sin(angleRad)
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawText(
+                    num,
+                    lx,
+                    ly + numberPaint.textSize / 3f,
+                    numberPaint,
+                )
             }
         }
 
