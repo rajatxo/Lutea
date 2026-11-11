@@ -122,8 +122,10 @@ fun EffectVisual(
             label = "8D Audio",
             orbitSpeed = orbitSpeed,
             onOrbitSpeedChange = { PlaybackConnection.setOrbitSpeed(it) },
+            onOrbitSpeedFinished = { PlaybackConnection.apply8DParams() },
             spatialAmbience = spatialAmbience,
             onSpatialAmbienceChange = { PlaybackConnection.setSpatialAmbience(it) },
+            onSpatialAmbienceFinished = { PlaybackConnection.apply8DParams() },
             isProcessing = isProcessing,
             processingProgress = processingProgress,
             lastError = lastError,
@@ -189,8 +191,10 @@ private fun EffectOverlay(
     label: String,
     orbitSpeed: Float,
     onOrbitSpeedChange: (Float) -> Unit,
+    onOrbitSpeedFinished: () -> Unit,
     spatialAmbience: Float,
     onSpatialAmbienceChange: (Float) -> Unit,
+    onSpatialAmbienceFinished: () -> Unit,
     isProcessing: Boolean,
     processingProgress: Float,
     lastError: String,
@@ -293,6 +297,7 @@ private fun EffectOverlay(
                 androidx.compose.material3.Slider(
                     value = orbitSpeed,
                     onValueChange = onOrbitSpeedChange,
+                    onValueChangeFinished = onOrbitSpeedFinished,
                     valueRange = 0.05f..1.5f,
                     colors = androidx.compose.material3.SliderDefaults.colors(
                         thumbColor = sliderActiveColor,
@@ -327,6 +332,7 @@ private fun EffectOverlay(
                 androidx.compose.material3.Slider(
                     value = spatialAmbience,
                     onValueChange = onSpatialAmbienceChange,
+                    onValueChangeFinished = onSpatialAmbienceFinished,
                     valueRange = 0f..1f,
                     colors = androidx.compose.material3.SliderDefaults.colors(
                         thumbColor = sliderActiveColor,
