@@ -635,8 +635,10 @@ private fun SpatialOrbBall(
         // Arc path — hugs the head/headphones shape like a band.
         // Tight radius: stays close to the head, not a wide circle.
         // Ball is always in FRONT or above the head, NEVER behind.
-        val orbitW = headSizePx * 0.38f   // half-width: stays within ear cup area
-        val orbitH = headSizePx * 0.42f   // height: just above the headphone band
+        // orbitW slightly larger so ball reaches closer to the ears.
+        // orbitH slightly taller so ball clears the headphone band with a small gap.
+        val orbitW = headSizePx * 0.42f   // half-width: reaches closer to ear cups
+        val orbitH = headSizePx * 0.46f   // height: small gap above headphone band
         val ballR = headSizePx * 0.035f
         val glowR = ballR * 3.5f
 
