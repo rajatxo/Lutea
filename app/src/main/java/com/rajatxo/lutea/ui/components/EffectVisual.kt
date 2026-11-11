@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -68,6 +69,11 @@ fun EffectVisual(
     headRes: Int = R.drawable.effect_head,
 ) {
     val density = LocalDensity.current
+    // Local UI state — sliders + toggle. Wired to PlaybackConnection in stage 2.
+    var eightDOn by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var orbitSpeed by remember { androidx.compose.runtime.mutableStateOf(0.10f) }
+    var spatialAmbience by remember { androidx.compose.runtime.mutableStateOf(0.50f) }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -90,19 +96,26 @@ fun EffectVisual(
                 .align(Alignment.TopCenter),
             contentAlignment = Alignment.TopCenter,
         ) {
-            SphereComposition(modifier = Modifier.fillMaxSize())
+            // Pass enabled flag — sphere only rotates when 8D is on.
+            SphereComposition(
+                modifier = Modifier.fillMaxSize(),
+                rotationEnabled = eightDOn,
+            )
         }
 
-        // ── 8D Audio capsule + toggle — OVERLAY layer (doesn't push the sphere) ──
+        // ── 8D Audio capsule + sliders — OVERLAY layer (doesn't push the sphere) ──
         // Sits just below the status bar — offset UP by the LuteaScaffold's
         // username-header inset (56dp = 15.6% of screen width on a 360dp phone)
-        // so it appears at the very top of the content area, right under the
-        // status bar. Sphere composition and head are NOT touched.
+        // so it appears at the very top of the content area. Sphere + head untouched.
         val headerInsetFrac = 0.156f  // 56dp ÷ 360dp reference phone
-        EffectTopBar(
-            enabled = false,
-            onToggle = { /* wired later — no LFO, no crash */ },
+        EffectOverlay(
+            enabled = eightDOn,
+            onToggle = { eightDOn = it },
             label = "8D Audio",
+            orbitSpeed = orbitSpeed,
+            onOrbitSpeedChange = { orbitSpeed = it },
+            spatialAmbience = spatialAmbience,
+            onSpatialAmbienceChange = { spatialAmbience = it },
             screenWidthPx = widthPx,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -158,67 +171,154 @@ fun EffectVisual(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun EffectTopBar(
+private fun EffectOverlay(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,
     label: String,
+    orbitSpeed: Float,
+    onOrbitSpeedChange: (Float) -> Unit,
+    spatialAmbience: Float,
+    onSpatialAmbienceChange: (Float) -> Unit,
     screenWidthPx: Float,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     val widthPx = screenWidthPx
     val labelTextSize = with(density) { (widthPx * 0.030f).toSp() }
+    val subLabelTextSize = with(density) { (widthPx * 0.022f).toSp() }
+    val valueTextSize = with(density) { (widthPx * 0.020f).toSp() }
     val capsulePadHDp = with(density) { (widthPx * 0.025f).toDp() }
     val capsulePadVDp = with(density) { (widthPx * 0.012f).toDp() }
     val capsuleCornerDp = with(density) { (widthPx * 0.04f).toDp() }
-    // Bigger toggle per user request.
-    val toggleSizeDp = with(density) { (widthPx * 0.080f).toDp() }
+    val toggleSizeDp = with(density) { (widthPx * 0.080f).toDp() }   // bigger toggle
+    val sliderTrackColor = Cream.copy(alpha = 0.20f)
+    val sliderActiveColor = Color(0xFFD4A03A)
+    val sliderPadH = with(density) { (widthPx * 0.06f).toDp() }
+    val sliderSpacing = with(density) { (widthPx * 0.015f).toDp() }
 
-    Row(
+    Column(
         modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(sliderSpacing),
     ) {
-        // Capsule label
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(capsuleCornerDp))
-                .background(Color.Black.copy(alpha = 0.45f))
-                .border(
-                    width = with(density) { (widthPx * 0.002f).toDp() },
-                    color = Cream.copy(alpha = 0.18f),
-                    shape = RoundedCornerShape(capsuleCornerDp),
-                )
-                .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),
+        // Row 1: capsule + toggle
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
         ) {
-            Text(
-                text = label,
-                color = Cream,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = labelTextSize,
-            )
-        }
-        // Toggle
-        Box(
-            modifier = Modifier
-                .padding(start = with(density) { (widthPx * 0.02f).toDp() })
-                .size(toggleSizeDp, toggleSizeDp * 0.55f)
-                .clip(RoundedCornerShape(50))
-                .background(
-                    if (enabled) Color(0xFFD4A03A) else Color.White.copy(alpha = 0.10f)
-                )
-                .clickable { onToggle(!enabled) }
-                .padding(with(density) { (widthPx * 0.005f).toDp() }),
-            contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
-        ) {
-            val knobSize = with(density) { (widthPx * 0.040f).toDp() }
+            // Capsule label
             Box(
                 modifier = Modifier
-                    .size(knobSize)
+                    .clip(RoundedCornerShape(capsuleCornerDp))
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .border(
+                        width = with(density) { (widthPx * 0.002f).toDp() },
+                        color = Cream.copy(alpha = 0.18f),
+                        shape = RoundedCornerShape(capsuleCornerDp),
+                    )
+                    .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),
+            ) {
+                Text(
+                    text = label,
+                    color = Cream,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = labelTextSize,
+                )
+            }
+            // Toggle
+            Box(
+                modifier = Modifier
+                    .padding(start = with(density) { (widthPx * 0.02f).toDp() })
+                    .size(toggleSizeDp, toggleSizeDp * 0.55f)
                     .clip(RoundedCornerShape(50))
-                    .background(Color.White),
-            )
+                    .background(
+                        if (enabled) Color(0xFFD4A03A) else Color.White.copy(alpha = 0.10f)
+                    )
+                    .clickable { onToggle(!enabled) }
+                    .padding(with(density) { (widthPx * 0.005f).toDp() }),
+                contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                val knobSize = with(density) { (widthPx * 0.040f).toDp() }
+                Box(
+                    modifier = Modifier
+                        .size(knobSize)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White),
+                )
+            }
+        }
+
+        // Row 2 + 3: sliders — only visible when 8D is on
+        if (enabled) {
+            // Orbit Speed
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = sliderPadH),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = "Orbit Speed",
+                        color = Cream,
+                        fontFamily = CalSansFamily,
+                        fontSize = subLabelTextSize,
+                    )
+                    Text(
+                        text = "%.2f rps".format(orbitSpeed),
+                        color = Cream.copy(alpha = 0.6f),
+                        fontFamily = CalSansFamily,
+                        fontSize = valueTextSize,
+                    )
+                }
+                androidx.compose.material3.Slider(
+                    value = orbitSpeed,
+                    onValueChange = onOrbitSpeedChange,
+                    valueRange = 0.05f..1.5f,
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = sliderActiveColor,
+                        activeTrackColor = sliderActiveColor,
+                        inactiveTrackColor = sliderTrackColor,
+                    ),
+                )
+            }
+            // Spatial Ambience
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = sliderPadH),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = "Spatial Ambience",
+                        color = Cream,
+                        fontFamily = CalSansFamily,
+                        fontSize = subLabelTextSize,
+                    )
+                    Text(
+                        text = "%.0f%%".format(spatialAmbience * 100),
+                        color = Cream.copy(alpha = 0.6f),
+                        fontFamily = CalSansFamily,
+                        fontSize = valueTextSize,
+                    )
+                }
+                androidx.compose.material3.Slider(
+                    value = spatialAmbience,
+                    onValueChange = onSpatialAmbienceChange,
+                    valueRange = 0f..1f,
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = sliderActiveColor,
+                        activeTrackColor = sliderActiveColor,
+                        inactiveTrackColor = sliderTrackColor,
+                    ),
+                )
+            }
         }
     }
 }
@@ -248,16 +348,26 @@ private data class Direction(
 )
 
 @Composable
-private fun SphereComposition(modifier: Modifier = Modifier) {
+private fun SphereComposition(
+    modifier: Modifier = Modifier,
+    rotationEnabled: Boolean = true,
+) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
+    // When 8D is off, the rotation stays at 0 (no infinite repeat). When on,
+    // it spins. We do this by swapping the animationSpec — a tween(0) one-shot
+    // at value 0 when off, infiniteRepeatable when on.
     val rotation by infinite.animateFloat(
         initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(9000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
+        targetValue = if (rotationEnabled) 360f else 0f,
+        animationSpec = if (rotationEnabled) {
+            infiniteRepeatable(
+                animation = tween(9000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            )
+        } else {
+            tween(0)
+        },
         label = "rot",
     )
     val pulse by infinite.animateFloat(
