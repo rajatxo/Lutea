@@ -136,16 +136,17 @@ class Effect8DProcessor(
             // Copy source URI content to a temp file FFmpeg can read directly.
             val sourceTemp = File(context.cacheDir, "8d_source_${song.id}")
             Log.i("Effect8DProcessor", "copying source URI → ${sourceTemp.absolutePath}")
+            var sourceOpened = false
             withContext(Dispatchers.IO) {
-                val opened = context.contentResolver.openInputStream(song.uri)?.use { input ->
+                sourceOpened = context.contentResolver.openInputStream(song.uri)?.use { input ->
                     FileOutputStream(sourceTemp).use { output -> input.copyTo(output) }
-                }
-                if (opened == null) {
-                    _lastError.value = "Can't open source URI: ${song.uri}"
-                    Log.e("Effect8DProcessor", _lastError.value)
-                    _isProcessing.value = false
-                    return
-                }
+                } != null
+            }
+            if (!sourceOpened) {
+                _lastError.value = "Can't open source URI: ${song.uri}"
+                Log.e("Effect8DProcessor", _lastError.value)
+                _isProcessing.value = false
+                return
             }
             Log.i("Effect8DProcessor", "source copied, size=${sourceTemp.length()}")
 
