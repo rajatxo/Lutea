@@ -620,11 +620,13 @@ private fun SpatialOrbBall(
     modifier: Modifier = Modifier,
 ) {
     var phase by remember { mutableStateOf(0f) }
-    // Poll the audio thread's LFO phase at ~60fps for smooth tracking.
+    // Poll the audio thread's LFO phase every vsync for smooth, jitter-free tracking.
+    // withFrameNanos suspends until the next display frame — better than delay(16)
+    // which can drift and cause the ball to feel out of sync with the audio.
     androidx.compose.runtime.LaunchedEffect(Unit) {
         while (true) {
             phase = com.rajatxo.lutea.playback.LuteaAudioProcessors.spatial8D.currentPhase
-            kotlinx.coroutines.delay(16)
+            androidx.compose.runtime.withFrameNanos { }
         }
     }
 
@@ -635,10 +637,10 @@ private fun SpatialOrbBall(
         // Arc path — hugs the head/headphones shape like a band.
         // Tight radius: stays close to the head, not a wide circle.
         // Ball is always in FRONT or above the head, NEVER behind.
-        // orbitW slightly larger so ball reaches closer to the ears.
-        // orbitH slightly taller so ball clears the headphone band with a small gap.
-        val orbitW = headSizePx * 0.42f   // half-width: reaches closer to ear cups
-        val orbitH = headSizePx * 0.46f   // height: small gap above headphone band
+        // orbitW tighter so ball is closer to the ears at the sides.
+        // orbitH stays at 0.46 — top gap is perfect per user feedback.
+        val orbitW = headSizePx * 0.45f   // half-width: tighter at ear positions
+        val orbitH = headSizePx * 0.46f   // height: gap above headphone band (perfect)
         val ballR = headSizePx * 0.035f
         val glowR = ballR * 3.5f
 
