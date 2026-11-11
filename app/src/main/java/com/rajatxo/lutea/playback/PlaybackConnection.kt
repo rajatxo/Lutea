@@ -247,37 +247,43 @@ object PlaybackConnection {
                     cmd,
                     { session ->
                         scope.launch {
-                            if (ReturnCode.isSuccess(session.returnCode)) {
-                                Log.i("PlaybackConnection", "FFmpeg success, output size=${outputFile.length()}")
-                                sourceTemp.delete()
-                                _progressUpdate(1f)
-                                isProcessing = false
-                                _isProcessing8D.value = false
-                                // loadProcessedAudio pattern: swap to processed file
-                                val pos = c.currentPosition
-                                val mediaItem = buildMediaItem(Uri.fromFile(outputFile), song)
-                                c.setMediaItem(mediaItem)
-                                c.seekTo(pos)
-                                c.prepare()
-                                c.play()
-                                _is8DActive.value = true
-                                Log.i("PlaybackConnection", "8D swap complete at pos=$pos")
-                            } else if (ReturnCode.isCancel(session.returnCode)) {
-                                // Expected when slider changes mid-process — clean up silently
-                                Log.i("PlaybackConnection", "FFmpeg cancelled (expected)")
-                                sourceTemp.delete()
-                                isProcessing = false
-                                _isProcessing8D.value = false
-                                _progressUpdate(0f)
-                            } else {
-                                val msg = "FFmpeg rc=${session.returnCode} logs=${session.allLogsAsString.take(500)}"
-                                Log.e("PlaybackConnection", msg)
-                                _lastError.value = msg
-                                sourceTemp.delete()
-                                outputFile.delete()
-                                isProcessing = false
-                                _isProcessing8D.value = false
-                                _progressUpdate(0f)
+                            // FFmpegKit's complete callback runs on a background thread.
+                            // MediaController methods (setMediaItem, seekTo, prepare, play,
+                            // currentPosition) MUST be called on the main thread — otherwise
+                            // we crash. SpatialFlow wraps this in handler.post { ... }.
+                            // Kotlin equivalent: withContext(Dispatchers.Main).
+                            withContext(Dispatchers.Main) {
+                                if (ReturnCode.isSuccess(session.returnCode)) {
+                                    Log.i("PlaybackConnection", "FFmpeg success, output size=${outputFile.length()}")
+                                    sourceTemp.delete()
+                                    _progressUpdate(1f)
+                                    isProcessing = false
+                                    _isProcessing8D.value = false
+                                    // loadProcessedAudio pattern: swap to processed file
+                                    val pos = c.currentPosition
+                                    val mediaItem = buildMediaItem(Uri.fromFile(outputFile), song)
+                                    c.setMediaItem(mediaItem)
+                                    c.seekTo(pos)
+                                    c.prepare()
+                                    c.play()
+                                    _is8DActive.value = true
+                                    Log.i("PlaybackConnection", "8D swap complete at pos=$pos")
+                                } else if (ReturnCode.isCancel(session.returnCode)) {
+                                    Log.i("PlaybackConnection", "FFmpeg cancelled (expected)")
+                                    sourceTemp.delete()
+                                    isProcessing = false
+                                    _isProcessing8D.value = false
+                                    _progressUpdate(0f)
+                                } else {
+                                    val msg = "FFmpeg rc=${session.returnCode} logs=${session.allLogsAsString.take(500)}"
+                                    Log.e("PlaybackConnection", msg)
+                                    _lastError.value = msg
+                                    sourceTemp.delete()
+                                    outputFile.delete()
+                                    isProcessing = false
+                                    _isProcessing8D.value = false
+                                    _progressUpdate(0f)
+                                }
                             }
                         }
                     },
