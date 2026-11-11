@@ -14,3 +14,11 @@
 # okio (pulled in by Lottie) references javax.annotation.Nullable which isn't in
 # the Android runtime. Tell R8 to ignore these missing classes instead of failing.
 -dontwarn javax.annotation.**
+
+# ── FFmpegKit ────────────────────────────────────────────────────────────────
+# FFmpegKit references com.arthenica.smartexception.java.Exceptions at runtime
+# (transitive dep that the maven-maintained fork doesn't include in audio variant).
+# Suppress the R8 "Missing class" error so the build can complete.
+-dontwarn com.arthenica.smartexception.**
+-dontwarn com.arthenica.ffmpegkit.**
+-keep class com.arthenica.ffmpegkit.** { *; }
