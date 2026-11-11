@@ -6,6 +6,7 @@ import android.util.Log
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.ReturnCode
+import com.arthenica.ffmpegkit.Statistics
 import com.rajatxo.lutea.domain.model.Song
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -105,7 +106,7 @@ class Effect8DProcessor(
             // Copy the source URI content to a temp file FFmpeg can read.
             val sourceTemp = File(context.cacheDir, "8d_source_${song.id}")
             withContext(Dispatchers.IO) {
-                context.contentResolver.openInputStream(Uri.parse(song.uri))?.use { input ->
+                context.contentResolver.openInputStream(song.uri)?.use { input ->
                     sourceTemp.outputStream().use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("Can't open source URI: ${song.uri}")
             }
@@ -116,24 +117,25 @@ class Effect8DProcessor(
                 spatialAmbience = params.ambience,
             )
             Log.i("Effect8DProcessor", "Running FFmpeg: $cmd")
-            val session = FFmpegKit.executeAsync(cmd) { session ->
+            val session = FFmpegKit.executeAsync(cmd) { completed ->
                 scope.launch {
-                    if (ReturnCode.isSuccess(session.returnCode)) {
+                    if (ReturnCode.isSuccess(completed.returnCode)) {
                         _progress.value = 1f
                         _isProcessing.value = false
                         sourceTemp.delete()
                         onProcessedUri(Uri.fromFile(cache))
                     } else {
-                        Log.e("Effect8DProcessor", "FFmpeg failed: ${session.returnCode} / ${session.getLogAsString()}")
+                        Log.e("Effect8DProcessor", "FFmpeg failed: ${completed.returnCode} / ${completed.allLogsAsString}")
                         _isProcessing.value = false
                         sourceTemp.delete()
                     }
                 }
             }
-            // Poll session statistics for progress updates (rough — based on time)
+            // Poll session statistics for progress updates (rough — based on processed time)
             val totalMs = song.duration.coerceAtLeast(1000L)
             while (session.state != com.arthenica.ffmpegkit.SessionState.COMPLETED) {
-                val pos = session.statistics?.time?.toFloat() ?: 0f
+                val stats: Statistics? = session.lastReceivedStatistics
+                val pos = stats?.time?.toFloat() ?: 0f
                 _progress.value = (pos / totalMs).coerceIn(0f, 0.99f)
                 kotlinx.coroutines.delay(200)
             }
