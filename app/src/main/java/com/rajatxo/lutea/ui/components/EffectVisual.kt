@@ -170,44 +170,75 @@ fun EffectVisual(
                 maxOf(maxHeadForGap, widthPx * 0.30f),
             ).toDp()
         }
-        // ── Card: rounded box behind the head image, same dark grey as the image,
-        //    gradient fades to black at the bottom. Card takes the original head size
-        //    space (no layout change → no overlap with the sphere component above).
-        //    Head image inside is 80% of card so the glow ball — which extends ~7.25%
-        //    beyond the head on each side — stays inside the card with ~2.75% margin. ──
-        val cardSizeDp = headSizeDp
-        val cardPadFrac = 0.10f
-        val innerHeadSizeDp = cardSizeDp * (1f - 2f * cardPadFrac)
-        val cardCornerDp = cardSizeDp * 0.10f
-        // Card colour matches the head image's dominant tone (dark grey ~RGB 26,26,26).
+        // ── Card: fit-to-screen rounded rectangle behind the head image. ──
+        // Width = 88% of screen, height = available vertical space below the sphere
+        // composition (with a 2% gap so it doesn't touch the sphere).
+        // Top 40% = #1A1A1A (head image's dominant tone), bottom 60% = black, with a
+        // smoothstep blend at the 40% line for a seamless transition. A dot grid
+        // (like the reference image) fills the entire card.
+        // Head image + glow ball sit at the bottom center of the card, at their
+        // original size — the card extends upward with empty dot-grid space above.
+        val cardWidthDp = with(density) { (widthPx * 0.88f).toDp() }
+        val cardHeightDp = with(density) {
+            val sphereBottomPx = widthPx * compositionHeightFrac
+            val gapPx = heightPx * 0.02f
+            (heightPx - sphereBottomPx - gapPx).coerceAtLeast(widthPx * 0.40f).toDp()
+        }
+        val cardCornerDp = cardWidthDp * 0.06f
         val cardColor = Color(0xFF1A1A1A)
+        val dotColor = Color(0xFF2E2E2E)
+        val dotRadiusPx = with(density) { 2.dp.toPx() }
+        val dotSpacingPx = with(density) { 20.dp.toPx() }
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Box(
                 modifier = Modifier
-                    .size(cardSizeDp, cardSizeDp)
+                    .size(cardWidthDp, cardHeightDp)
                     .clip(RoundedCornerShape(cardCornerDp))
                     .drawWithCache {
-                        // Gradient stops mirror blendStops (0.56 clear-until, 0.84 mid,
-                        // 1.0 solid) so the card's dark-grey→black ramp aligns with the
-                        // image's internal black fade → seamless blend from dark grey
-                        // (top, image visible) to solid black (bottom).
-                        val brush = Brush.verticalGradient(
-                            0.00f to cardColor,
-                            0.56f to cardColor,
-                            0.84f to Color.Black,
-                            1.00f to Color.Black,
-                        )
-                        onDrawBehind { drawRect(brush) }
+                        // Gradient: 0→40% solid #1A1A1A, 40→50% smoothstep blend,
+                        // 50→100% solid black. ("Bottom 60% black" = 10% blend + 50% solid.)
+                        val stops = ArrayList<Pair<Float, Color>>(12)
+                        stops.add(0.00f to cardColor)
+                        stops.add(0.40f to cardColor)
+                        val blendSteps = 8
+                        for (i in 1..blendSteps) {
+                            val t = i / blendSteps.toFloat()
+                            val smoothT = t * t * (3f - 2f * t)
+                            stops.add((0.40f + 0.10f * t) to Color(
+                                cardColor.red + (Color.Black.red - cardColor.red) * smoothT,
+                                cardColor.green + (Color.Black.green - cardColor.green) * smoothT,
+                                cardColor.blue + (Color.Black.blue - cardColor.blue) * smoothT,
+                            ))
+                        }
+                        stops.add(1.00f to Color.Black)
+                        val gradientBrush = Brush.verticalGradient(*stops.toTypedArray())
+                        // Dot grid — centered in the card, clipped by the rounded corners.
+                        val cols = (size.width / dotSpacingPx).toInt() + 1
+                        val rows = (size.height / dotSpacingPx).toInt() + 1
+                        val startX = (size.width - (cols - 1) * dotSpacingPx) / 2f
+                        val startY = (size.height - (rows - 1) * dotSpacingPx) / 2f
+                        onDrawBehind {
+                            drawRect(gradientBrush)
+                            for (row in 0 until rows) {
+                                for (col in 0 until cols) {
+                                    drawCircle(
+                                        dotColor,
+                                        dotRadiusPx,
+                                        Offset(startX + col * dotSpacingPx, startY + row * dotSpacingPx),
+                                    )
+                                }
+                            }
+                        }
                     },
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+                    contentAlignment = Alignment.BottomCenter,
                 ) {
-                    Box(modifier = Modifier.size(innerHeadSizeDp, innerHeadSizeDp)) {
+                    Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
                         Image(
                             painter = painterResource(headRes),
                             contentDescription = "Spatial audio head",
@@ -219,10 +250,9 @@ fun EffectVisual(
                         // Ball position = head center + orbitRadius × (−sin(phase), −cos(phase))
                         // Negative sin = user perspective mirror (sound right → ball screen-left).
                         // Sunset palette (EA6113 → F88F22 → FBB931 → FFE3B3) with radial glow.
-                        // Sized relative to innerHeadSize so the orbit + glow stays inside the card.
                         if (eightDOn) {
                             SpatialOrbBall(
-                                headSizePx = with(density) { innerHeadSizeDp.toPx() },
+                                headSizePx = with(density) { headSizeDp.toPx() },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
