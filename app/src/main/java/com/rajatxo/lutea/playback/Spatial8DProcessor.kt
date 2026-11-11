@@ -68,42 +68,29 @@ class Spatial8DProcessor : BaseAudioProcessor() {
         // Output is always stereo (2 channels) regardless of 8D state.
         val outBuffer = replaceOutputBuffer(frameCount * bytesPerSample * 2)
 
-        if (!enabled || inputAudioFormat.sampleRate <= 0) {
-            // Pass through unchanged but still convert to stereo if input is mono
-            // (otherwise byte counts mismatch the onConfigure output format).
-            if (isStereo) {
-                outBuffer.put(inputBuffer)
-            } else {
-                // Mono → stereo: duplicate each sample to L and R
-                if (is16Bit) {
-                    repeat(frameCount) {
-                        val s = inputBuffer.short
-                        outBuffer.putShort(s)
-                        outBuffer.putShort(s)
-                    }
-                } else {
-                    repeat(frameCount) {
-                        val s = inputBuffer.float
-                        outBuffer.putFloat(s)
-                        outBuffer.putFloat(s)
-                    }
-                }
-            }
-            outBuffer.flip()
-            return
-        }
+        // ★ KEY INSIGHT from SpatialFlow: there's no separate "disabled" path.
+        // When their balance is 0, leftVol = rightVol = 1f → multiply is a no-op.
+        // We do the same: when 8D is off, set width=0 → balance always = 0 →
+        // leftVol = rightVol = 1f → audio passes through unchanged.
+        // This is critical: a separate bypass path caused format-mismatch glitches
+        // and instant pause when toggling. Same code path always = stable.
 
-        // 8D active: LFO modulates L/R volume per-sample.
-        // Phase advances per sample: 2π × hz / sampleRate per sample
-        val phaseStep = 2.0 * PI * hz.toDouble() / inputAudioFormat.sampleRate.toDouble()
+        // Effective width: 0 when disabled (no rotation, audio unchanged),
+        // otherwise the configured width.
+        val effectiveWidth = if (enabled) width else 0f
+
+        // LFO phase advances per sample: 2π × hz / sampleRate per sample.
+        // When width=0, sin(phase) doesn't matter (multiplied by 0) but we still
+        // advance phase so re-enabling is smooth (no sudden jump from 0 to full).
+        val phaseStep = if (inputAudioFormat.sampleRate > 0)
+            2.0 * PI * hz.toDouble() / inputAudioFormat.sampleRate.toDouble() else 0.0
 
         if (is16Bit) {
             var i = 0
             while (i < frameCount) {
                 val left = inputBuffer.short
                 val right = if (isStereo) inputBuffer.short else left
-                // balance = sin(phase) × width — oscillates between -width and +width
-                val balance = sin(phase).toFloat() * width
+                val balance = sin(phase).toFloat() * effectiveWidth
                 val leftVol = if (balance > 0) 1f - balance else 1f
                 val rightVol = if (balance < 0) 1f + balance else 1f
                 outBuffer.putShort((left * leftVol).toInt().coerceIn(-32768, 32767).toShort())
@@ -118,7 +105,7 @@ class Spatial8DProcessor : BaseAudioProcessor() {
             while (i < frameCount) {
                 val left = inputBuffer.float
                 val right = if (isStereo) inputBuffer.float else left
-                val balance = sin(phase).toFloat() * width
+                val balance = sin(phase).toFloat() * effectiveWidth
                 val leftVol = if (balance > 0) 1f - balance else 1f
                 val rightVol = if (balance < 0) 1f + balance else 1f
                 outBuffer.putFloat(left * leftVol)
