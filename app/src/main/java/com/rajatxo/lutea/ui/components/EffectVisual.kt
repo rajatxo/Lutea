@@ -29,7 +29,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,7 +83,7 @@ fun EffectVisual(
     // Local UI state: when true, the sphere shows the new structure (1-25 top + 2-24 bottom)
     // with a fade-in rotation animation. When false, shows the OLD look (8 tag icons +
     // LEFT/RIGHT/UP/DOWN text). Tapping Orbit Speed or Spatial Ambience toggles this.
-    var expandedView by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var expandedView by remember { mutableStateOf(false) }
     // Animation progress: 0 = old look, 1 = new structure. Animated for the cool transition.
     val expandProgress = androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (expandedView) 1f else 0f,
