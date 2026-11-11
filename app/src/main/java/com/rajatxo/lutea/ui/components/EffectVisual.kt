@@ -24,12 +24,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +49,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.rajatxo.lutea.R
+import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
 import kotlin.math.cos
@@ -71,10 +73,12 @@ fun EffectVisual(
     headRes: Int = R.drawable.effect_head,
 ) {
     val density = LocalDensity.current
-    // Local UI state — sliders + toggle. Wired to PlaybackConnection in stage 2.
-    var eightDOn by remember { mutableStateOf(false) }
-    var orbitSpeed by remember { mutableStateOf(0.10f) }
-    var spatialAmbience by remember { mutableStateOf(0.50f) }
+    // 8D state wired to PlaybackConnection — drives FFmpeg processing.
+    val eightDOn by PlaybackConnection.is8DEnabled.collectAsState()
+    val orbitSpeed by PlaybackConnection.orbitSpeed.collectAsState()
+    val spatialAmbience by PlaybackConnection.spatialAmbience.collectAsState()
+    val isProcessing by PlaybackConnection.isProcessing8D.collectAsState()
+    val processingProgress by PlaybackConnection.processingProgress.collectAsState()
 
     BoxWithConstraints(
         modifier = modifier
@@ -112,12 +116,14 @@ fun EffectVisual(
         val headerInsetFrac = 0.156f  // 56dp ÷ 360dp reference phone
         EffectOverlay(
             enabled = eightDOn,
-            onToggle = { eightDOn = it },
+            onToggle = { PlaybackConnection.set8DEnabled(it) },
             label = "8D Audio",
             orbitSpeed = orbitSpeed,
-            onOrbitSpeedChange = { orbitSpeed = it },
+            onOrbitSpeedChange = { PlaybackConnection.setOrbitSpeed(it) },
             spatialAmbience = spatialAmbience,
-            onSpatialAmbienceChange = { spatialAmbience = it },
+            onSpatialAmbienceChange = { PlaybackConnection.setSpatialAmbience(it) },
+            isProcessing = isProcessing,
+            processingProgress = processingProgress,
             screenWidthPx = widthPx,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -181,6 +187,8 @@ private fun EffectOverlay(
     onOrbitSpeedChange: (Float) -> Unit,
     spatialAmbience: Float,
     onSpatialAmbienceChange: (Float) -> Unit,
+    isProcessing: Boolean,
+    processingProgress: Float,
     screenWidthPx: Float,
     modifier: Modifier = Modifier,
 ) {
@@ -320,6 +328,36 @@ private fun EffectOverlay(
                         inactiveTrackColor = sliderTrackColor,
                     ),
                 )
+            }
+
+            // Processing indicator — shows when FFmpeg is running on a song
+            if (isProcessing) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = sliderPadH),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Processing 8D",
+                        color = sliderActiveColor,
+                        fontFamily = CalSansFamily,
+                        fontSize = subLabelTextSize,
+                    )
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { processingProgress },
+                        modifier = Modifier.weight(1f),
+                        color = sliderActiveColor,
+                        trackColor = sliderTrackColor,
+                    )
+                    Text(
+                        text = "%.0f%%".format(processingProgress * 100),
+                        color = Cream.copy(alpha = 0.6f),
+                        fontFamily = CalSansFamily,
+                        fontSize = valueTextSize,
+                    )
+                }
             }
         }
     }

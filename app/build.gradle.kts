@@ -120,4 +120,9 @@ dependencies {
 
     // ★ Kotlinx Serialization — playlist persistence
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // ★ FFmpegKit (audio variant, community-maintained fork) — 8D audio processing.
+    // Used to apply the apulsator + aecho filter chain that produces the 8D rotation
+    // effect on local audio files. Audio-only variant is smaller (~20MB per ABI).
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:6.0.3")
 }
