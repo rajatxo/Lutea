@@ -48,6 +48,10 @@ object FFmpegCommandBuilder {
             append(",aecho=0.6:0.4:30|60:")
             append(String.format(Locale.US, "%.3f|%.3f", decay1, decay2))
             append(",stereotools=balance_in=0.02")
+            // Volume boost to compensate for aecho + alimiter crushing perceived loudness.
+            // The aecho spreads energy across delayed taps, alimiter caps peaks at 0.97.
+            // Without this boost, output RMS is ~17 dB below input — sounds too quiet.
+            append(",volume=2.5dB")
             append(",alimiter=limit=0.97")
             append("\" ")
 

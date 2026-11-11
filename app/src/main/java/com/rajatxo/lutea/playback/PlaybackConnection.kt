@@ -349,10 +349,9 @@ object PlaybackConnection {
      * SpatialFlow.loadProcessedAudio / loadOriginalAudio:
      *   keep position -> set item -> prepare -> (play state kept) -> volume = 1.0f
      *
-     * Rebuilds the playlist from [queue] with only the current item's URI replaced so the
-     * rest of the queue survives. Falls back to replaceMediaItem if the queue is out of sync.
-     * NOTE: setMediaItems re-shuffles if shuffleModeEnabled is on; Lutea's controller does
-     * not use shuffle at the player level.
+     * Uses replaceMediaItem (single-item swap, fast) instead of setMediaItems (rebuilds the
+     * entire playlist — slow on long queues, caused the '20 sec to load' user reported).
+     * The playlist queue stays intact so next/prev/repeat keep working.
      */
     private fun swapCurrentItem(song: Song, uri: Uri, processedName: String?): Boolean {
         val c = controller ?: return false
@@ -361,18 +360,13 @@ object PlaybackConnection {
         if (c.currentMediaItem?.mediaId != song.id.toString()) return false // user moved on
 
         val pos = c.currentPosition.coerceAtLeast(0L)
-        val queueInSync = queue.size == c.mediaItemCount && queue.getOrNull(index)?.id == song.id
 
         try {
-            if (queueInSync) {
-                val items = queue.mapIndexed { i, s ->
-                    if (i == index) buildMediaItem(uri, s, processedName) else buildMediaItem(s.uri, s)
-                }
-                c.setMediaItems(items, index, pos)
-            } else {
-                c.replaceMediaItem(index, buildMediaItem(uri, song, processedName))
-                c.seekTo(index, pos)
-            }
+            // replaceMediaItem swaps only the current item — much faster than setMediaItems
+            // which rebuilds the whole playlist. ExoPlayer preserves playback position
+            // across replaceMediaItem if we seekTo after.
+            c.replaceMediaItem(index, buildMediaItem(uri, song, processedName))
+            c.seekTo(index, pos)
             c.prepare()
             // SpatialFlow calls updateBaseVolume() after every load -> volume back to 1.0f.
             c.volume = 1.0f
