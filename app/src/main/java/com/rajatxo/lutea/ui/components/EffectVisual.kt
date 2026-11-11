@@ -170,36 +170,72 @@ fun EffectVisual(
                 maxOf(maxHeadForGap, widthPx * 0.30f),
             ).toDp()
         }
+        // ── Card: rounded box behind the head image, same dark grey as the image,
+        //    gradient fades to black at the bottom. Card takes the original head size
+        //    space (no layout change → no overlap with the sphere component above).
+        //    Head image inside is 80% of card so the glow ball — which extends ~7.25%
+        //    beyond the head on each side — stays inside the card with ~2.75% margin. ──
+        val cardSizeDp = headSizeDp
+        val cardPadFrac = 0.10f
+        val innerHeadSizeDp = cardSizeDp * (1f - 2f * cardPadFrac)
+        val cardCornerDp = cardSizeDp * 0.10f
+        // Card colour matches the head image's dominant tone (dark grey ~RGB 26,26,26).
+        val cardColor = Color(0xFF1A1A1A)
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
-                Image(
-                    painter = painterResource(headRes),
-                    contentDescription = "Spatial audio head",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                // ── Glowing 8D ball that orbits the head ──
-                // Tracks the Spatial8DProcessor's LFO phase in real-time.
-                // Ball position = head center + orbitRadius × (−sin(phase), −cos(phase))
-                // Negative sin = user perspective mirror (sound right → ball screen-left).
-                // Sunset palette (EA6113 → F88F22 → FBB931 → FFE3B3) with radial glow.
-                if (eightDOn) {
-                    SpatialOrbBall(
-                        headSizePx = with(density) { headSizeDp.toPx() },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .size(cardSizeDp, cardSizeDp)
+                    .clip(RoundedCornerShape(cardCornerDp))
+                    .drawWithCache {
+                        // Gradient stops mirror blendStops (0.56 clear-until, 0.84 mid,
+                        // 1.0 solid) so the card's dark-grey→black ramp aligns with the
+                        // image's internal black fade → seamless blend from dark grey
+                        // (top, image visible) to solid black (bottom).
+                        val brush = Brush.verticalGradient(
+                            0.00f to cardColor,
+                            0.56f to cardColor,
+                            0.84f to Color.Black,
+                            1.00f to Color.Black,
+                        )
+                        onDrawBehind { drawRect(brush) }
+                    },
+            ) {
                 Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .drawWithCache {
-                            val brush = Brush.verticalGradient(*blendStops(Color.Black))
-                            onDrawBehind { drawRect(brush) }
-                        },
-                )
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(modifier = Modifier.size(innerHeadSizeDp, innerHeadSizeDp)) {
+                        Image(
+                            painter = painterResource(headRes),
+                            contentDescription = "Spatial audio head",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        // ── Glowing 8D ball that orbits the head ──
+                        // Tracks the Spatial8DProcessor's LFO phase in real-time.
+                        // Ball position = head center + orbitRadius × (−sin(phase), −cos(phase))
+                        // Negative sin = user perspective mirror (sound right → ball screen-left).
+                        // Sunset palette (EA6113 → F88F22 → FBB931 → FFE3B3) with radial glow.
+                        // Sized relative to innerHeadSize so the orbit + glow stays inside the card.
+                        if (eightDOn) {
+                            SpatialOrbBall(
+                                headSizePx = with(density) { innerHeadSizeDp.toPx() },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .drawWithCache {
+                                    val brush = Brush.verticalGradient(*blendStops(Color.Black))
+                                    onDrawBehind { drawRect(brush) }
+                                },
+                        )
+                    }
+                }
             }
         }
     }
