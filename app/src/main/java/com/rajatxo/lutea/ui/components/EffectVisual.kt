@@ -80,6 +80,7 @@ fun EffectVisual(
     val isProcessing by PlaybackConnection.isProcessing8D.collectAsState()
     val processingProgress by PlaybackConnection.processingProgress.collectAsState()
     val lastError by PlaybackConnection.eightDLastError.collectAsState()
+    val is8DActive by PlaybackConnection.is8DActive.collectAsState()
 
     BoxWithConstraints(
         modifier = modifier
@@ -126,6 +127,7 @@ fun EffectVisual(
             isProcessing = isProcessing,
             processingProgress = processingProgress,
             lastError = lastError,
+            isActive = is8DActive,
             screenWidthPx = widthPx,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -192,6 +194,7 @@ private fun EffectOverlay(
     isProcessing: Boolean,
     processingProgress: Float,
     lastError: String,
+    isActive: Boolean,
     screenWidthPx: Float,
     modifier: Modifier = Modifier,
 ) {
@@ -361,6 +364,22 @@ private fun EffectOverlay(
                         fontSize = valueTextSize,
                     )
                 }
+            }
+
+            // 8D ACTIVE indicator — shows when the swap to processed file has
+            // happened. If you don't see this AND you don't see Processing, the
+            // swap isn't firing — that's the bug.
+            if (isActive && !isProcessing) {
+                Text(
+                    text = "● 8D AUDIO ACTIVE",
+                    color = sliderActiveColor,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = subLabelTextSize,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = sliderPadH),
+                )
             }
 
             // Error indicator — shows the last FFmpeg failure so we can debug

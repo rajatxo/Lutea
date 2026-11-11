@@ -67,6 +67,12 @@ object PlaybackConnection {
     val processingProgress: StateFlow<Float> get() = eightDProcessor?.progress ?: stubProgress
     val eightDLastError: StateFlow<String> get() = eightDProcessor?.lastError ?: stubError
 
+    // True when 8D is enabled AND the player has swapped to the processed file.
+    // Lets the UI show a clear "8D AUDIO ACTIVE" indicator so the user knows
+    // the effect is actually playing (vs still processing).
+    private val _is8DActive = MutableStateFlow(false)
+    val is8DActive: StateFlow<Boolean> = _is8DActive.asStateFlow()
+
     // The original media item that was playing before 8D was toggled on, so we
     // can restore it when 8D is toggled off.
     private var pre8DPosition: Long = 0L
@@ -172,8 +178,15 @@ object PlaybackConnection {
     }
 
     private fun swapTo8DFile(uri: Uri, position: Long) {
-        val c = controller ?: return
-        val song = pre8DSong ?: _currentSong.value ?: return
+        val c = controller ?: run {
+            Log.e("PlaybackConnection", "swapTo8DFile: controller is null")
+            return
+        }
+        val song = pre8DSong ?: _currentSong.value ?: run {
+            Log.e("PlaybackConnection", "swapTo8DFile: no current song")
+            return
+        }
+        Log.i("PlaybackConnection", "swapTo8DFile: uri=$uri song=${song.title} position=$position")
         try {
             // Build a new MediaItem pointing at the processed temp file.
             // Keep the same metadata (title/artist/album art) so the UI doesn't jump.
@@ -190,18 +203,31 @@ object PlaybackConnection {
                 )
                 .build()
             // SpatialFlow pattern: setMediaItem, seekTo, prepare, play.
+            // Stop the player first so the swap is clean — without this, sometimes
+            // the player keeps decoding the old file in parallel with loading the
+            // new one, and the swap is inaudible.
+            c.pause()
             c.setMediaItem(mediaItem)
             c.seekTo(position)
             c.prepare()
             c.play()
+            _is8DActive.value = true
+            Log.i("PlaybackConnection", "swapTo8DFile: swap complete, playing 8D file")
         } catch (e: Exception) {
             Log.e("PlaybackConnection", "swapTo8DFile failed", e)
         }
     }
 
     private fun restoreOriginal(position: Long) {
-        val c = controller ?: return
-        val song = pre8DSong ?: _currentSong.value ?: return
+        val c = controller ?: run {
+            Log.e("PlaybackConnection", "restoreOriginal: controller is null")
+            return
+        }
+        val song = pre8DSong ?: _currentSong.value ?: run {
+            Log.e("PlaybackConnection", "restoreOriginal: no current song")
+            return
+        }
+        Log.i("PlaybackConnection", "restoreOriginal: song=${song.title} position=$position")
         try {
             val mediaItem = MediaItem.Builder()
                 .setUri(song.uri)
@@ -215,10 +241,13 @@ object PlaybackConnection {
                         .build()
                 )
                 .build()
+            c.pause()
             c.setMediaItem(mediaItem)
             c.seekTo(position)
             c.prepare()
             c.play()
+            _is8DActive.value = false
+            Log.i("PlaybackConnection", "restoreOriginal: restore complete")
         } catch (e: Exception) {
             Log.e("PlaybackConnection", "restoreOriginal failed", e)
         }
