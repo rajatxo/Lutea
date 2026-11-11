@@ -23,8 +23,8 @@ android {
         applicationId = "com.rajatxo.lutea"
         minSdk = 29
         targetSdk = 35
-        versionCode = 517
-        versionName = "0.1.417"
+        versionCode = 518
+        versionName = "0.1.418"
     }
 
     signingConfigs {
