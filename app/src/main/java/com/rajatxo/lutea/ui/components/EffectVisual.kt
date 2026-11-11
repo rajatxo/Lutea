@@ -79,6 +79,7 @@ fun EffectVisual(
     val spatialAmbience by PlaybackConnection.spatialAmbience.collectAsState()
     val isProcessing by PlaybackConnection.isProcessing8D.collectAsState()
     val processingProgress by PlaybackConnection.processingProgress.collectAsState()
+    val lastError by PlaybackConnection.eightDLastError.collectAsState()
 
     BoxWithConstraints(
         modifier = modifier
@@ -124,6 +125,7 @@ fun EffectVisual(
             onSpatialAmbienceChange = { PlaybackConnection.setSpatialAmbience(it) },
             isProcessing = isProcessing,
             processingProgress = processingProgress,
+            lastError = lastError,
             screenWidthPx = widthPx,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -189,6 +191,7 @@ private fun EffectOverlay(
     onSpatialAmbienceChange: (Float) -> Unit,
     isProcessing: Boolean,
     processingProgress: Float,
+    lastError: String,
     screenWidthPx: Float,
     modifier: Modifier = Modifier,
 ) {
@@ -358,6 +361,19 @@ private fun EffectOverlay(
                         fontSize = valueTextSize,
                     )
                 }
+            }
+
+            // Error indicator — shows the last FFmpeg failure so we can debug
+            if (lastError.isNotEmpty() && enabled) {
+                Text(
+                    text = "8D error: $lastError",
+                    color = Color(0xFFFF6B6B),
+                    fontFamily = CalSansFamily,
+                    fontSize = valueTextSize,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = sliderPadH),
+                )
             }
         }
     }

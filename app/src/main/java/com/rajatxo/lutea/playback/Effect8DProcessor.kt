@@ -42,6 +42,11 @@ class Effect8DProcessor(
     private val _progress = MutableStateFlow(0f)
     val progress: StateFlow<Float> = _progress.asStateFlow()
 
+    // Last error message — empty if no error. Surfaced to UI so we can see
+    // what's actually going wrong (instead of try/catch silently swallowing it).
+    private val _lastError = MutableStateFlow("")
+    val lastError: StateFlow<String> = _lastError.asStateFlow()
+
     private var currentJob: Job? = null
     private var currentSong: Song? = null
     private var currentParams: Params? = null
@@ -60,12 +65,16 @@ class Effect8DProcessor(
      *     for progress updates
      */
     fun enable(song: Song, orbitSpeed: Float, spatialAmbience: Float, startPosition: Long = 0L) {
+        Log.i("Effect8DProcessor", "enable: song=${song.title} speed=$orbitSpeed ambience=$spatialAmbience pos=$startPosition")
+        _lastError.value = ""
         val newParams = Params(orbitSpeed, spatialAmbience)
         val cacheKey = "${song.id}${orbitSpeed}${spatialAmbience}".hashCode()
         val outputFile = File(context.cacheDir, "8d_$cacheKey.m4a")
+        Log.i("Effect8DProcessor", "cache file: ${outputFile.absolutePath} exists=${outputFile.exists()} size=${outputFile.length()}")
 
         // Already processed? Just play the cached file (SpatialFlow pattern).
         if (outputFile.exists() && outputFile.length() > 0) {
+            Log.i("Effect8DProcessor", "cache hit — playing cached 8D file")
             currentSong = song
             currentParams = newParams
             onProcessedUri(Uri.fromFile(outputFile), startPosition)
@@ -80,7 +89,11 @@ class Effect8DProcessor(
             try {
                 processSong(song, newParams, outputFile, startPosition)
             } catch (t: Throwable) {
+                // Catch Throwable (not just Exception) — native UnsatisfiedLinkError
+                // and NoClassDefFoundError on FFmpegKit init would otherwise crash
+                // the app. Log and surface to UI.
                 Log.e("Effect8DProcessor", "FFmpeg failed", t)
+                _lastError.value = "${t.javaClass.simpleName}: ${t.message}"
                 _isProcessing.value = false
                 _progress.value = 0f
             }
@@ -121,40 +134,46 @@ class Effect8DProcessor(
         _progress.value = 0f
         try {
             // Copy source URI content to a temp file FFmpeg can read directly.
-            // (SpatialFlow uses AudioFileManager.getRealPathFromURI; we just copy because
-            // Lutea doesn't have that helper and MediaStore URIs aren't raw file paths.)
             val sourceTemp = File(context.cacheDir, "8d_source_${song.id}")
+            Log.i("Effect8DProcessor", "copying source URI → ${sourceTemp.absolutePath}")
             withContext(Dispatchers.IO) {
-                context.contentResolver.openInputStream(song.uri)?.use { input ->
+                val opened = context.contentResolver.openInputStream(song.uri)?.use { input ->
                     FileOutputStream(sourceTemp).use { output -> input.copyTo(output) }
-                } ?: throw IllegalStateException("Can't open source URI: ${song.uri}")
+                }
+                if (opened == null) {
+                    _lastError.value = "Can't open source URI: ${song.uri}"
+                    Log.e("Effect8DProcessor", _lastError.value)
+                    _isProcessing.value = false
+                    return
+                }
             }
+            Log.i("Effect8DProcessor", "source copied, size=${sourceTemp.length()}")
+
             val cmd = FFmpegCommandBuilder.build8D(
                 inputPath = sourceTemp.absolutePath,
                 outputPath = outputFile.absolutePath,
                 rotationSpeed = params.speed,
                 spatialAmbience = params.ambience,
             )
-            Log.i("Effect8DProcessor", "Running FFmpeg: $cmd")
+            Log.i("Effect8DProcessor", "FFmpeg command: $cmd")
 
-            // SpatialFlow uses FFmpegKit.executeAsync(cmd, completeCb, logCb, statsCb).
-            // We mirror that — the stats callback drives progress, the complete callback
-            // triggers onProcessedUri or sets the error state.
             val durationMs = song.duration.coerceAtLeast(1000L)
+            Log.i("Effect8DProcessor", "starting FFmpegKit.executeAsync, song duration=$durationMs ms")
             val session = FFmpegKit.executeAsync(
                 cmd,
                 { completed ->
+                    Log.i("Effect8DProcessor", "FFmpeg complete: rc=${completed.returnCode} sessionId=${completed.sessionId}")
                     scope.launch {
                         if (ReturnCode.isSuccess(completed.returnCode)) {
+                            Log.i("Effect8DProcessor", "FFmpeg success — output size=${outputFile.length()}")
                             _progress.value = 1f
                             _isProcessing.value = false
                             sourceTemp.delete()
                             onProcessedUri(Uri.fromFile(outputFile), startPosition)
                         } else {
-                            Log.e(
-                                "Effect8DProcessor",
-                                "FFmpeg failed: rc=${completed.returnCode} logs=${completed.allLogsAsString}",
-                            )
+                            val msg = "FFmpeg rc=${completed.returnCode} logs=${completed.allLogsAsString.take(500)}"
+                            Log.e("Effect8DProcessor", msg)
+                            _lastError.value = msg
                             _isProcessing.value = false
                             _progress.value = 0f
                             sourceTemp.delete()
@@ -172,15 +191,16 @@ class Effect8DProcessor(
                     }
                 },
             )
-            // Wait for the session to complete so the Job doesn't end early.
-            // We poll state with a short delay — FFmpegKit's callback handles the work.
+            Log.i("Effect8DProcessor", "FFmpegKit session started: id=${session.sessionId} state=${session.state}")
             withContext(Dispatchers.IO) {
                 while (session.state != com.arthenica.ffmpegkit.SessionState.COMPLETED) {
                     kotlinx.coroutines.delay(100)
                 }
             }
+            Log.i("Effect8DProcessor", "session completed, final state=${session.state}")
         } catch (e: Exception) {
             Log.e("Effect8DProcessor", "processSong failed", e)
+            _lastError.value = "${e.javaClass.simpleName}: ${e.message}"
             _isProcessing.value = false
         }
     }

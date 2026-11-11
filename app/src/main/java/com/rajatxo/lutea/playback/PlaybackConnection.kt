@@ -58,11 +58,14 @@ object PlaybackConnection {
     private val _spatialAmbience = MutableStateFlow(0.50f)   // 0..1
     val spatialAmbience: StateFlow<Float> = _spatialAmbience.asStateFlow()
 
-    private val _isProcessing8D = MutableStateFlow(false)
-    val isProcessing8D: StateFlow<Boolean> = _isProcessing8D.asStateFlow()
-
-    private val _processingProgress = MutableStateFlow(0f)
-    val processingProgress: StateFlow<Float> = _processingProgress.asStateFlow()
+    // 8D processing state — delegated to the processor when it exists, else a
+    // stub MutableStateFlow. The UI reads these so it can show progress + errors.
+    private val stubProcessing = MutableStateFlow(false)
+    private val stubProgress = MutableStateFlow(0f)
+    private val stubError = MutableStateFlow("")
+    val isProcessing8D: StateFlow<Boolean> get() = eightDProcessor?.isProcessing ?: stubProcessing
+    val processingProgress: StateFlow<Float> get() = eightDProcessor?.progress ?: stubProgress
+    val eightDLastError: StateFlow<String> get() = eightDProcessor?.lastError ?: stubError
 
     // The original media item that was playing before 8D was toggled on, so we
     // can restore it when 8D is toggled off.
@@ -93,6 +96,18 @@ object PlaybackConnection {
                     if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                         if (!c.isPlaying) c.play()
                     }
+                    // If 8D is enabled and a new song started, process it.
+                    // Skip if we just swapped to an 8D-processed file ourselves
+                    // (reason would be REPEAT_MODE_CHANGED or similar). The swap
+                    // path sets _currentSong.value BEFORE calling setMediaItem,
+                    // so this re-trigger only fires on natural song transitions.
+                    if (_is8DEnabled.value && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                        _currentSong.value?.let { song ->
+                            pre8DPosition = 0L  // start of new song
+                            pre8DSong = song
+                            eightDProcessor?.enable(song, _orbitSpeed.value, _spatialAmbience.value, 0L)
+                        }
+                    }
                 }
 
                 override fun onPlayerErrorChanged(error: androidx.media3.common.PlaybackException?) {
@@ -109,9 +124,10 @@ object PlaybackConnection {
     }
 
     fun set8DEnabled(enabled: Boolean) {
+        _is8DEnabled.value = enabled
         val c = controller ?: return
         if (enabled) {
-            // Lazy-init the processor on first use, NOT in connect().
+            // Lazy-init the processor on first use.
             val ctx = appContext ?: return
             if (eightDProcessor == null) {
                 eightDProcessor = Effect8DProcessor(
@@ -121,17 +137,19 @@ object PlaybackConnection {
                     onRestoreOriginal = { position -> restoreOriginal(position) },
                 )
             }
-            // Save current playback position so we can restore it after FFmpeg swap
-            val song = _currentSong.value ?: return
-            pre8DPosition = c.currentPosition
-            pre8DSong = song
-            eightDProcessor?.enable(song, _orbitSpeed.value, _spatialAmbience.value, pre8DPosition)
-            _is8DEnabled.value = true
+            // If a song is playing right now, kick off processing immediately.
+            // If nothing's playing, just stash the flag — when the user starts a song,
+            // onMediaItemTransition (below) will trigger 8D processing automatically.
+            val song = _currentSong.value
+            if (song != null && c.isPlaying) {
+                pre8DPosition = c.currentPosition
+                pre8DSong = song
+                eightDProcessor?.enable(song, _orbitSpeed.value, _spatialAmbience.value, pre8DPosition)
+            }
         } else {
-            // Only restore if we actually had a song being processed
+            // Toggle off — restore the original song if we had one
             val pos = c.currentPosition
             eightDProcessor?.disable(pos)
-            _is8DEnabled.value = false
         }
     }
 
@@ -139,8 +157,7 @@ object PlaybackConnection {
         _orbitSpeed.value = rotationsPerSecond.coerceIn(0.05f, 1.5f)
         val c = controller ?: return
         val song = _currentSong.value
-        // Only re-process if 8D is on AND we have a current song. Otherwise just stash the value.
-        if (_is8DEnabled.value && song != null) {
+        if (_is8DEnabled.value && song != null && c.isPlaying) {
             eightDProcessor?.updateParams(song, _orbitSpeed.value, _spatialAmbience.value, c.currentPosition)
         }
     }
@@ -149,7 +166,7 @@ object PlaybackConnection {
         _spatialAmbience.value = level.coerceIn(0f, 1f)
         val c = controller ?: return
         val song = _currentSong.value
-        if (_is8DEnabled.value && song != null) {
+        if (_is8DEnabled.value && song != null && c.isPlaying) {
             eightDProcessor?.updateParams(song, _orbitSpeed.value, _spatialAmbience.value, c.currentPosition)
         }
     }
