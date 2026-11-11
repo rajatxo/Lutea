@@ -652,7 +652,7 @@ private fun SpatialOrbBall(
         // still has a flatter top than a circle. Snug fit.
         val cosP = kotlin.math.cos(phase.toDouble()).toFloat()
         val absCos = kotlin.math.abs(cosP)
-        val arcShape = kotlin.math.pow(absCos.toDouble(), 0.7).toFloat()
+        val arcShape = Math.pow(absCos.toDouble(), 0.7).toFloat()
 
         val ballX = cx + sinP * orbitW
         val ballY = cy - arcShape * orbitH
