@@ -611,7 +611,7 @@ private fun fibonacciSphere(n: Int): List<SpherePoint> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Glowing 8D ball — orbits the head following the LFO phase
+// Glowing 8D ball — traces head-shaped arc following the LFO phase
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -619,52 +619,42 @@ private fun SpatialOrbBall(
     headSizePx: Float,
     modifier: Modifier = Modifier,
 ) {
-    // Poll the Spatial8DProcessor's phase every frame for smooth ball movement.
-    // The audio thread updates currentPhase ~every 23ms (1024 samples at 44.1kHz).
-    // We read it via withFrameNanos (~60fps) for smooth visual tracking.
     var phase by remember { mutableStateOf(0f) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        androidx.compose.runtime.withFrameNanos {
-            phase = com.rajatxo.lutea.playback.LuteaAudioProcessors.spatial8D.currentPhase
-        }
-    }
-    // Also poll via a simple repeating task for higher frequency updates
+    // Poll the audio thread's LFO phase at ~60fps for smooth tracking.
     androidx.compose.runtime.LaunchedEffect(Unit) {
         while (true) {
             phase = com.rajatxo.lutea.playback.LuteaAudioProcessors.spatial8D.currentPhase
-            kotlinx.coroutines.delay(16) // ~60fps
+            kotlinx.coroutines.delay(16)
         }
     }
 
     Canvas(modifier = modifier) {
         val cx = size.width / 2f
         val cy = size.height / 2f
-        // Orbit radius — slightly larger than the head so the ball orbits around
-        // the outer edge, like the Behance reference where the orb sits beside the head.
-        val orbitR = headSizePx * 0.42f
-        val ballR = headSizePx * 0.04f
-        val glowR = ballR * 4f
 
-        // Ball position from LFO phase.
-        // balance = sin(phase) × width. When balance > 0, sound goes to the
-        // head's right ear = SCREEN LEFT (user perspective mirror).
-        // So ball X = -sin(phase) × orbitR (negative = screen left).
-        // Ball Y = -cos(phase) × orbitR (negative = up). Ball goes over the
-        // top of the head when phase = 0, and under when phase = π.
+        // Semi-elliptical arc path — follows the head/headphones shape.
+        // Wider than tall (like a skull + headphones), NOT a full circle.
+        val orbitW = headSizePx * 0.48f   // half-width (reaches past the ears)
+        val orbitH = headSizePx * 0.38f   // height (top of the skull)
+        val ballR = headSizePx * 0.035f
+        val glowR = ballR * 3.5f
+
+        // Ball X = sin(phase) × orbitW
+        // sin < 0 → sound LEFT → user's left ear → SCREEN LEFT ✓
+        // sin > 0 → sound RIGHT → user's right ear → SCREEN RIGHT ✓
         val sinP = kotlin.math.sin(phase.toDouble()).toFloat()
+
+        // Ball Y = cy − |cos(phase)| × orbitH
+        // Ball is always on the TOP HALF — traces an arc over the head.
+        // At ears (sin = ±1, cos = 0) → Y = cy (ear level).
+        // At center (sin = 0, cos = ±1) → Y = cy − orbitH (top of head).
         val cosP = kotlin.math.cos(phase.toDouble()).toFloat()
-        val ballX = cx + (-sinP) * orbitR
-        val ballY = cy + (-cosP) * orbitR
+        val absCos = kotlin.math.abs(cosP)
 
-        // Depth: how close the ball is to the viewer. When cosP > 0 (ball
-        // in front half), ball is "closer" = bigger + brighter.
-        // When cosP < 0 (ball behind head), ball is "farther" = smaller + dimmer.
-        val depth = (cosP + 1f) * 0.5f  // 0 = behind, 1 = front
-        val ballSize = ballR * (0.6f + 0.4f * depth)
-        val glowSize = glowR * (0.5f + 0.5f * depth)
-        val ballAlpha = 0.4f + 0.6f * depth
+        val ballX = cx + sinP * orbitW
+        val ballY = cy - absCos * orbitH
 
-        // Sunset palette colors
+        // Sunset palette
         val deepOrange = Color(0xFFEA6113)
         val midOrange = Color(0xFFF88F22)
         val lightOrange = Color(0xFFFBB931)
@@ -674,32 +664,32 @@ private fun SpatialOrbBall(
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    midOrange.copy(alpha = 0.6f * ballAlpha),
-                    lightOrange.copy(alpha = 0.3f * ballAlpha),
-                    paleYellow.copy(alpha = 0.1f * ballAlpha),
+                    midOrange.copy(alpha = 0.7f),
+                    lightOrange.copy(alpha = 0.35f),
+                    paleYellow.copy(alpha = 0.12f),
                     Color.Transparent,
                 ),
-                center = androidx.compose.ui.geometry.Offset(ballX, ballY),
-                radius = glowSize,
+                center = Offset(ballX, ballY),
+                radius = glowR,
             ),
-            radius = glowSize,
-            center = androidx.compose.ui.geometry.Offset(ballX, ballY),
+            radius = glowR,
+            center = Offset(ballX, ballY),
         )
 
         // Ball core — solid deep orange
         drawCircle(
-            color = deepOrange.copy(alpha = ballAlpha),
-            radius = ballSize,
-            center = androidx.compose.ui.geometry.Offset(ballX, ballY),
+            color = deepOrange,
+            radius = ballR,
+            center = Offset(ballX, ballY),
         )
 
-        // Ball highlight — small bright spot for 3D look
+        // Ball highlight — bright spot for 3D look
         drawCircle(
-            color = paleYellow.copy(alpha = 0.6f * ballAlpha),
-            radius = ballSize * 0.35f,
-            center = androidx.compose.ui.geometry.Offset(
-                ballX - ballSize * 0.25f,
-                ballY - ballSize * 0.25f,
+            color = paleYellow.copy(alpha = 0.7f),
+            radius = ballR * 0.35f,
+            center = Offset(
+                ballX - ballR * 0.25f,
+                ballY - ballR * 0.25f,
             ),
         )
     }
