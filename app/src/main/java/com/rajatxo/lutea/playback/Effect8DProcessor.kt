@@ -85,7 +85,9 @@ class Effect8DProcessor(
         // Cancel any in-flight job + session before starting a new one.
         // Use session-specific cancel (NOT FFmpegKit.cancel() which kills ALL sessions).
         currentJob?.cancel()
-        currentSession?.cancel()
+        currentSession?.let { sess ->
+            try { sess.cancel() } catch (_: Throwable) {}
+        }
         currentSession = null
         currentSong = song
         currentParams = newParams
@@ -114,7 +116,9 @@ class Effect8DProcessor(
         // Cancel ONLY our session — FFmpegKit.cancel() cancels ALL sessions globally,
         // which would kill any other FFmpeg work happening elsewhere. Use the
         // session-specific cancel() instead.
-        currentSession?.cancel()
+        currentSession?.let { sess ->
+            try { sess.cancel() } catch (_: Throwable) {}
+        }
         currentSession = null
         currentSong = null
         currentParams = null
@@ -179,6 +183,14 @@ class Effect8DProcessor(
                             _isProcessing.value = false
                             sourceTemp.delete()
                             onProcessedUri(Uri.fromFile(outputFile), startPosition)
+                        } else if (ReturnCode.isCancel(completed.returnCode)) {
+                            // Expected when user moves slider or toggles off mid-process.
+                            // NOT an error — just clean up silently.
+                            Log.i("Effect8DProcessor", "FFmpeg cancelled (expected)")
+                            _isProcessing.value = false
+                            _progress.value = 0f
+                            sourceTemp.delete()
+                            // Don't delete the output file — might be partial, will be overwritten next time
                         } else {
                             val msg = "FFmpeg rc=${completed.returnCode} logs=${completed.allLogsAsString.take(500)}"
                             Log.e("Effect8DProcessor", msg)

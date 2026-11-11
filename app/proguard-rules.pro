@@ -25,6 +25,12 @@
 # 2. R8 errors out on the missing smartexception references — suppress with -dontwarn.
 -keep class com.arthenica.ffmpegkit.** { *; }
 -keep class com.arthenica.smartexception.** { *; }
+-keep,allowobfuscation class com.arthenica.ffmpegkit.FFmpegKit { *; }
+-keep,allowobfuscation class com.arthenica.ffmpegkit.FFmpegKitConfig { *; }
+-keep,allowobfuscation class com.arthenica.ffmpegkit.FFmpegSession { *; }
+-keep,allowobfuscation class com.arthenica.ffmpegkit.ReturnCode { *; }
+-keep,allowobfuscation class com.arthenica.ffmpegkit.Statistics { *; }
+-keep,allowobfuscation class com.arthenica.ffmpegkit.SessionState { *; }
 -keepclassmembers class com.arthenica.ffmpegkit.** { *; }
 -dontwarn com.arthenica.smartexception.**
 -dontwarn com.arthenica.ffmpegkit.**
