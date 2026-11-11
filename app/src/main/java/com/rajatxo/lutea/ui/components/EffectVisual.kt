@@ -632,10 +632,11 @@ private fun SpatialOrbBall(
         val cx = size.width / 2f
         val cy = size.height / 2f
 
-        // Semi-elliptical arc path — follows the head/headphones shape.
-        // Wider than tall (like a skull + headphones), NOT a full circle.
-        val orbitW = headSizePx * 0.48f   // half-width (reaches past the ears)
-        val orbitH = headSizePx * 0.38f   // height (top of the skull)
+        // Semi-elliptical arc path — follows the headphones/head shape.
+        // The arc should be WIDE and FLAT at the top (like a headphone band),
+        // then curve DOWN sharply at the ears. Not a simple semi-circle.
+        val orbitW = headSizePx * 0.50f   // half-width: reaches to the ears
+        val orbitH = headSizePx * 0.52f   // height: taller so arc goes well above head
         val ballR = headSizePx * 0.035f
         val glowR = ballR * 3.5f
 
@@ -644,15 +645,21 @@ private fun SpatialOrbBall(
         // sin > 0 → sound RIGHT → user's right ear → SCREEN RIGHT ✓
         val sinP = kotlin.math.sin(phase.toDouble()).toFloat()
 
-        // Ball Y = cy − |cos(phase)| × orbitH
-        // Ball is always on the TOP HALF — traces an arc over the head.
-        // At ears (sin = ±1, cos = 0) → Y = cy (ear level).
-        // At center (sin = 0, cos = ±1) → Y = cy − orbitH (top of head).
+        // Ball Y: we want the arc to be FLAT at the top and CURVE DOWN sharply
+        // near the ears. Using a power curve on |cos| achieves this:
+        //   - Near center (|cos| ≈ 1): ball is high up (flat top)
+        //   - Near ears (|cos| ≈ 0): ball drops down to ear level (sharp curve)
+        // absCos^1.5 makes the top flatter than a plain cosine while still
+        // curving smoothly. Higher exponent = flatter top + sharper ear drop.
         val cosP = kotlin.math.cos(phase.toDouble()).toFloat()
         val absCos = kotlin.math.abs(cosP)
+        // Flatten the top of the arc — makes it hug the headphone band shape.
+        // Power 0.6 raises the middle (flatter top), power 1.0 = normal ellipse,
+        // power 2.0 = very flat top with steep drops. 0.6 gives a nice band shape.
+        val arcShape = kotlin.math.pow(absCos.toDouble(), 0.6).toFloat()
 
         val ballX = cx + sinP * orbitW
-        val ballY = cy - absCos * orbitH
+        val ballY = cy - arcShape * orbitH
 
         // Sunset palette
         val deepOrange = Color(0xFFEA6113)
