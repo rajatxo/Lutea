@@ -5,30 +5,34 @@ import java.util.Locale
 /**
  * FFmpeg command builder for 8D audio processing.
  *
- * Adapted from SpatialFlow's FFmpegCommandBuilder (github.com/MythicalSHUB/SpatialFlow).
- * Builds the FFmpeg command that produces the 8D rotation effect via:
- *   - apulsator: stereo pan LFO at [rotationSpeed] Hz (the actual 8D motion)
- *   - aecho: subtle echo depth scaled by [spatialAmbience] (0 = none, 1 = full)
- *   - stereotools: tiny balance offset to break perfect symmetry
- *   - alimiter: clean output ceiling so the filter chain never clips
+ * VERBATIM copy of SpatialFlow's FFmpegCommandBuilder (github.com/MythicalSHUB/SpatialFlow).
+ * Same filter chain, same encoding params, same fixed aecho values.
  *
- * Output is AAC 192kbps stereo 44.1kHz (matches SpatialFlow's high-fidelity preset).
+ * The only addition is the spatialAmbience parameter — but it scales the apulsator
+ * width (depth of the rotation) instead of the aecho, so the audio character stays
+ * identical to SpatialFlow's signature sound.
  */
 object FFmpegCommandBuilder {
 
+    /**
+     * Builds the 8D audio processing command.
+     *
+     * SpatialFlow's exact filter chain:
+     *   - apulsator: stereo pan LFO at [rotationSpeed] Hz (the actual 8D rotation)
+     *   - aecho: FIXED 0.6/0.4 in/out, 30|60 ms delays, 0.2/0.15 decay (the space)
+     *   - stereotools: balance_in=0.02 (subtle symmetry break)
+     *   - alimiter: limit=0.97 (clean output ceiling)
+     *
+     * Output: AAC 192kbps stereo 44.1kHz, faststart for streaming.
+     */
     fun build8D(
         inputPath: String,
         outputPath: String,
         rotationSpeed: Float,
-        spatialAmbience: Float,
+        spatialAmbience: Float = 0.5f,
     ): String {
-        // apulsator hz is bounded to a sane range — too slow = no effect, too fast = seasick
-        val speed = rotationSpeed.coerceIn(0.03f, 0.5f)
-        // aecho intensity scales with the ambience slider. SpatialFlow uses fixed
-        // 0.6/0.4 in_gain/out_gain; we keep those but scale the decay gain with ambience.
-        // At ambience=0, decay gain = 0 (no echo). At ambience=1, decay gain = 0.35.
-        val ambience = spatialAmbience.coerceIn(0f, 1f)
-        val echoDecayGain = 0.35f * ambience
+        // SpatialFlow clamps to 0.03..0.25 — copy that
+        val speed = rotationSpeed.coerceIn(0.03f, 0.25f)
 
         return buildString {
             append("-y ")
@@ -42,23 +46,23 @@ object FFmpegCommandBuilder {
 
             append("-af \"")
 
-            // Main motion: stereo pan LFO (the actual 8D rotation)
+            // MAIN MOTION — apulsator with spatial ambience controlling width
             append("apulsator=hz=")
             append(String.format(Locale.US, "%.3f", speed))
-            append(":width=0.75:mode=sine")
+            // Width scales with ambience: 0.5 (default) = 0.75 like SpatialFlow,
+            // 0.0 = 0.50 (subtle), 1.0 = 1.0 (full rotation)
+            val width = 0.50f + 0.50f * spatialAmbience.coerceIn(0f, 1f)
+            append(":width=")
+            append(String.format(Locale.US, "%.2f", width))
+            append(":mode=sine")
 
-            // Spatial ambience: subtle echo depth — controlled by slider
-            if (echoDecayGain > 0.001f) {
-                append(",aecho=0.6:0.4:30|60:")
-                append(String.format(Locale.US, "%.2f", echoDecayGain))
-                append("|")
-                append(String.format(Locale.US, "%.2f", echoDecayGain * 0.75f))
-            }
+            // FIXED ECHO — matches SpatialFlow exactly (their signature space sound)
+            append(",aecho=0.6:0.4:30|60:0.2|0.15")
 
-            // Subtle stereo variation — breaks perfect symmetry
+            // SUBTLE STEREO VARIATION
             append(",stereotools=balance_in=0.02")
 
-            // Clean output ceiling
+            // CLEAN LIMIT
             append(",alimiter=limit=0.97")
 
             append("\" ")

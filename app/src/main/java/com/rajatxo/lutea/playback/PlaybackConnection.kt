@@ -147,10 +147,43 @@ object PlaybackConnection {
 
     /**
      * Called when slider drag finishes (onValueChangeFinished).
-     * Triggers re-processing with the new slider values IF 8D is currently on.
+     * Direct port of SpatialFlow behaviour:
+     *   - If a cached file with the new params exists → swap to it instantly
+     *   - If FFmpeg is currently processing → IGNORE (don't restart)
+     *   - Otherwise → kick off FFmpeg with new params
+     *
+     * User must toggle 8D off+on to force re-processing if they want to apply
+     * new slider values while a session is mid-flight.
      */
     fun apply8DParams() {
         if (!_is8DEnabled.value) return
+        val ctx = appContext ?: return
+        val c = controller ?: return
+        val song = _currentSong.value ?: return
+
+        val cacheKey = "${song.id}${_orbitSpeed.value}${_spatialAmbience.value}".hashCode()
+        val outputFile = File(ctx.cacheDir, "8d_$cacheKey.m4a")
+
+        if (outputFile.exists() && outputFile.length() > 0) {
+            // Cache hit — swap instantly. No FFmpeg, no waiting.
+            val pos = c.currentPosition
+            val mediaItem = buildMediaItem(Uri.fromFile(outputFile), song)
+            c.setMediaItem(mediaItem)
+            c.seekTo(pos)
+            c.prepare()
+            c.play()
+            _is8DActive.value = true
+            Log.i("PlaybackConnection", "8D cache hit on slider change — instant swap")
+            return
+        }
+
+        // No cache. If FFmpeg is running, ignore — same as SpatialFlow's guard.
+        if (isProcessing) {
+            Log.i("PlaybackConnection", "slider changed mid-process — ignored (SpatialFlow pattern)")
+            return
+        }
+
+        // Otherwise kick off fresh processing.
         applyEffects(true, _orbitSpeed.value, _spatialAmbience.value)
     }
 
