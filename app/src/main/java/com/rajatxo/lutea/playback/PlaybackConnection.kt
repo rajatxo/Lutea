@@ -77,11 +77,17 @@ object PlaybackConnection {
     private val _is8DEnabled = MutableStateFlow(false)
     val is8DEnabled: StateFlow<Boolean> = _is8DEnabled.asStateFlow()
 
+    // SpatialFlow's exact defaults: 0.2 Hz, width 0.75 (no slider in their app).
     private val _orbitSpeed = MutableStateFlow(0.20f)
     val orbitSpeed: StateFlow<Float> = _orbitSpeed.asStateFlow()
 
+    // SpatialFlow's apulsator width is fixed at 0.75 — that's our default too.
     private val _spatialAmbience = MutableStateFlow(0.75f)
     val spatialAmbience: StateFlow<Float> = _spatialAmbience.asStateFlow()
+
+    // Current preset — Balanced is default, matches SpatialFlow exactly.
+    private val _preset = MutableStateFlow(Effect8DPreset.BALANCED)
+    val preset: StateFlow<Effect8DPreset> = _preset.asStateFlow()
 
     // With real-time processing, there's no "Processing 8D" state — the effect
     // is on the instant the flag flips. Kept for UI compatibility (EffectVisual.kt
@@ -161,6 +167,29 @@ object PlaybackConnection {
         val clamped = value.coerceIn(0f, 1f)
         _spatialAmbience.value = clamped
         LuteaAudioProcessors.spatial8D.setSpatialWidth(clamped)
+    }
+
+    /**
+     * Apply a preset — Low / Balanced / High.
+     *
+     * Preset values are tuned to match SpatialFlow's behaviour at each intensity:
+     *
+     *  - LOW: 0.10 Hz, width 0.55 — subtle rotation, barely noticeable. Good for
+     *    background listening or long sessions.
+     *  - BALANCED: 0.20 Hz, width 0.75 — SpatialFlow's exact fixed values.
+     *    This is the default.
+     *  - HIGH: 0.35 Hz, width 1.0 — fast rotation with full L/R sweep. Most
+     *    dramatic effect, can be nauseating for long periods.
+     *
+     * Setting a preset overrides the slider values. User can still fine-tune via
+     * sliders after — preset just sets a starting point.
+     */
+    fun set8DPreset(p: Effect8DPreset) {
+        _preset.value = p
+        _orbitSpeed.value = p.orbitHz
+        _spatialAmbience.value = p.width
+        LuteaAudioProcessors.spatial8D.setOrbitHz(p.orbitHz)
+        LuteaAudioProcessors.spatial8D.setSpatialWidth(p.width)
     }
 
     /** No-op with real-time processing. Kept for UI compatibility

@@ -73,7 +73,7 @@ fun EffectVisual(
     headRes: Int = R.drawable.effect_head,
 ) {
     val density = LocalDensity.current
-    // 8D state wired to PlaybackConnection — drives FFmpeg processing.
+    // 8D state wired to PlaybackConnection — drives real-time AudioProcessor.
     val eightDOn by PlaybackConnection.is8DEnabled.collectAsState()
     val orbitSpeed by PlaybackConnection.orbitSpeed.collectAsState()
     val spatialAmbience by PlaybackConnection.spatialAmbience.collectAsState()
@@ -81,6 +81,7 @@ fun EffectVisual(
     val processingProgress by PlaybackConnection.processingProgress.collectAsState()
     val lastError by PlaybackConnection.eightDLastError.collectAsState()
     val is8DActive by PlaybackConnection.is8DActive.collectAsState()
+    val preset by PlaybackConnection.preset.collectAsState()
 
     BoxWithConstraints(
         modifier = modifier
@@ -130,6 +131,8 @@ fun EffectVisual(
             processingProgress = processingProgress,
             lastError = lastError,
             isActive = is8DActive,
+            preset = preset,
+            onPresetChange = { PlaybackConnection.set8DPreset(it) },
             screenWidthPx = widthPx,
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -199,6 +202,8 @@ private fun EffectOverlay(
     processingProgress: Float,
     lastError: String,
     isActive: Boolean,
+    preset: com.rajatxo.lutea.playback.Effect8DPreset,
+    onPresetChange: (com.rajatxo.lutea.playback.Effect8DPreset) -> Unit,
     screenWidthPx: Float,
     modifier: Modifier = Modifier,
 ) {
@@ -266,6 +271,37 @@ private fun EffectOverlay(
                         .clip(RoundedCornerShape(50))
                         .background(Color.White),
                 )
+            }
+        }
+
+        // Preset row — Low / Balanced / High — only visible when 8D is on
+        if (enabled) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = sliderPadH),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            ) {
+                com.rajatxo.lutea.playback.Effect8DPreset.entries.forEach { p ->
+                    val isSel = p == preset
+                    val bg = if (isSel) sliderActiveColor else Color.White.copy(alpha = 0.06f)
+                    val fg = if (isSel) Color.Black else Cream.copy(alpha = 0.7f)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(bg)
+                            .clickable { onPresetChange(p) }
+                            .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),
+                    ) {
+                        Text(
+                            text = p.label,
+                            color = fg,
+                            fontFamily = CalSansFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = subLabelTextSize,
+                        )
+                    }
+                }
             }
         }
 
