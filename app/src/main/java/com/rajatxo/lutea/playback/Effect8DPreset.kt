@@ -3,24 +3,33 @@ package com.rajatxo.lutea.playback
 /**
  * 8D intensity presets.
  *
- * BALANCED is the default — matches SpatialFlow's fixed values exactly
- * (0.20 Hz rotation, 0.75 apulsator width). SpatialFlow has no slider for
- * these, the values are baked in.
+ * Slider scale is 1..25, matching the numbers around the sphere.
+ * BALANCED is at position 13 (default). When 8D is on, the two "13" labels
+ * (top + bottom) highlight gold, and the top/down arrows turn gold.
  *
- * LOW and HIGH are Lutea's additions — give the user a quick way to dial
- * the effect down or up without dragging sliders.
+ * Conversion from slider value to internal rps/width is via [sliderToRps] /
+ * [sliderToWidth]. At slider=13, values match SpatialFlow's defaults
+ * (0.20 Hz, 0.75 width).
  */
 enum class Effect8DPreset(
-    val orbitHz: Float,
-    val width: Float,
+    val orbitSlider: Int,
+    val ambienceSlider: Int,
     val label: String,
 ) {
-    /** Subtle rotation, barely noticeable. Good for background listening. */
-    LOW(orbitHz = 0.10f, width = 0.55f, label = "Low"),
-
-    /** SpatialFlow's exact values — the default. */
-    BALANCED(orbitHz = 0.20f, width = 0.75f, label = "Balanced"),
-
-    /** Fast rotation with full L/R sweep. Most dramatic effect. */
-    HIGH(orbitHz = 0.35f, width = 1.00f, label = "High"),
+    LOW(orbitSlider = 7, ambienceSlider = 7, label = "Low"),
+    BALANCED(orbitSlider = 13, ambienceSlider = 13, label = "Balanced"),
+    HIGH(orbitSlider = 19, ambienceSlider = 19, label = "High"),
 }
+
+/** Slider 1..25 → rps. 13=0.20, 1=0.02, 25=0.40. Linear. */
+fun sliderToRps(slider: Int): Float {
+    val s = slider.coerceIn(1, 25)
+    return 0.02f + (s - 1) * 0.01583f
+}
+
+/** Slider 1..25 → width. 13=0.75, 1=0.05, 25=1.00. Linear. */
+fun sliderToWidth(slider: Int): Float {
+    val s = slider.coerceIn(1, 25)
+    return 0.05f + (s - 1) * 0.03958f
+}
+

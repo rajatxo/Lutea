@@ -77,20 +77,18 @@ object PlaybackConnection {
     private var lastErrorTimeMs: Long = 0L
 
     // ── 8D state ──
-    // All three just write to the LuteaAudioProcessors singleton — the audio
-    // thread reads from it on the next sample. Instant, no FFmpeg, no swap.
+    // Slider values stored as Int 1..25 (matches the numbers around the sphere).
+    // Converted to rps/width when written to the Spatial8DProcessor.
     private val _is8DEnabled = MutableStateFlow(false)
     val is8DEnabled: StateFlow<Boolean> = _is8DEnabled.asStateFlow()
 
-    // SpatialFlow's exact defaults: 0.2 Hz, width 0.75 (no slider in their app).
-    private val _orbitSpeed = MutableStateFlow(0.20f)
-    val orbitSpeed: StateFlow<Float> = _orbitSpeed.asStateFlow()
+    // BALANCED preset = 13 for both. Default.
+    private val _orbitSlider = MutableStateFlow(13)
+    val orbitSlider: StateFlow<Int> = _orbitSlider.asStateFlow()
 
-    // SpatialFlow's apulsator width is fixed at 0.75 — that's our default too.
-    private val _spatialAmbience = MutableStateFlow(0.75f)
-    val spatialAmbience: StateFlow<Float> = _spatialAmbience.asStateFlow()
+    private val _ambienceSlider = MutableStateFlow(13)
+    val ambienceSlider: StateFlow<Int> = _ambienceSlider.asStateFlow()
 
-    // Current preset — Balanced is default, matches SpatialFlow exactly.
     private val _preset = MutableStateFlow(Effect8DPreset.BALANCED)
     val preset: StateFlow<Effect8DPreset> = _preset.asStateFlow()
 
@@ -163,58 +161,40 @@ object PlaybackConnection {
     // 8D public API — instant. No FFmpeg, no swap, no cache.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Toggle 8D. Writes directly to the AudioProcessor — takes effect on the
-     *  next audio sample. No file processing, no cache miss, no swap. */
+    /** Toggle 8D. Writes directly to the AudioProcessor. */
     fun set8DEnabled(enabled: Boolean) {
         _is8DEnabled.value = enabled
         LuteaAudioProcessors.spatial8D.set8DEnabled(enabled)
         _is8DActive.value = enabled
+        // Apply current slider values to the processor
+        LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(_orbitSlider.value))
+        LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(_ambienceSlider.value))
     }
 
-    /** Slider drag: updates the processor's Hz in real-time. Per-drag-tick writes
-     *  are fine — the processor reads @Volatile fields, no allocation.
-     *  Value is in rps internally (0.01..1.0). UI converts slider 1-100 to rps. */
-    fun setOrbitSpeed(value: Float) {
-        val clamped = value.coerceIn(0.01f, 1.0f)
-        _orbitSpeed.value = clamped
-        LuteaAudioProcessors.spatial8D.setOrbitHz(clamped)
+    /** Slider drag: writes to the processor in real-time. Value is 1..25. */
+    fun setOrbitSpeed(slider: Int) {
+        val clamped = slider.coerceIn(1, 25)
+        _orbitSlider.value = clamped
+        LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(clamped))
     }
 
-    fun setSpatialAmbience(value: Float) {
-        val clamped = value.coerceIn(0f, 1f)
-        _spatialAmbience.value = clamped
-        LuteaAudioProcessors.spatial8D.setSpatialWidth(clamped)
+    fun setSpatialAmbience(slider: Int) {
+        val clamped = slider.coerceIn(1, 25)
+        _ambienceSlider.value = clamped
+        LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(clamped))
     }
 
-    /**
-     * Apply a preset — Low / Balanced / High.
-     *
-     * Preset values are tuned to match SpatialFlow's behaviour at each intensity:
-     *
-     *  - LOW: 0.10 Hz, width 0.55 — subtle rotation, barely noticeable. Good for
-     *    background listening or long sessions.
-     *  - BALANCED: 0.20 Hz, width 0.75 — SpatialFlow's exact fixed values.
-     *    This is the default.
-     *  - HIGH: 0.35 Hz, width 1.0 — fast rotation with full L/R sweep. Most
-     *    dramatic effect, can be nauseating for long periods.
-     *
-     * Setting a preset overrides the slider values. User can still fine-tune via
-     * sliders after — preset just sets a starting point.
-     */
+    /** Apply a preset — sets slider values for both orbit and ambience. */
     fun set8DPreset(p: Effect8DPreset) {
         _preset.value = p
-        _orbitSpeed.value = p.orbitHz
-        _spatialAmbience.value = p.width
-        LuteaAudioProcessors.spatial8D.setOrbitHz(p.orbitHz)
-        LuteaAudioProcessors.spatial8D.setSpatialWidth(p.width)
+        _orbitSlider.value = p.orbitSlider
+        _ambienceSlider.value = p.ambienceSlider
+        LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(p.orbitSlider))
+        LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(p.ambienceSlider))
     }
 
-    /** No-op with real-time processing. Kept for UI compatibility
-     *  (EffectVisual.kt calls it on slider release). */
-    fun apply8DParams() {
-        // Nothing to do — setOrbitSpeed / setSpatialAmbience already wrote
-        // to the processor live during the drag.
-    }
+    /** No-op with real-time processing. Kept for UI compatibility. */
+    fun apply8DParams() {}
 
     // ─────────────────────────────────────────────────────────────────────────
     // Playback controls

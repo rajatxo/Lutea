@@ -73,10 +73,10 @@ fun EffectVisual(
     headRes: Int = R.drawable.effect_head,
 ) {
     val density = LocalDensity.current
-    // 8D state — we only need the enabled flag for the sphere rotation.
-    // The overlay UI (sliders, toggle, presets) has been removed. Controls
-    // will be re-implemented inside the sphere component later.
+    // 8D state — slider values are 1..25 Int (matches numbers around the sphere)
     val eightDOn by PlaybackConnection.is8DEnabled.collectAsState()
+    val orbitSlider by PlaybackConnection.orbitSlider.collectAsState()
+    val ambienceSlider by PlaybackConnection.ambienceSlider.collectAsState()
 
     BoxWithConstraints(
         modifier = modifier
@@ -104,8 +104,22 @@ fun EffectVisual(
             SphereComposition(
                 modifier = Modifier.fillMaxSize(),
                 rotationEnabled = eightDOn,
+                arrowsHighlighted = eightDOn,
             )
         }
+
+        // ── 8D Audio capsule + toggle + flanking Orbit Speed / Spatial Ambience capsules ──
+        EffectHeaderRow(
+            enabled = eightDOn,
+            onToggle = { PlaybackConnection.set8DEnabled(it) },
+            orbitSlider = orbitSlider,
+            ambienceSlider = ambienceSlider,
+            screenWidthPx = widthPx,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = with(density) { (-(widthPx * 0.156f)).toDp() })
+                .padding(top = with(density) { (heightPx * 0.005f).toDp() }),
+        )
 
         // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 8% of screen height ──
         // (User originally asked for 130dp = 16.25% of height, but that squeezed
@@ -147,6 +161,139 @@ fun EffectVisual(
                 )
             }
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8D Audio capsule + toggle + flanking Orbit Speed / Spatial Ambience capsules
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun EffectHeaderRow(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    orbitSlider: Int,
+    ambienceSlider: Int,
+    screenWidthPx: Float,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val widthPx = screenWidthPx
+    val labelTextSize = with(density) { (widthPx * 0.030f).toSp() }
+    val valueTextSize = with(density) { (widthPx * 0.022f).toSp() }
+    val capsulePadHDp = with(density) { (widthPx * 0.025f).toDp() }
+    val capsulePadVDp = with(density) { (widthPx * 0.012f).toDp() }
+    val capsuleCornerDp = with(density) { (widthPx * 0.04f).toDp() }
+    val toggleSizeDp = with(density) { (widthPx * 0.080f).toDp() }
+    val sideCapsuleSpacing = with(density) { (widthPx * 0.020f).toDp() }
+    val goldColor = Color(0xFFD4A03A)
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(sideCapsuleSpacing, Alignment.CenterHorizontally),
+    ) {
+        if (enabled) {
+            SideCapsule(
+                label = "Orbit Speed",
+                value = orbitSlider.toString(),
+                labelTextSize = valueTextSize,
+                valueTextSize = valueTextSize,
+                padH = capsulePadHDp,
+                padV = capsulePadVDp,
+                corner = capsuleCornerDp,
+            )
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(capsuleCornerDp))
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .border(
+                        width = with(density) { (widthPx * 0.002f).toDp() },
+                        color = Cream.copy(alpha = 0.18f),
+                        shape = RoundedCornerShape(capsuleCornerDp),
+                    )
+                    .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),
+            ) {
+                Text(
+                    text = "8D Audio",
+                    color = Cream,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = labelTextSize,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .padding(start = with(density) { (widthPx * 0.015f).toDp() })
+                    .size(toggleSizeDp, toggleSizeDp * 0.55f)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (enabled) goldColor else Color.White.copy(alpha = 0.10f))
+                    .clickable { onToggle(!enabled) }
+                    .padding(with(density) { (widthPx * 0.005f).toDp() }),
+                contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                val knobSize = with(density) { (widthPx * 0.040f).toDp() }
+                Box(
+                    modifier = Modifier
+                        .size(knobSize)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White),
+                )
+            }
+        }
+
+        if (enabled) {
+            SideCapsule(
+                label = "Spatial Ambience",
+                value = ambienceSlider.toString(),
+                labelTextSize = valueTextSize,
+                valueTextSize = valueTextSize,
+                padH = capsulePadHDp,
+                padV = capsulePadVDp,
+                corner = capsuleCornerDp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SideCapsule(
+    label: String,
+    value: String,
+    labelTextSize: androidx.compose.ui.unit.TextUnit,
+    valueTextSize: androidx.compose.ui.unit.TextUnit,
+    padH: androidx.compose.ui.unit.Dp,
+    padV: androidx.compose.ui.unit.Dp,
+    corner: androidx.compose.ui.unit.Dp,
+) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(corner))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .border(
+                width = padH / 12f,
+                color = Color(0xFFD4A03A).copy(alpha = 0.4f),
+                shape = RoundedCornerShape(corner),
+            )
+            .padding(horizontal = padH, vertical = padV),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = label,
+            color = Cream.copy(alpha = 0.7f),
+            fontFamily = CalSansFamily,
+            fontSize = labelTextSize,
+        )
+        Text(
+            text = value,
+            color = Color(0xFFD4A03A),
+            fontFamily = CalSansFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = valueTextSize,
+        )
     }
 }
 
@@ -429,6 +576,7 @@ private fun fibonacciSphere(n: Int): List<SpherePoint> {
 private fun SphereComposition(
     modifier: Modifier = Modifier,
     rotationEnabled: Boolean = true,
+    arrowsHighlighted: Boolean = false,
 ) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
@@ -545,8 +693,12 @@ private fun SphereComposition(
         }
 
         // ── Four arrows ──
-        val arrowColor = Cream.copy(alpha = 0.95f)
-        // Top
+        // When 8D is on (arrowsHighlighted=true), TOP and BOTTOM arrows turn gold.
+        // LEFT and RIGHT stay white (cream) regardless of state.
+        val goldColor = Color(0xFFD4A03A)
+        val whiteArrowColor = Cream.copy(alpha = 0.95f)
+        val topBottomColor = if (arrowsHighlighted) goldColor else whiteArrowColor
+        // Top — gold when highlighted
         drawPath(
             path = Path().apply {
                 moveTo(cx, cy - arrowBaseR - arrowH)
@@ -554,9 +706,9 @@ private fun SphereComposition(
                 lineTo(cx + arrowW / 2, cy - arrowBaseR)
                 close()
             },
-            color = arrowColor,
+            color = topBottomColor,
         )
-        // Bottom
+        // Bottom — gold when highlighted
         drawPath(
             path = Path().apply {
                 moveTo(cx, cy + arrowBaseR + arrowH)
@@ -564,9 +716,9 @@ private fun SphereComposition(
                 lineTo(cx + arrowW / 2, cy + arrowBaseR)
                 close()
             },
-            color = arrowColor,
+            color = topBottomColor,
         )
-        // Left
+        // Left — always white
         drawPath(
             path = Path().apply {
                 moveTo(cx - arrowBaseR - arrowH, cy)
@@ -574,9 +726,9 @@ private fun SphereComposition(
                 lineTo(cx - arrowBaseR, cy + arrowW / 2)
                 close()
             },
-            color = arrowColor,
+            color = whiteArrowColor,
         )
-        // Right
+        // Right — always white
         drawPath(
             path = Path().apply {
                 moveTo(cx + arrowBaseR + arrowH, cy)
@@ -584,7 +736,7 @@ private fun SphereComposition(
                 lineTo(cx + arrowBaseR, cy + arrowW / 2)
                 close()
             },
-            color = arrowColor,
+            color = whiteArrowColor,
         )
 
         // ── Tag icons (80, one per dot) ──
@@ -608,10 +760,13 @@ private fun SphereComposition(
         // Top semicircle: 25 numbers (1 to 25), LEFT=1 → UP=13 → RIGHT=25
         // Bottom semicircle: 23 numbers (2 to 24), LEFT-below=2 → DOWN=13 → RIGHT-below=24
         // (1 and 25 are shared endpoints at LEFT and RIGHT, so bottom skips them)
+        // When 8D is on (arrowsHighlighted=true), the two "13" labels turn gold.
         val numberFontSize = size.width * 0.028f
         val numberDistance = smallTagSize / 2f + size.width * 0.030f
+        val creamArgb = android.graphics.Color.argb(245, 245, 240, 230)
+        val goldArgb = android.graphics.Color.argb(255, 212, 160, 58)
         val numberPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.argb(245, 245, 240, 230)
+            color = creamArgb
             this.textSize = numberFontSize
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             textAlign = android.graphics.Paint.Align.CENTER
@@ -620,32 +775,28 @@ private fun SphereComposition(
         // Top: 25 numbers from LEFT (π) through UP (3π/2) to RIGHT (2π)
         val topCount = 25
         for (k in 0 until topCount) {
-            val num = (k + 1).toString()
+            val num = (k + 1)
             val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / (topCount - 1).toFloat())
             val labelR = dottedR + numberDistance
             val lx = cx + labelR * cos(angleRad)
             val ly = cy + labelR * sin(angleRad)
+            numberPaint.color = if (arrowsHighlighted && num == 13) goldArgb else creamArgb
             drawIntoCanvas { canvas ->
-                canvas.nativeCanvas.drawText(num, lx, ly + numberPaint.textSize / 3f, numberPaint)
+                canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
             }
         }
 
         // Bottom: 23 numbers (2 to 24) from LEFT-below through DOWN to RIGHT-below
-        // Going clockwise: angle from just-below-π through π/2 (DOWN) to just-above-0
         val bottomCount = 23
         for (k in 0 until bottomCount) {
-            val num = (k + 2).toString()   // 2 to 24
-            // angle goes from π - π/24 (just below LEFT) clockwise to π/24 (just below RIGHT)
-            // step = (π - 2*π/24) / 22 = π * (1 - 1/12) / 22 = π * 11/12 / 22 = π * 11 / 264 = π / 24
-            // Actually: total arc = π - 2*(π/24) = π * 22/24 = 11π/12
-            // step = (11π/12) / 22 = π/24
-            // angle(k) = π - π/24 - k * π/24 = π - (k+1) * π/24
+            val num = (k + 2)
             val angleRad = Math.PI.toFloat() - ((k + 1).toFloat() * Math.PI.toFloat() / 24f)
             val labelR = dottedR + numberDistance
             val lx = cx + labelR * cos(angleRad)
             val ly = cy + labelR * sin(angleRad)
+            numberPaint.color = if (arrowsHighlighted && num == 13) goldArgb else creamArgb
             drawIntoCanvas { canvas ->
-                canvas.nativeCanvas.drawText(num, lx, ly + numberPaint.textSize / 3f, numberPaint)
+                canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
             }
         }
 
