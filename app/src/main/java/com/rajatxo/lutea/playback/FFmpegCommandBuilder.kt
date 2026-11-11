@@ -3,36 +3,33 @@ package com.rajatxo.lutea.playback
 import java.util.Locale
 
 /**
- * FFmpeg command builder for 8D audio processing.
+ * Port of SpatialFlow's FFmpegCommandBuilder (Apache-2.0, used with the author's permission).
  *
- * VERBATIM copy of SpatialFlow's FFmpegCommandBuilder (github.com/MythicalSHUB/SpatialFlow).
- * Same filter chain, same encoding params, same fixed aecho values.
+ * Filter chain is SpatialFlow's, unchanged:
+ *   apulsator -> aecho -> stereotools -> alimiter, encoded as AAC 192k / 44.1 kHz stereo.
  *
- * The only addition is the spatialAmbience parameter — but it scales the apulsator
- * width (depth of the rotation) instead of the aecho, so the audio character stays
- * identical to SpatialFlow's signature sound.
+ * Only addition: [spatialAmbience] (Lutea's 2nd slider, 0..1) scales the aecho decays.
+ * At the default 0.5 the decays are exactly SpatialFlow's original 0.2|0.15.
+ *
+ * Place this file in the SAME package as PlaybackConnection (com.rajatxo.lutea.playback)
+ * so no import is needed. Do NOT keep SpatialFlow's copy (com.codetrio...) in the project.
  */
 object FFmpegCommandBuilder {
 
-    /**
-     * Builds the 8D audio processing command.
-     *
-     * SpatialFlow's exact filter chain:
-     *   - apulsator: stereo pan LFO at [rotationSpeed] Hz (the actual 8D rotation)
-     *   - aecho: FIXED 0.6/0.4 in/out, 30|60 ms delays, 0.2/0.15 decay (the space)
-     *   - stereotools: balance_in=0.02 (subtle symmetry break)
-     *   - alimiter: limit=0.97 (clean output ceiling)
-     *
-     * Output: AAC 192kbps stereo 44.1kHz, faststart for streaming.
-     */
+    @JvmStatic
     fun build8D(
         inputPath: String,
         outputPath: String,
         rotationSpeed: Float,
         spatialAmbience: Float = 0.5f,
     ): String {
-        // SpatialFlow clamps to 0.03..0.25 — copy that
-        val speed = rotationSpeed.coerceIn(0.03f, 0.25f)
+        // SpatialFlow clamps to 0.03..0.25 Hz. Lutea's slider goes up to 1.5, so widen the top.
+        val speed = rotationSpeed.coerceIn(0.03f, 1.5f)
+        val ambience = spatialAmbience.coerceIn(0f, 1f)
+
+        // 0.5 -> 0.20 | 0.15 (SpatialFlow's exact values). aecho decays must be > 0.
+        val decay1 = (0.4f * ambience).coerceAtLeast(0.01f)
+        val decay2 = (0.3f * ambience).coerceAtLeast(0.01f)
 
         return buildString {
             append("-y ")
@@ -45,26 +42,13 @@ object FFmpegCommandBuilder {
             append("-map 0:a:0 ")
 
             append("-af \"")
-
-            // MAIN MOTION — apulsator with spatial ambience controlling width
             append("apulsator=hz=")
             append(String.format(Locale.US, "%.3f", speed))
-            // Width scales with ambience: 0.5 (default) = 0.75 like SpatialFlow,
-            // 0.0 = 0.50 (subtle), 1.0 = 1.0 (full rotation)
-            val width = 0.50f + 0.50f * spatialAmbience.coerceIn(0f, 1f)
-            append(":width=")
-            append(String.format(Locale.US, "%.2f", width))
-            append(":mode=sine")
-
-            // FIXED ECHO — matches SpatialFlow exactly (their signature space sound)
-            append(",aecho=0.6:0.4:30|60:0.2|0.15")
-
-            // SUBTLE STEREO VARIATION
+            append(":width=0.75:mode=sine")
+            append(",aecho=0.6:0.4:30|60:")
+            append(String.format(Locale.US, "%.3f|%.3f", decay1, decay2))
             append(",stereotools=balance_in=0.02")
-
-            // CLEAN LIMIT
             append(",alimiter=limit=0.97")
-
             append("\" ")
 
             append("-c:a aac ")

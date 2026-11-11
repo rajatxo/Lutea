@@ -3,19 +3,23 @@ package com.rajatxo.lutea.playback
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.ReturnCode
 import com.arthenica.ffmpegkit.Statistics
 import com.rajatxo.lutea.domain.model.Song
 import com.rajatxo.lutea.service.LuteaPlaybackService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,23 +29,44 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 import kotlin.math.min
 
 /**
- * PlaybackConnection — Media3 controller wrapper.
+ * PlaybackConnection — Media3 MediaController wrapper.
  *
- * 8D audio implementation directly ports SpatialFlow's AudioPlaybackService pattern:
- *   applyEffects(enable8D, speed, ambience) → cache check → if !isProcessing: run FFmpegKit
- *   on8DProcessingSuccess(path) → setMediaItem + seekTo + prepare + play
+ * 8D audio = port of SpatialFlow's AudioPlaybackService.applyEffects():
+ *   cancel in-flight FFmpeg -> cache lookup -> FFmpegKit.executeAsync(
+ *   apulsator + aecho + stereotools + alimiter) -> swap processed file in at the same
+ *   position -> volume = 1.0f.
  *
- * No separate processor class. No debouncing. No updateParams method. Just the
- * SpatialFlow guard: if a session is already running, return early.
+ * Adaptations for Lutea (MediaController, not direct ExoPlayer access):
+ *  - All controller calls happen on the main thread (scope = Dispatchers.Main.immediate).
+ *  - The swap keeps the whole playlist (setMediaItems with the same queue, only the current
+ *    item's URI replaced) so next/prev/repeat keep working. SpatialFlow holds a single item
+ *    in its player, Lutea holds the full queue.
+ *  - Processed items are tagged via MediaMetadata.extras (MediaItem.localConfiguration is
+ *    not reliably visible on the controller side), so we always know whether the item
+ *    currently loaded is the original or the 8D file.
+ *  - Auto-apply: on every media item transition (auto, next/prev, tapping another song)
+ *    while 8D is ON and the new item is not already an 8D file, processing starts for it.
+ *  - Stale-callback safety: each run has a token; callbacks from a cancelled run never touch
+ *    state or the player. Output is written to a temp file and renamed on success, so a
+ *    cancelled run can never leave a truncated file that looks like a cache hit.
+ *
+ * Public API is unchanged, so EffectVisual.kt needs no edits.
  */
 object PlaybackConnection {
 
+    private const val TAG = "PlaybackConnection"
+    private const val EXTRA_8D_FILE = "lutea_8d_file"
+    private const val CACHE_MAX_AGE_MS = 24L * 60 * 60 * 1000
+
     private var controller: MediaController? = null
     private var appContext: Context? = null
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // Main dispatcher: MediaController must be touched on the main thread.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -57,7 +82,7 @@ object PlaybackConnection {
 
     private var queue: List<Song> = emptyList()
 
-    // ── 8D state (port of SpatialFlow's _is8DEnabled, _speed8D, isProcessing) ──
+    // ── 8D state ──
     private val _is8DEnabled = MutableStateFlow(false)
     val is8DEnabled: StateFlow<Boolean> = _is8DEnabled.asStateFlow()
 
@@ -67,7 +92,6 @@ object PlaybackConnection {
     private val _spatialAmbience = MutableStateFlow(0.50f)
     val spatialAmbience: StateFlow<Float> = _spatialAmbience.asStateFlow()
 
-    @Volatile private var isProcessing = false
     private val _isProcessing8D = MutableStateFlow(false)
     val isProcessing8D: StateFlow<Boolean> = _isProcessing8D.asStateFlow()
 
@@ -80,83 +104,79 @@ object PlaybackConnection {
     private val _is8DActive = MutableStateFlow(false)
     val is8DActive: StateFlow<Boolean> = _is8DActive.asStateFlow()
 
+    // Processing bookkeeping (SpatialFlow's `isProcessing`, made race-safe with a token).
+    private var isProcessing = false
+    private var activeJobKey: String? = null
+    private var processingJob: Job? = null
+    @Volatile private var processingToken = 0L
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Connection
+    // ─────────────────────────────────────────────────────────────────────────
+
     suspend fun connect(context: Context) {
         if (controller != null) return
         try {
-            val sessionToken = SessionToken(context, ComponentName(context, LuteaPlaybackService::class.java))
-            val controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-            val c = controllerFuture.await()
+            val app = context.applicationContext
+            appContext = app
+            val sessionToken = SessionToken(app, ComponentName(app, LuteaPlaybackService::class.java))
+            val c = MediaController.Builder(app, sessionToken).buildAsync().await()
             controller = c
-            appContext = context.applicationContext
+
+            scope.launch(Dispatchers.IO) { cleanCache(app) }
 
             c.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
                     _isPlaying.value = playing
-                    if (playing) { c.volume = 1f }
+                    if (playing) c.volume = 1f
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     val songId = mediaItem?.mediaId?.toLongOrNull()
-                    _currentSong.value = queue.firstOrNull { it.id == songId }
+                    val song = queue.firstOrNull { it.id == songId }
+                    _currentSong.value = song
                     _positionMs.value = 0L
                     _durationMs.value = 0L
+
+                    val processed = isProcessedItem(mediaItem)
+                    _is8DActive.value = processed
+
                     if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                         if (!c.isPlaying) c.play()
                     }
-                    // Auto-apply 8D when song changes AND 8D is enabled.
-                    // SpatialFlow's pattern: loadAudioInternal cancels any in-flight
-                    // FFmpeg if 8D is on (line 1144). Then onMediaItemTransition fires,
-                    // and applyEffectsFromViewModelAsync re-applies effects — but for 8D
-                    // specifically, the song transition itself triggers re-processing.
-                    //
-                    // We do the same: if 8D is on, kick off processing for the new song
-                    // immediately. If cache hits, swap is instant.
-                    if (_is8DEnabled.value && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-                        _currentSong.value?.let { newSong ->
-                            scope.launch {
-                                kotlinx.coroutines.delay(300)  // let player settle
-                                kotlinx.coroutines.withContext(Dispatchers.Main) {
-                                    if (_is8DEnabled.value && _currentSong.value?.id == newSong.id) {
-                                        applyEffects(true, _orbitSpeed.value, _spatialAmbience.value)
-                                    }
-                                }
-                            }
-                        }
+
+                    // AUTO-APPLY ON SONG CHANGE: 8D is on and what's loaded is the original
+                    // file (auto-advance, next/prev, or tapping a new song) -> process it.
+                    // Our own swap loads an item tagged as processed, so it never loops.
+                    if (_is8DEnabled.value && song != null && !processed) {
+                        applyEffects(true, _orbitSpeed.value, _spatialAmbience.value)
                     }
                 }
 
-                override fun onPlayerErrorChanged(error: androidx.media3.common.PlaybackException?) {
+                override fun onPlayerErrorChanged(error: PlaybackException?) {
                     if (error != null) {
-                        Log.e("PlaybackConnection", "Playback error: ${error.errorCodeName}", error)
+                        Log.e(TAG, "Playback error: ${error.errorCodeName}", error)
                         try { c.seekToNextMediaItem(); c.prepare(); c.play() }
-                        catch (e: Exception) { Log.e("PlaybackConnection", "Skip after error failed", e) }
+                        catch (e: Exception) { Log.e(TAG, "Skip after error failed", e) }
                     }
                 }
             })
         } catch (e: Exception) {
-            Log.e("PlaybackConnection", "Failed to connect to playback service", e)
+            Log.e(TAG, "Failed to connect to playback service", e)
         }
     }
 
-    // ── 8D effect — direct port of SpatialFlow.applyEffects + set8DEnabled ──
+    // ─────────────────────────────────────────────────────────────────────────
+    // 8D public API (names unchanged — EffectVisual.kt depends on them)
+    // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Toggle 8D on/off. When on, processes current song via FFmpeg.
-     * When off, restores original song. Idempotent.
-     */
+    /** Toggle 8D. On: process current song (cache hit = instant). Off: restore original. */
     fun set8DEnabled(enabled: Boolean) {
         _is8DEnabled.value = enabled
         applyEffects(enabled, _orbitSpeed.value, _spatialAmbience.value)
     }
 
-    /**
-     * Slider value changed. ONLY updates the StateFlow — does NOT trigger
-     * re-processing. To apply new params, the user lifts their finger
-     * (onValueChangeFinished in Compose Slider) which calls apply8DParams().
-     *
-     * This avoids the race where rapid slider drags cancel/restart FFmpeg
-     * many times in quick succession.
-     */
+    /** Slider drag: only updates the value (no FFmpeg per drag tick). */
     fun setOrbitSpeed(value: Float) {
         _orbitSpeed.value = value.coerceIn(0.05f, 1.5f)
     }
@@ -166,232 +186,270 @@ object PlaybackConnection {
     }
 
     /**
-     * Called when slider drag finishes (onValueChangeFinished).
-     * Direct port of SpatialFlow behaviour:
-     *   - If a cached file with the new params exists → swap to it instantly
-     *   - If FFmpeg is currently processing → IGNORE (don't restart)
-     *   - Otherwise → kick off FFmpeg with new params
-     *
-     * User must toggle 8D off+on to force re-processing if they want to apply
-     * new slider values while a session is mid-flight.
+     * Slider released (onValueChangeFinished). Cache hit -> instant swap; otherwise a new
+     * FFmpeg run with the new values (a run in progress with different values is cancelled).
      */
     fun apply8DParams() {
         if (!_is8DEnabled.value) return
-        val ctx = appContext ?: return
-        val c = controller ?: return
-        val song = _currentSong.value ?: return
-
-        val cacheKey = "${song.id}${_orbitSpeed.value}${_spatialAmbience.value}".hashCode()
-        val outputFile = File(ctx.cacheDir, "8d_$cacheKey.m4a")
-
-        if (outputFile.exists() && outputFile.length() > 0) {
-            // Cache hit — swap instantly. No FFmpeg, no waiting.
-            val pos = c.currentPosition
-            val mediaItem = buildMediaItem(Uri.fromFile(outputFile), song)
-            c.setMediaItem(mediaItem)
-            c.seekTo(pos)
-            c.prepare()
-            c.play()
-            c.volume = 1.0f  // SpatialFlow updateBaseVolume pattern
-            _is8DActive.value = true
-            Log.i("PlaybackConnection", "8D cache hit on slider change — instant swap")
-            return
-        }
-
-        // No cache. If FFmpeg is running, ignore — same as SpatialFlow's guard.
-        if (isProcessing) {
-            Log.i("PlaybackConnection", "slider changed mid-process — ignored (SpatialFlow pattern)")
-            return
-        }
-
-        // Otherwise kick off fresh processing.
         applyEffects(true, _orbitSpeed.value, _spatialAmbience.value)
     }
 
-    /**
-     * Direct port of SpatialFlow.applyEffects(enable8D, speed8D).
-     *
-     * SpatialFlow's pattern:
-     *   1. FFmpegKit.cancel() — kill any in-flight session globally
-     *   2. If !enable8D → loadOriginalAudio and return
-     *   3. Compute cache key, check cache → if hit, swap immediately
-     *   4. if (isProcessing) return — KEY guard, don't start a new session
-     *      if one is already running
-     *   5. Set isProcessing = true, run FFmpegKit.executeAsync
-     *   6. Complete callback: swap to processed file (loadProcessedAudio pattern)
-     */
-    private fun applyEffects(enable8D: Boolean, speed: Float, ambience: Float) {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Core: SpatialFlow.applyEffects()
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun applyEffects(enable8D: Boolean, speedIn: Float, ambienceIn: Float) {
         val c = controller ?: return
         val ctx = appContext ?: return
         val song = _currentSong.value ?: return
 
-        // Step 1: cancel any in-flight FFmpeg (matches SpatialFlow line 1051)
-        try { FFmpegKit.cancel() } catch (_: Throwable) {}
+        // Round once so the cache key and the FFmpeg command use identical values.
+        val speed = r2(speedIn)
+        val ambience = r2(ambienceIn)
 
-        // Step 2: if disabling, restore original (matches loadOriginalAudio)
+        // ── Disable: cancel + restore original (SpatialFlow.loadOriginalAudio) ──
         if (!enable8D) {
+            cancelProcessing()
+            if (isProcessedItem(c.currentMediaItem)) {
+                swapCurrentItem(song, song.uri, processedName = null)
+            }
             _is8DActive.value = false
-            val pos = c.currentPosition
-            val mediaItem = buildMediaItem(song.uri, song)
-            c.setMediaItem(mediaItem)
-            c.seekTo(pos)
-            c.prepare()
-            c.play()
-            c.volume = 1.0f  // SpatialFlow updateBaseVolume pattern
-            Log.i("PlaybackConnection", "8D disabled — restored original at pos=$pos")
             return
         }
 
-        // Step 3: cache check (matches SpatialFlow lines 1066-1073)
-        val cacheKey = "${song.id}${speed}${ambience}".hashCode()
-        val outputFile = File(ctx.cacheDir, "8d_$cacheKey.m4a")
+        // ── Cache check (SpatialFlow: outputFile.exists()) ──
+        val outputFile = processedFile(ctx, song, speed, ambience)
         if (outputFile.exists() && outputFile.length() > 0) {
-            val pos = c.currentPosition
-            val mediaItem = buildMediaItem(Uri.fromFile(outputFile), song)
-            c.setMediaItem(mediaItem)
-            c.seekTo(pos)
-            c.prepare()
-            c.play()
-            c.volume = 1.0f  // SpatialFlow updateBaseVolume pattern
+            cancelProcessing()
+            val alreadyLoaded =
+                c.currentMediaItem?.mediaMetadata?.extras?.getString(EXTRA_8D_FILE) == outputFile.name
+            if (!alreadyLoaded) swapCurrentItem(song, Uri.fromFile(outputFile), outputFile.name)
+            outputFile.setLastModified(System.currentTimeMillis())
             _is8DActive.value = true
-            Log.i("PlaybackConnection", "8D cache hit — swapped to processed at pos=$pos")
+            Log.i(TAG, "8D cache hit: ${outputFile.name}")
             return
         }
 
-        // Step 4: KEY GUARD — don't start a new session if one is running.
-        // The cancelled session's complete callback will set isProcessing=false
-        // when it fires. The user can then call apply8DParams() again.
-        if (isProcessing) {
-            Log.i("PlaybackConnection", "applyEffects skipped — already processing")
-            return
-        }
+        // ── Guard (SpatialFlow: if (isProcessing) return) ──
+        // Same job already running -> leave it alone. A *different* job (song/params changed)
+        // is cancelled and replaced, so a skipped song never blocks the new one.
+        if (isProcessing && activeJobKey == outputFile.name) return
+        cancelProcessing()
 
-        // Step 5: start processing (matches SpatialFlow lines 1077-1102)
+        // ── Start processing ──
+        val token = ++processingToken
         isProcessing = true
+        activeJobKey = outputFile.name
         _isProcessing8D.value = true
+        _processingProgress.value = 0f
         _lastError.value = ""
-        _progressUpdate(0f)
 
-        scope.launch {
+        val partFile = File(ctx.cacheDir, "8dtmp_${outputFile.name}")        // ends with .m4a
+        val sourceTemp = File(ctx.cacheDir, "8dsrc_${song.id}_${System.currentTimeMillis()}")
+        val durationMs = song.duration.coerceAtLeast(1000L)
+
+        processingJob = scope.launch {
             try {
-                // Copy source URI to temp file FFmpeg can read directly.
-                // Unique timestamp per run so cleanup of an old cancelled run
-                // can't delete a file the new run is reading.
-                val sourceTemp = File(ctx.cacheDir, "8d_source_${song.id}_${System.currentTimeMillis()}")
-                var sourceOpened = false
-                withContext(Dispatchers.IO) {
-                    sourceOpened = ctx.contentResolver.openInputStream(song.uri)?.use { input ->
-                        FileOutputStream(sourceTemp).use { output -> input.copyTo(output) }
-                    } != null
+                // content:// -> real file FFmpeg can read.
+                val copied = withContext(Dispatchers.IO) {
+                    runCatching {
+                        ctx.contentResolver.openInputStream(song.uri)?.use { input ->
+                            FileOutputStream(sourceTemp).use { out -> input.copyTo(out) }
+                            true
+                        } ?: false
+                    }.getOrDefault(false) && sourceTemp.length() > 0
                 }
-                if (!sourceOpened) {
-                    _lastError.value = "Can't open source URI: ${song.uri}"
-                    isProcessing = false
-                    _isProcessing8D.value = false
+                if (token != processingToken) { sourceTemp.delete(); return@launch }
+                if (!copied) {
+                    sourceTemp.delete()
+                    failRun(token, "Can't open source: ${song.uri}")
                     return@launch
                 }
+
+                partFile.delete()
                 val cmd = FFmpegCommandBuilder.build8D(
                     inputPath = sourceTemp.absolutePath,
-                    outputPath = outputFile.absolutePath,
+                    outputPath = partFile.absolutePath,
                     rotationSpeed = speed,
                     spatialAmbience = ambience,
                 )
-                Log.i("PlaybackConnection", "FFmpeg command: $cmd")
+                Log.i(TAG, "FFmpeg: $cmd")
 
-                val durationMs = song.duration.coerceAtLeast(1000L)
                 FFmpegKit.executeAsync(
                     cmd,
                     { session ->
+                        // FFmpegKit calls back on its own thread -> hop to main.
                         scope.launch {
-                            // FFmpegKit's complete callback runs on a background thread.
-                            // MediaController methods (setMediaItem, seekTo, prepare, play,
-                            // currentPosition) MUST be called on the main thread — otherwise
-                            // we crash. SpatialFlow wraps this in handler.post { ... }.
-                            // Kotlin equivalent: withContext(Dispatchers.Main).
-                            withContext(Dispatchers.Main) {
-                                if (ReturnCode.isSuccess(session.returnCode)) {
-                                    Log.i("PlaybackConnection", "FFmpeg success, output size=${outputFile.length()}")
-                                    sourceTemp.delete()
-                                    _progressUpdate(1f)
-                                    isProcessing = false
-                                    _isProcessing8D.value = false
-                                    // loadProcessedAudio pattern (SpatialFlow lines 1114-1122):
-                                    //   val currentPos = player.currentPosition
-                                    //   currentlyLoadedPath = path
-                                    //   player.setMediaItem(buildMediaItem(Uri.fromFile(File(path))))
-                                    //   player.seekTo(currentPos)
-                                    //   player.prepare()
-                                    //   setPlaybackSpeed(speed, ...)   ← preserves speed
-                                    //   if (autoPlay) play()
-                                    // PLUS updateBaseVolume() to reset volume to 1.0f
-                                    val pos = c.currentPosition
-                                    val mediaItem = buildMediaItem(Uri.fromFile(outputFile), song)
-                                    c.setMediaItem(mediaItem)
-                                    c.seekTo(pos)
-                                    c.prepare()
-                                    c.play()
-                                    // ★ Volume fix: after swap, force volume back to 1.0f.
-                                    // SpatialFlow calls updateBaseVolume() after loadAudioInternal
-                                    // which sets player.volume = currentBaseVolume (default 1.0f).
-                                    // Without this, the swap to the AAC-encoded 8D file plays at
-                                    // a much lower perceived volume than the original.
-                                    c.volume = 1.0f
-                                    _is8DActive.value = true
-                                    Log.i("PlaybackConnection", "8D swap complete at pos=$pos, volume reset to 1.0")
-                                } else if (ReturnCode.isCancel(session.returnCode)) {
-                                    Log.i("PlaybackConnection", "FFmpeg cancelled (expected)")
-                                    sourceTemp.delete()
-                                    isProcessing = false
-                                    _isProcessing8D.value = false
-                                    _progressUpdate(0f)
-                                } else {
-                                    val msg = "FFmpeg rc=${session.returnCode} logs=${session.allLogsAsString.take(500)}"
-                                    Log.e("PlaybackConnection", msg)
-                                    _lastError.value = msg
-                                    sourceTemp.delete()
-                                    outputFile.delete()
-                                    isProcessing = false
-                                    _isProcessing8D.value = false
-                                    _progressUpdate(0f)
-                                }
-                            }
+                            onFfmpegComplete(session, token, song, sourceTemp, partFile, outputFile)
                         }
                     },
                     { /* log callback */ },
                     { stats: Statistics? ->
-                        stats?.let { s ->
-                            scope.launch {
-                                val progress = min(0.99f, s.time.toFloat() / durationMs.toFloat())
-                                _progressUpdate(progress)
-                            }
+                        if (stats != null && token == processingToken) {
+                            _processingProgress.value =
+                                min(0.99f, stats.time.toFloat() / durationMs.toFloat())
                         }
                     },
                 )
             } catch (t: Throwable) {
-                Log.e("PlaybackConnection", "applyEffects failed", t)
-                _lastError.value = "${t.javaClass.simpleName}: ${t.message}"
-                isProcessing = false
-                _isProcessing8D.value = false
+                Log.e(TAG, "applyEffects failed", t)
+                sourceTemp.delete()
+                partFile.delete()
+                failRun(token, "${t.javaClass.simpleName}: ${t.message}")
             }
         }
     }
 
-    private fun _progressUpdate(value: Float) {
-        _processingProgress.value = value
+    /** Runs on the main thread. */
+    private fun onFfmpegComplete(
+        session: FFmpegSession,
+        token: Long,
+        song: Song,
+        sourceTemp: File,
+        partFile: File,
+        outputFile: File,
+    ) {
+        sourceTemp.delete()
+        val stale = token != processingToken
+
+        if (ReturnCode.isSuccess(session.returnCode)) {
+            val ok = partFile.exists() && partFile.length() > 0 &&
+                run { outputFile.delete(); partFile.renameTo(outputFile) }
+            if (!ok) {
+                partFile.delete()
+                if (!stale) failRun(token, "FFmpeg finished but output file missing")
+                return
+            }
+            if (stale) return // finished file stays cached for later use
+
+            isProcessing = false
+            activeJobKey = null
+            _isProcessing8D.value = false
+            _processingProgress.value = 1f
+
+            // Only swap if the user is still on this song with 8D still on.
+            if (_is8DEnabled.value && _currentSong.value?.id == song.id) {
+                if (swapCurrentItem(song, Uri.fromFile(outputFile), outputFile.name)) {
+                    _is8DActive.value = true
+                    Log.i(TAG, "8D swap complete (${outputFile.length()} bytes)")
+                }
+            }
+        } else {
+            partFile.delete()
+            if (stale) return
+            if (ReturnCode.isCancel(session.returnCode)) {
+                resetProcessingState()
+            } else {
+                failRun(token, "FFmpeg rc=${session.returnCode} logs=${session.allLogsAsString.take(500)}")
+            }
+        }
     }
 
-    private fun buildMediaItem(uri: Uri, song: Song): MediaItem = MediaItem.Builder()
-        .setUri(uri)
-        .setMediaId(song.id.toString())
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(song.title)
-                .setArtist(song.artist)
-                .setAlbumTitle(song.album)
-                .setArtworkUri(song.albumArtUri)
-                .build()
+    /**
+     * SpatialFlow.loadProcessedAudio / loadOriginalAudio:
+     *   keep position -> set item -> prepare -> (play state kept) -> volume = 1.0f
+     *
+     * Rebuilds the playlist from [queue] with only the current item's URI replaced so the
+     * rest of the queue survives. Falls back to replaceMediaItem if the queue is out of sync.
+     * NOTE: setMediaItems re-shuffles if shuffleModeEnabled is on; Lutea's controller does
+     * not use shuffle at the player level.
+     */
+    private fun swapCurrentItem(song: Song, uri: Uri, processedName: String?): Boolean {
+        val c = controller ?: return false
+        val index = c.currentMediaItemIndex
+        if (index < 0 || index >= c.mediaItemCount) return false
+        if (c.currentMediaItem?.mediaId != song.id.toString()) return false // user moved on
+
+        val pos = c.currentPosition.coerceAtLeast(0L)
+        val queueInSync = queue.size == c.mediaItemCount && queue.getOrNull(index)?.id == song.id
+
+        try {
+            if (queueInSync) {
+                val items = queue.mapIndexed { i, s ->
+                    if (i == index) buildMediaItem(uri, s, processedName) else buildMediaItem(s.uri, s)
+                }
+                c.setMediaItems(items, index, pos)
+            } else {
+                c.replaceMediaItem(index, buildMediaItem(uri, song, processedName))
+                c.seekTo(index, pos)
+            }
+            c.prepare()
+            // SpatialFlow calls updateBaseVolume() after every load -> volume back to 1.0f.
+            c.volume = 1.0f
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "swapCurrentItem failed", e)
+            return false
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun cancelProcessing() {
+        processingToken++                       // invalidate any in-flight callbacks
+        processingJob?.cancel()
+        processingJob = null
+        try { FFmpegKit.cancel() } catch (_: Throwable) {}
+        resetProcessingState()
+    }
+
+    private fun resetProcessingState() {
+        isProcessing = false
+        activeJobKey = null
+        _isProcessing8D.value = false
+        _processingProgress.value = 0f
+    }
+
+    private fun failRun(token: Long, message: String) {
+        if (token != processingToken) return
+        Log.e(TAG, message)
+        _lastError.value = message
+        resetProcessingState()
+    }
+
+    private fun r2(v: Float): Float = Math.round(v * 100f) / 100f
+
+    private fun processedFile(ctx: Context, song: Song, speed: Float, ambience: Float): File =
+        File(
+            ctx.cacheDir,
+            "8d_${song.id}_${String.format(Locale.US, "%.2f", speed)}_${String.format(Locale.US, "%.2f", ambience)}.m4a"
         )
-        .build()
+
+    private fun isProcessedItem(item: MediaItem?): Boolean =
+        item?.mediaMetadata?.extras?.getString(EXTRA_8D_FILE) != null
+
+    private fun buildMediaItem(uri: Uri, song: Song, processedName: String? = null): MediaItem {
+        val meta = MediaMetadata.Builder()
+            .setTitle(song.title)
+            .setArtist(song.artist)
+            .setAlbumTitle(song.album)
+            .setArtworkUri(song.albumArtUri)
+        if (processedName != null) {
+            meta.setExtras(Bundle().apply { putString(EXTRA_8D_FILE, processedName) })
+        }
+        return MediaItem.Builder()
+            .setUri(uri)
+            .setMediaId(song.id.toString())
+            .setMediaMetadata(meta.build())
+            .build()
+    }
+
+    /** Same idea as SpatialFlow.cleanCache(): drop 8D files older than a day + leftovers. */
+    private fun cleanCache(ctx: Context) {
+        val now = System.currentTimeMillis()
+        ctx.cacheDir.listFiles()?.forEach { f ->
+            val n = f.name
+            if (!n.startsWith("8d")) return@forEach
+            val leftover = n.startsWith("8dtmp_") || n.startsWith("8dsrc_")
+            if (leftover || f.lastModified() < now - CACHE_MAX_AGE_MS) f.delete()
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Playback controls
+    // ─────────────────────────────────────────────────────────────────────────
 
     fun pollPosition() {
         controller?.let { c ->
@@ -403,58 +461,48 @@ object PlaybackConnection {
     fun playSong(song: Song, allSongs: List<Song>) {
         queue = allSongs
         val c = controller ?: run {
-            Log.e("PlaybackConnection", "playSong: controller is null")
+            Log.e(TAG, "playSong: controller is null")
             return
         }
         try {
-            val mediaItems = allSongs.map { s ->
-                MediaItem.Builder()
-                    .setUri(s.uri)
-                    .setMediaId(s.id.toString())
-                    .setMediaMetadata(
-                        MediaMetadata.Builder()
-                            .setTitle(s.title)
-                            .setArtist(s.artist)
-                            .setAlbumTitle(s.album)
-                            .setArtworkUri(s.albumArtUri)
-                            .build()
-                    )
-                    .build()
-            }
+            val mediaItems = allSongs.map { buildMediaItem(it.uri, it) }
             val index = allSongs.indexOf(song).coerceAtLeast(0)
             c.setMediaItems(mediaItems, index, 0)
             c.prepare()
             c.play()
             _currentSong.value = song
+            // If 8D is on, onMediaItemTransition sees an un-processed item and auto-applies.
         } catch (e: Exception) {
-            Log.e("PlaybackConnection", "playSong failed", e)
+            Log.e(TAG, "playSong failed", e)
         }
     }
 
     fun playPause() {
         try { controller?.let { if (it.isPlaying) it.pause() else it.play() } }
-        catch (e: Exception) { Log.e("PlaybackConnection", "playPause failed", e) }
+        catch (e: Exception) { Log.e(TAG, "playPause failed", e) }
     }
 
     fun next() {
         try { controller?.seekToNextMediaItem() }
-        catch (e: Exception) { Log.e("PlaybackConnection", "next failed", e) }
+        catch (e: Exception) { Log.e(TAG, "next failed", e) }
     }
 
     fun prev() {
         try { controller?.seekToPreviousMediaItem() }
-        catch (e: Exception) { Log.e("PlaybackConnection", "prev failed", e) }
+        catch (e: Exception) { Log.e(TAG, "prev failed", e) }
     }
 
     fun seekTo(positionMs: Long) {
         try { controller?.seekTo(positionMs) }
-        catch (e: Exception) { Log.e("PlaybackConnection", "seekTo failed", e) }
+        catch (e: Exception) { Log.e(TAG, "seekTo failed", e) }
     }
 
     fun disconnect() {
+        cancelProcessing()
         controller?.release()
         controller = null
         _isPlaying.value = false
         _currentSong.value = null
+        _is8DActive.value = false
     }
 }
