@@ -356,23 +356,20 @@ private fun SphereComposition(
 ) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
-    // When 8D is off, rotation stays at 0 (no infinite repeat). When on,
-    // it spins. We use FiniteAnimationSpec<Float> as the common type so the
-    // if/else can return either tween or infiniteRepeatable.
-    val rotationSpec: androidx.compose.animation.core.FiniteAnimationSpec<Float> = if (rotationEnabled) {
-        infiniteRepeatable(
+    // When 8D is off, the rotation value is forced to 0 — sphere stays still.
+    // When on, it spins via the infinite transition. The infinite transition
+    // keeps running internally (minor battery cost) but the rendered value is
+    // discarded when 8D is off.
+    val animRotation by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
             animation = tween(9000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
-        )
-    } else {
-        tween(0)
-    }
-    val rotation by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = if (rotationEnabled) 360f else 0f,
-        animationSpec = rotationSpec,
+        ),
         label = "rot",
     )
+    val rotation = if (rotationEnabled) animRotation else 0f
     val pulse by infinite.animateFloat(
         initialValue = 0f,
         targetValue = (2f * Math.PI).toFloat(),
