@@ -32,6 +32,13 @@ class Spatial8DProcessor : BaseAudioProcessor() {
     // LFO phase — accumulated per sample, must be sample-accurate (not per queueInput).
     private var phase: Double = 0.0
 
+    // Exposed for UI: the current LFO phase (0..2π). UI polls this via
+    // withFrameNanos to drive the glowing ball that orbits the head.
+    // The ball's position = (−sin(phase), −cos(phase)) × radius from head center.
+    // Mirrored for user perspective: when balance>0 (sound right), ball goes screen-left.
+    @Volatile var currentPhase: Float = 0f
+        private set
+
     fun set8DEnabled(e: Boolean) {
         enabled = e
         // Reset phase on enable so rotation starts from center
@@ -116,5 +123,7 @@ class Spatial8DProcessor : BaseAudioProcessor() {
             }
         }
         outBuffer.flip()
+        // Publish the current phase for the UI ball animation.
+        currentPhase = phase.toFloat()
     }
 }

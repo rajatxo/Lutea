@@ -181,6 +181,17 @@ fun EffectVisual(
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
                 )
+                // ── Glowing 8D ball that orbits the head ──
+                // Tracks the Spatial8DProcessor's LFO phase in real-time.
+                // Ball position = head center + orbitRadius × (−sin(phase), −cos(phase))
+                // Negative sin = user perspective mirror (sound right → ball screen-left).
+                // Sunset palette (EA6113 → F88F22 → FBB931 → FFE3B3) with radial glow.
+                if (eightDOn) {
+                    SpatialOrbBall(
+                        headSizePx = with(density) { headSizeDp.toPx() },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .matchParentSize()
@@ -599,6 +610,101 @@ private fun fibonacciSphere(n: Int): List<SpherePoint> {
     return out
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Glowing 8D ball — orbits the head following the LFO phase
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun SpatialOrbBall(
+    headSizePx: Float,
+    modifier: Modifier = Modifier,
+) {
+    // Poll the Spatial8DProcessor's phase every frame for smooth ball movement.
+    // The audio thread updates currentPhase ~every 23ms (1024 samples at 44.1kHz).
+    // We read it via withFrameNanos (~60fps) for smooth visual tracking.
+    var phase by remember { mutableStateOf(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        androidx.compose.runtime.withFrameNanos {
+            phase = com.rajatxo.lutea.playback.LuteaAudioProcessors.spatial8D.currentPhase
+        }
+    }
+    // Also poll via a simple repeating task for higher frequency updates
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            phase = com.rajatxo.lutea.playback.LuteaAudioProcessors.spatial8D.currentPhase
+            kotlinx.coroutines.delay(16) // ~60fps
+        }
+    }
+
+    Canvas(modifier = modifier) {
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        // Orbit radius — slightly larger than the head so the ball orbits around
+        // the outer edge, like the Behance reference where the orb sits beside the head.
+        val orbitR = headSizePx * 0.42f
+        val ballR = headSizePx * 0.04f
+        val glowR = ballR * 4f
+
+        // Ball position from LFO phase.
+        // balance = sin(phase) × width. When balance > 0, sound goes to the
+        // head's right ear = SCREEN LEFT (user perspective mirror).
+        // So ball X = -sin(phase) × orbitR (negative = screen left).
+        // Ball Y = -cos(phase) × orbitR (negative = up). Ball goes over the
+        // top of the head when phase = 0, and under when phase = π.
+        val sinP = kotlin.math.sin(phase.toDouble()).toFloat()
+        val cosP = kotlin.math.cos(phase.toDouble()).toFloat()
+        val ballX = cx + (-sinP) * orbitR
+        val ballY = cy + (-cosP) * orbitR
+
+        // Depth: how close the ball is to the viewer. When cosP > 0 (ball
+        // in front half), ball is "closer" = bigger + brighter.
+        // When cosP < 0 (ball behind head), ball is "farther" = smaller + dimmer.
+        val depth = (cosP + 1f) * 0.5f  // 0 = behind, 1 = front
+        val ballSize = ballR * (0.6f + 0.4f * depth)
+        val glowSize = glowR * (0.5f + 0.5f * depth)
+        val ballAlpha = 0.4f + 0.6f * depth
+
+        // Sunset palette colors
+        val deepOrange = Color(0xFFEA6113)
+        val midOrange = Color(0xFFF88F22)
+        val lightOrange = Color(0xFFFBB931)
+        val paleYellow = Color(0xFFFFE3B3)
+
+        // Outer glow — radial gradient fading to transparent
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    midOrange.copy(alpha = 0.6f * ballAlpha),
+                    lightOrange.copy(alpha = 0.3f * ballAlpha),
+                    paleYellow.copy(alpha = 0.1f * ballAlpha),
+                    Color.Transparent,
+                ),
+                center = androidx.compose.ui.geometry.Offset(ballX, ballY),
+                radius = glowSize,
+            ),
+            radius = glowSize,
+            center = androidx.compose.ui.geometry.Offset(ballX, ballY),
+        )
+
+        // Ball core — solid deep orange
+        drawCircle(
+            color = deepOrange.copy(alpha = ballAlpha),
+            radius = ballSize,
+            center = androidx.compose.ui.geometry.Offset(ballX, ballY),
+        )
+
+        // Ball highlight — small bright spot for 3D look
+        drawCircle(
+            color = paleYellow.copy(alpha = 0.6f * ballAlpha),
+            radius = ballSize * 0.35f,
+            center = androidx.compose.ui.geometry.Offset(
+                ballX - ballSize * 0.25f,
+                ballY - ballSize * 0.25f,
+            ),
+        )
+    }
+}
+
 private data class Direction(
     val angleDeg: Float,
     val label: String,
@@ -665,9 +771,10 @@ private fun SphereComposition(
         val edgeGapPx = size.width * edgeGapFrac
 
         // Text size — measured once to size the composition around it.
-        val labelFontSize = size.width * 0.024f   // LEFT/RIGHT/UP/DOWN same size
-        // Approximate width of "LEFT"/"RIGHT" — 4 chars × ~0.55 × fontSize.
-        val labelHalfWidth = labelFontSize * 4f * 0.55f / 2f
+        // Increased from 0.024 to 0.028 for better readability.
+        val labelFontSize = size.width * 0.028f
+        // Approximate width of "Spring"/"Plate" — 5-6 chars × ~0.55 × fontSize.
+        val labelHalfWidth = labelFontSize * 6f * 0.55f / 2f
 
         // Geometry, driven by width so rings fill edge-to-edge:
         //   outermost extent (LEFT/RIGHT label outer edge) = width/2 - edgeGapPx
@@ -864,7 +971,7 @@ private fun SphereComposition(
             }
 
             // Old direction labels (LEFT/RIGHT/UP/DOWN)
-            val oldLabelFontSize = size.width * 0.024f
+            val oldLabelFontSize = size.width * 0.028f
             val oldPaint = android.graphics.Paint().apply {
                 color = android.graphics.Color.argb((245 * oldAlpha).toInt(), 245, 240, 230)
                 this.textSize = oldLabelFontSize
@@ -874,9 +981,12 @@ private fun SphereComposition(
             for (dir in oldTagDirs) {
                 if (dir.label.isEmpty()) continue
                 val angleRad = Math.toRadians(dir.angleDeg.toDouble()).toFloat()
-                val distFromCenter = when (dir.label) {
-                    "LEFT", "RIGHT" -> labelCenterFromCenter
-                    else -> tagR + size.width * 0.028f * 0.5f + size.width * 0.020f
+                // Spring/Plate are at compass 180/0 (LEFT/RIGHT). They need to sit
+                // outside the tag icons with enough gap for 5-6 char words.
+                // Use the same labelCenterFromCenter which accounts for labelHalfWidth.
+                val distFromCenter = when (dir.angleDeg) {
+                    0f, 180f -> labelCenterFromCenter
+                    else -> tagR + oldTagSize / 2f + size.width * 0.020f
                 }
                 val lx = cx + distFromCenter * cos(angleRad)
                 val ly = cy - distFromCenter * sin(angleRad)

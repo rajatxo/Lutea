@@ -372,7 +372,15 @@ private fun EffectContent() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000)),
+            .background(
+                Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.0f to Color(0xF2000000),   // 95% black at top
+                        0.25f to Color(0xF2000000),  // 95% black for top 25%
+                        1.0f to Color(0xFF000000),   // 100% black at bottom
+                    )
+                )
+            ),
     ) {
         EffectVisual()
     }
