@@ -14,21 +14,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -50,10 +45,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
-import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
 import kotlin.math.cos
@@ -75,9 +67,6 @@ fun EffectVisual(
     headRes: Int = R.drawable.effect_head,
 ) {
     val density = LocalDensity.current
-    val eightDOn by PlaybackConnection.is8DEnabled.collectAsState()
-    val orbitSpeed by PlaybackConnection.orbitSpeed.collectAsState()
-    val spatialAmbience by PlaybackConnection.spatialAmbience.collectAsState()
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -86,58 +75,46 @@ fun EffectVisual(
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
 
-        // ── Top bar: 8D Audio capsule + toggle, just below status bar ──
-        val topBarHeightDp = with(density) { (heightPx * 0.05f).toDp() }
-        EffectTopBar(
-            enabled = eightDOn,
-            onToggle = { PlaybackConnection.set8DEnabled(it) },
-            label = "8D Audio",
-            screenWidthPx = widthPx,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(topBarHeightDp)
-                .align(Alignment.TopCenter),
-        )
-
-        // ── Orbit Speed + Spatial Ambience sliders, below top bar ──
-        // Only visible when 8D is on.
-        val controlsHeightDp = with(density) { (heightPx * 0.10f).toDp() }
-        EffectControls(
-            orbitSpeed = orbitSpeed,
-            onOrbitSpeedChange = { PlaybackConnection.setOrbitSpeed(it) },
-            spatialAmbience = spatialAmbience,
-            onSpatialAmbienceChange = { PlaybackConnection.setSpatialAmbience(it) },
-            visible = eightDOn,
-            screenWidthPx = widthPx,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(controlsHeightDp)
-                .align(Alignment.TopCenter)
-                .offset(y = topBarHeightDp),
-        )
-
-        // ── Sphere composition, anchored below top bar + controls ──
+        // ── Sphere composition, anchored to top ──
+        // Width = full screen so rings extend edge-to-edge.
+        // Height = enough to fit the rings (which are width-driven, diameter ≈ width)
+        // plus a small headroom for the UP label above the rings.
+        //   headroom = 6.67% of width (24dp ÷ 360dp on reference phone)
         val compositionHeightFrac = 1.0f + 0.0667f
         val compositionHeightDp = with(density) { (widthPx * compositionHeightFrac).toDp() }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(compositionHeightDp)
-                .align(Alignment.TopCenter)
-                .offset(y = topBarHeightDp + controlsHeightDp),
+                .align(Alignment.TopCenter),
             contentAlignment = Alignment.TopCenter,
         ) {
             SphereComposition(modifier = Modifier.fillMaxSize())
         }
 
-        // ── Head image at bottom (card removed) ──
+        // ── 8D Audio capsule + toggle — OVERLAY layer (doesn't push the sphere) ──
+        // Sits at the very top of the content area, above the sphere's UP label
+        // empty space. No offset to the sphere composition.
+        EffectTopBar(
+            enabled = false,
+            onToggle = { /* wired later — no LFO, no crash */ },
+            label = "8D Audio",
+            screenWidthPx = widthPx,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = with(density) { (heightPx * 0.005f).toDp() }),
+        )
+
+        // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 8% of screen height ──
+        // (User originally asked for 130dp = 16.25% of height, but that squeezed
+        // the head too small. Relaxed to 8% so the head can grow back closer to
+        // its original size while keeping a visible gap to the composition.)
         val headSizeDp = with(density) {
             val edgeGapFrac = 0.08f
             val edgeGapPx = widthPx * edgeGapFrac
             val labelTextSize = widthPx * 0.024f
             val labelHalfWidth = labelTextSize * 4f * 0.55f / 2f
-            val downLabelYPx = (topBarHeightDp + controlsHeightDp).toPx() +
-                widthPx * compositionHeightFrac - edgeGapPx - labelHalfWidth
+            val downLabelYPx = widthPx * compositionHeightFrac - edgeGapPx - labelHalfWidth
             val gapTargetPx = heightPx * 0.04f
             val maxHeadForGap = heightPx - downLabelYPx - gapTargetPx
             val sideGapPx = widthPx * 0.075f
@@ -171,6 +148,10 @@ fun EffectVisual(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 8D Audio capsule + toggle (overlay layer — doesn't push other UI)
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun EffectTopBar(
     enabled: Boolean,
@@ -185,11 +166,11 @@ private fun EffectTopBar(
     val capsulePadHDp = with(density) { (widthPx * 0.025f).toDp() }
     val capsulePadVDp = with(density) { (widthPx * 0.012f).toDp() }
     val capsuleCornerDp = with(density) { (widthPx * 0.04f).toDp() }
-    val toggleSizeDp = with(density) { (widthPx * 0.080f).toDp() }   // bigger toggle
+    // Bigger toggle per user request.
+    val toggleSizeDp = with(density) { (widthPx * 0.080f).toDp() }
 
     Row(
-        modifier = modifier
-            .padding(horizontal = with(density) { (widthPx * 0.04f).toDp() }),
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
@@ -226,7 +207,7 @@ private fun EffectTopBar(
                 .padding(with(density) { (widthPx * 0.005f).toDp() }),
             contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
-            val knobSize = with(density) { (widthPx * 0.040f).toDp() }   // bigger knob
+            val knobSize = with(density) { (widthPx * 0.040f).toDp() }
             Box(
                 modifier = Modifier
                     .size(knobSize)
@@ -237,99 +218,9 @@ private fun EffectTopBar(
     }
 }
 
-@Composable
-private fun EffectControls(
-    orbitSpeed: Float,
-    onOrbitSpeedChange: (Float) -> Unit,
-    spatialAmbience: Float,
-    onSpatialAmbienceChange: (Float) -> Unit,
-    visible: Boolean,
-    screenWidthPx: Float,
-    modifier: Modifier = Modifier,
-) {
-    val density = LocalDensity.current
-    val widthPx = screenWidthPx
-    val labelTextSize = with(density) { (widthPx * 0.022f).toSp() }
-    val valueTextSize = with(density) { (widthPx * 0.020f).toSp() }
-    val padHDp = with(density) { (widthPx * 0.06f).toDp() }
-    val padVDp = with(density) { (widthPx * 0.020f).toDp() }
-    val sliderTrackColor = Cream.copy(alpha = 0.20f)
-    val sliderActiveColor = Color(0xFFD4A03A)
-
-    androidx.compose.animation.AnimatedVisibility(
-        visible = visible,
-        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
-        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
-        modifier = modifier,
-    ) {
-        androidx.compose.foundation.layout.Column(
-            modifier = Modifier
-                .padding(horizontal = padHDp, vertical = padVDp),
-            verticalArrangement = Arrangement.spacedBy(with(density) { (widthPx * 0.015f).toDp() }),
-        ) {
-            // Orbit Speed slider
-            androidx.compose.foundation.layout.Column {
-                androidx.compose.foundation.layout.Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "Orbit Speed",
-                        color = Cream,
-                        fontFamily = CalSansFamily,
-                        fontSize = labelTextSize,
-                    )
-                    Text(
-                        text = "%.2f rps".format(orbitSpeed),
-                        color = Cream.copy(alpha = 0.6f),
-                        fontFamily = CalSansFamily,
-                        fontSize = valueTextSize,
-                    )
-                }
-                androidx.compose.material3.Slider(
-                    value = orbitSpeed,
-                    onValueChange = onOrbitSpeedChange,
-                    valueRange = 0.05f..1.5f,
-                    colors = androidx.compose.material3.SliderDefaults.colors(
-                        thumbColor = sliderActiveColor,
-                        activeTrackColor = sliderActiveColor,
-                        inactiveTrackColor = sliderTrackColor,
-                    ),
-                )
-            }
-            // Spatial Ambience slider
-            androidx.compose.foundation.layout.Column {
-                androidx.compose.foundation.layout.Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "Spatial Ambience",
-                        color = Cream,
-                        fontFamily = CalSansFamily,
-                        fontSize = labelTextSize,
-                    )
-                    Text(
-                        text = "%.0f%%".format(spatialAmbience * 100),
-                        color = Cream.copy(alpha = 0.6f),
-                        fontFamily = CalSansFamily,
-                        fontSize = valueTextSize,
-                    )
-                }
-                androidx.compose.material3.Slider(
-                    value = spatialAmbience,
-                    onValueChange = onSpatialAmbienceChange,
-                    valueRange = 0f..1f,
-                    colors = androidx.compose.material3.SliderDefaults.colors(
-                        thumbColor = sliderActiveColor,
-                        activeTrackColor = sliderActiveColor,
-                        inactiveTrackColor = sliderTrackColor,
-                    ),
-                )
-            }
-        }
-    }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Sphere + arrows + concentric rings + 8 tag icons + direction labels
+// ─────────────────────────────────────────────────────────────────────────────
 
 private data class SpherePoint(val x: Float, val y: Float, val z: Float)
 
