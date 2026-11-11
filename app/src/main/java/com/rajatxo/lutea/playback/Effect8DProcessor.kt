@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.ReturnCode
 import com.arthenica.ffmpegkit.Statistics
 import com.rajatxo.lutea.domain.model.Song
@@ -18,26 +17,24 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.min
 
 /**
- * Effect8DProcessor — runs FFmpeg on the current song to produce a real 8D
- * audio file (apulsator + aecho filter chain), then swaps the player's media
- * item to the processed file. When toggled off, cancels any running job and
- * restores the original song.
+ * Effect8DProcessor — adapted from SpatialFlow's AudioPlaybackService 8D logic.
  *
- * Adapted from SpatialFlow's AudioPlaybackService.set8DEnabled + applyEffects
- * pattern, but uses Compose-friendly StateFlow instead of LiveData and runs
- * in a coroutine scope tied to PlaybackConnection instead of a service field.
+ * Direct port of github.com/MythicalSHUB/SpatialFlow's applyEffects / on8DProcessingSuccess /
+ * loadProcessedAudio / loadOriginalAudio methods, simplified for Lutea's MediaController-based
+ * architecture (SpatialFlow runs everything inside the service; we drive it from the controller
+ * surface, but the FFmpeg lifecycle and media-item swap logic is identical).
  *
- * The processed file is cached in cacheDir/8d/{songId}.m4a — re-processed
- * only when orbit speed or ambience change. Re-toggling 8D on the same song
- * with the same params just plays the cached file.
+ * Cache key uses songId + speed + ambience — re-running with same params just plays the cache.
  */
 class Effect8DProcessor(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val onProcessedUri: (Uri) -> Unit,
-    private val onRestoreOriginal: () -> Unit,
+    private val onProcessedUri: (Uri, Long) -> Unit,
+    private val onRestoreOriginal: (Long) -> Unit,
 ) {
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
@@ -48,119 +45,143 @@ class Effect8DProcessor(
     private var currentJob: Job? = null
     private var currentSong: Song? = null
     private var currentParams: Params? = null
-    private var cacheDir: File? = null
 
     private data class Params(val speed: Float, val ambience: Float)
 
-    // Note: do NOT call FFmpegKitConfig or any FFmpegKit method in init or on
-    // app launch — it forces native library load which can crash on certain
-    // devices if the native lib packaging is misconfigured. All FFmpegKit
-    // access happens lazily inside processSong(), only when the user toggles
-    // 8D on.
-
-    fun enable(song: Song, orbitSpeed: Float, spatialAmbience: Float) {
+    /**
+     * Enable 8D on [song] with the given params. If [song] is null, do nothing
+     * (caller's responsibility to guard).
+     *
+     * Mirrors SpatialFlow.applyEffects(enable8D=true, ...):
+     *   - Cache key = sourcePath + speed + ambience → hashCode
+     *   - If cached file exists, call onProcessedUri immediately
+     *   - Otherwise copy source URI to a temp file (because MediaStore URIs aren't
+     *     file paths), then run FFmpegKit.executeAsync with a statistics callback
+     *     for progress updates
+     */
+    fun enable(song: Song, orbitSpeed: Float, spatialAmbience: Float, startPosition: Long = 0L) {
         val newParams = Params(orbitSpeed, spatialAmbience)
-        // If the same song is already processed with the same params, just play it.
-        if (currentSong?.id == song.id && currentParams == newParams && cacheFor(song) != null) {
-            cacheFor(song)?.let { onProcessedUri(Uri.fromFile(it)) }
+        val cacheKey = "${song.id}${orbitSpeed}${spatialAmbience}".hashCode()
+        val outputFile = File(context.cacheDir, "8d_$cacheKey.m4a")
+
+        // Already processed? Just play the cached file (SpatialFlow pattern).
+        if (outputFile.exists() && outputFile.length() > 0) {
+            currentSong = song
+            currentParams = newParams
+            onProcessedUri(Uri.fromFile(outputFile), startPosition)
             return
         }
+
+        // Cancel any in-flight job before starting a new one
         currentJob?.cancel()
         currentSong = song
         currentParams = newParams
         currentJob = scope.launch {
             try {
-                processSong(song, newParams)
+                processSong(song, newParams, outputFile, startPosition)
             } catch (t: Throwable) {
-                // Catch Throwable (not just Exception) — native UnsatisfiedLinkError
-                // and NoClassDefFoundError on FFmpegKit init would otherwise crash
-                // the app. Log and bail.
-                Log.e("Effect8DProcessor", "FFmpegKit failed to load or run", t)
+                Log.e("Effect8DProcessor", "FFmpeg failed", t)
                 _isProcessing.value = false
+                _progress.value = 0f
             }
         }
     }
 
-    fun disable() {
+    /**
+     * Disable 8D. Cancels any in-flight FFmpeg session, restores original song at
+     * [startPosition]. Idempotent — calling when 8D was never actually running is safe.
+     */
+    fun disable(startPosition: Long = 0L) {
         currentJob?.cancel()
         currentJob = null
         currentSong = null
         currentParams = null
         _isProcessing.value = false
         _progress.value = 0f
-        // Cancel any FFmpeg session that's still running
-        try { FFmpegKit.cancel() } catch (_: Exception) {}
-        onRestoreOriginal()
+        try { FFmpegKit.cancel() } catch (_: Throwable) {}
+        onRestoreOriginal(startPosition)
     }
 
-    fun updateParams(orbitSpeed: Float, spatialAmbience: Float) {
-        val song = currentSong ?: return
+    /**
+     * Slider changed while 8D is on. Re-process with new params.
+     */
+    fun updateParams(song: Song, orbitSpeed: Float, spatialAmbience: Float, startPosition: Long = 0L) {
         val newParams = Params(orbitSpeed, spatialAmbience)
-        if (newParams == currentParams) return
-        currentParams = newParams
-        // Re-process from scratch — different speed needs different apulsator hz.
-        // The cache is invalidated (file deleted) so the next enable() rebuilds it.
-        cacheFor(song)?.delete()
-        currentJob?.cancel()
-        currentJob = scope.launch {
-            processSong(song, newParams)
-        }
+        if (newParams == currentParams && currentSong?.id == song.id) return
+        enable(song, orbitSpeed, spatialAmbience, startPosition)
     }
 
-    private suspend fun processSong(song: Song, params: Params) {
+    private suspend fun processSong(
+        song: Song,
+        params: Params,
+        outputFile: File,
+        startPosition: Long,
+    ) {
         _isProcessing.value = true
         _progress.value = 0f
         try {
-            val cache = ensureCache(song)
-            // Copy the source URI content to a temp file FFmpeg can read.
+            // Copy source URI content to a temp file FFmpeg can read directly.
+            // (SpatialFlow uses AudioFileManager.getRealPathFromURI; we just copy because
+            // Lutea doesn't have that helper and MediaStore URIs aren't raw file paths.)
             val sourceTemp = File(context.cacheDir, "8d_source_${song.id}")
             withContext(Dispatchers.IO) {
                 context.contentResolver.openInputStream(song.uri)?.use { input ->
-                    sourceTemp.outputStream().use { output -> input.copyTo(output) }
+                    FileOutputStream(sourceTemp).use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("Can't open source URI: ${song.uri}")
             }
             val cmd = FFmpegCommandBuilder.build8D(
                 inputPath = sourceTemp.absolutePath,
-                outputPath = cache.absolutePath,
+                outputPath = outputFile.absolutePath,
                 rotationSpeed = params.speed,
                 spatialAmbience = params.ambience,
             )
             Log.i("Effect8DProcessor", "Running FFmpeg: $cmd")
-            val session = FFmpegKit.executeAsync(cmd) { completed ->
-                scope.launch {
-                    if (ReturnCode.isSuccess(completed.returnCode)) {
-                        _progress.value = 1f
-                        _isProcessing.value = false
-                        sourceTemp.delete()
-                        onProcessedUri(Uri.fromFile(cache))
-                    } else {
-                        Log.e("Effect8DProcessor", "FFmpeg failed: ${completed.returnCode} / ${completed.allLogsAsString}")
-                        _isProcessing.value = false
-                        sourceTemp.delete()
+
+            // SpatialFlow uses FFmpegKit.executeAsync(cmd, completeCb, logCb, statsCb).
+            // We mirror that — the stats callback drives progress, the complete callback
+            // triggers onProcessedUri or sets the error state.
+            val durationMs = song.duration.coerceAtLeast(1000L)
+            val session = FFmpegKit.executeAsync(
+                cmd,
+                { completed ->
+                    scope.launch {
+                        if (ReturnCode.isSuccess(completed.returnCode)) {
+                            _progress.value = 1f
+                            _isProcessing.value = false
+                            sourceTemp.delete()
+                            onProcessedUri(Uri.fromFile(outputFile), startPosition)
+                        } else {
+                            Log.e(
+                                "Effect8DProcessor",
+                                "FFmpeg failed: rc=${completed.returnCode} logs=${completed.allLogsAsString}",
+                            )
+                            _isProcessing.value = false
+                            _progress.value = 0f
+                            sourceTemp.delete()
+                            outputFile.delete()
+                        }
                     }
+                },
+                { /* log callback — ignore, we read allLogsAsString on failure */ },
+                { stats: Statistics? ->
+                    stats?.let { s ->
+                        scope.launch {
+                            val progress = min(0.99f, s.time.toFloat() / durationMs.toFloat())
+                            _progress.value = progress
+                        }
+                    }
+                },
+            )
+            // Wait for the session to complete so the Job doesn't end early.
+            // We poll state with a short delay — FFmpegKit's callback handles the work.
+            withContext(Dispatchers.IO) {
+                while (session.state != com.arthenica.ffmpegkit.SessionState.COMPLETED) {
+                    kotlinx.coroutines.delay(100)
                 }
-            }
-            // Poll session statistics for progress updates (rough — based on processed time)
-            val totalMs = song.duration.coerceAtLeast(1000L)
-            while (session.state != com.arthenica.ffmpegkit.SessionState.COMPLETED) {
-                val stats: Statistics? = session.lastReceivedStatistics
-                val pos = stats?.time?.toFloat() ?: 0f
-                _progress.value = (pos / totalMs).coerceIn(0f, 0.99f)
-                kotlinx.coroutines.delay(200)
             }
         } catch (e: Exception) {
             Log.e("Effect8DProcessor", "processSong failed", e)
             _isProcessing.value = false
         }
-    }
-
-    private fun ensureCache(song: Song): File {
-        val dir = File(context.cacheDir, "8d").apply { mkdirs() }
-        return File(dir, "${song.id}.m4a")
-    }
-
-    private fun cacheFor(song: Song): File? {
-        val f = ensureCache(song)
-        return if (f.exists() && f.length() > 0) f else null
     }
 }
