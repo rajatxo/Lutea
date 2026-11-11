@@ -120,12 +120,4 @@ dependencies {
 
     // ★ Kotlinx Serialization — playlist persistence
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-
-    // ★ FFmpegKit (audio variant, community-maintained fork) — 8D audio processing.
-    // The audio AAR bundles FFmpegKit + native libs but NOT smart-exception, which
-    // FFmpegKitConfig's static initializer references. Must add smart-exception-java
-    // separately — same pattern SpatialFlow uses (they ship the JARs in app/libs/).
-    // Without this, FFmpegKitConfig throws NoClassDefFoundError on first access.
-    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:6.0.3")
-    implementation("com.arthenica:smart-exception-java:0.2.1")
 }
