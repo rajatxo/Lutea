@@ -27,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +62,7 @@ import androidx.compose.foundation.layout.systemBars
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.components.EffectVisual
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
+import com.rajatxo.lutea.ui.icons.LuteaIcons
 import com.rajatxo.lutea.ui.util.LuteaTab
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -348,7 +350,7 @@ fun QuickPicksScreen(
             onSearchClick = { showCreateDialog = true },
         ) {
             when (activeTab) {
-                LuteaTab.Home -> QuickPicksContent()
+                LuteaTab.Home -> QuickPicksContent(onSettingsClick = { showSettings = true })
                 LuteaTab.Search -> SearchContent()
                 LuteaTab.Effect -> EffectContent()
                 LuteaTab.Library -> PlaylistsContent(
@@ -414,7 +416,7 @@ private fun SearchContent() {
 // ── Quick Picks content — scans device music + lists songs with album art ──
 // Scrollable so album covers pass behind the nav → the frosted blur reads.
 @Composable
-private fun QuickPicksContent() {
+private fun QuickPicksContent(onSettingsClick: () -> Unit = {}) {
     val context = LocalContext.current
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var scanning by remember { mutableStateOf(true) }
@@ -464,19 +466,42 @@ private fun QuickPicksContent() {
         contentPadding = PaddingValues(top = 120.dp, bottom = 120.dp),
     ) {
         item {
-            Text(
-                text = "Quick Picks",
-                color = Color.White,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = CalSansFamily,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "${songs.size} songs on your device",
-                color = Color(0xFF8E8E93),
-                fontSize = 13.sp,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Quick Picks",
+                        color = Color.White,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = CalSansFamily,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "${songs.size} songs on your device",
+                        color = Color(0xFF8E8E93),
+                        fontSize = 13.sp,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .clickable { onSettingsClick() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = LuteaIcons.Cog,
+                        contentDescription = "Settings",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             Spacer(Modifier.height(20.dp))
         }
         items(songs) { song ->
