@@ -48,6 +48,7 @@ class Effect8DProcessor(
     val lastError: StateFlow<String> = _lastError.asStateFlow()
 
     private var currentJob: Job? = null
+    private var currentSession: com.arthenica.ffmpegkit.FFmpegSession? = null
     private var currentSong: Song? = null
     private var currentParams: Params? = null
 
@@ -81,8 +82,11 @@ class Effect8DProcessor(
             return
         }
 
-        // Cancel any in-flight job before starting a new one
+        // Cancel any in-flight job + session before starting a new one.
+        // Use session-specific cancel (NOT FFmpegKit.cancel() which kills ALL sessions).
         currentJob?.cancel()
+        currentSession?.cancel()
+        currentSession = null
         currentSong = song
         currentParams = newParams
         currentJob = scope.launch {
@@ -107,11 +111,15 @@ class Effect8DProcessor(
     fun disable(startPosition: Long = 0L) {
         currentJob?.cancel()
         currentJob = null
+        // Cancel ONLY our session — FFmpegKit.cancel() cancels ALL sessions globally,
+        // which would kill any other FFmpeg work happening elsewhere. Use the
+        // session-specific cancel() instead.
+        currentSession?.cancel()
+        currentSession = null
         currentSong = null
         currentParams = null
         _isProcessing.value = false
         _progress.value = 0f
-        try { FFmpegKit.cancel() } catch (_: Throwable) {}
         onRestoreOriginal(startPosition)
     }
 
@@ -193,12 +201,14 @@ class Effect8DProcessor(
                 },
             )
             Log.i("Effect8DProcessor", "FFmpegKit session started: id=${session.sessionId} state=${session.state}")
+            currentSession = session
             withContext(Dispatchers.IO) {
                 while (session.state != com.arthenica.ffmpegkit.SessionState.COMPLETED) {
                     kotlinx.coroutines.delay(100)
                 }
             }
             Log.i("Effect8DProcessor", "session completed, final state=${session.state}")
+            currentSession = null
         } catch (e: Exception) {
             Log.e("Effect8DProcessor", "processSong failed", e)
             _lastError.value = "${e.javaClass.simpleName}: ${e.message}"

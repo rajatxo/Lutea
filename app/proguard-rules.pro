@@ -16,9 +16,15 @@
 -dontwarn javax.annotation.**
 
 # ── FFmpegKit ────────────────────────────────────────────────────────────────
-# FFmpegKit references com.arthenica.smartexception.java.Exceptions at runtime
-# (transitive dep that the maven-maintained fork doesn't include in audio variant).
-# Suppress the R8 "Missing class" error so the build can complete.
+# FFmpegKit (community-maintained fork) references com.arthenica.smartexception.java
+# at runtime, but the audio-only AAR variant doesn't bundle those classes. Two
+# problems need solving:
+#
+# 1. R8 strips FFmpegKit classes (NoClassDefFoundError at runtime) — keep ALL
+#    classes in com.arthenica.ffmpegkit and com.arthenica.smartexception.
+# 2. R8 errors out on the missing smartexception references — suppress with -dontwarn.
+-keep class com.arthenica.ffmpegkit.** { *; }
+-keep class com.arthenica.smartexception.** { *; }
+-keepclassmembers class com.arthenica.ffmpegkit.** { *; }
 -dontwarn com.arthenica.smartexception.**
 -dontwarn com.arthenica.ffmpegkit.**
--keep class com.arthenica.ffmpegkit.** { *; }
