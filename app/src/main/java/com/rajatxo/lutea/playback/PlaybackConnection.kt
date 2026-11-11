@@ -71,6 +71,11 @@ object PlaybackConnection {
 
     private var queue: List<Song> = emptyList()
 
+    // Last playback error timestamp — used for the auto-skip cooldown in
+    // onPlayerErrorChanged. Prevents the rapid-skipping loop where every song
+    // in the queue errors out and the handler keeps calling seekToNextMediaItem.
+    private var lastErrorTimeMs: Long = 0L
+
     // ── 8D state ──
     // All three just write to the LuteaAudioProcessors singleton — the audio
     // thread reads from it on the next sample. Instant, no FFmpeg, no swap.
@@ -133,8 +138,19 @@ object PlaybackConnection {
                 override fun onPlayerErrorChanged(error: PlaybackException?) {
                     if (error != null) {
                         Log.e(TAG, "Playback error: ${error.errorCodeName}", error)
-                        try { c.seekToNextMediaItem(); c.prepare(); c.play() }
-                        catch (e: Exception) { Log.e(TAG, "Skip after error failed", e) }
+                        // Cooldown: only auto-skip if the last error was > 3 seconds ago.
+                        // Without this, a chain of failing songs (e.g., unsupported encoding,
+                        // corrupted file, missing permission) creates a rapid infinite loop
+                        // of skip → error → skip → error → ... through the entire queue.
+                        // The user can always manually hit next.
+                        val now = System.currentTimeMillis()
+                        if (now - lastErrorTimeMs > 3000) {
+                            lastErrorTimeMs = now
+                            try { c.seekToNextMediaItem(); c.prepare(); c.play() }
+                            catch (e: Exception) { Log.e(TAG, "Skip after error failed", e) }
+                        } else {
+                            Log.w(TAG, "Rapid playback errors — stopping auto-skip to prevent queue thrash")
+                        }
                     }
                 }
             })
