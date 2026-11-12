@@ -205,9 +205,14 @@ object PlaybackConnection {
     }
 
     private fun applyOrbit() {
-        LuteaAudioProcessors.spatial8D.setOrbitHz(
-            if (_orbitEnabled.value) sliderToRps(_orbitSlider.value) else 0f
-        )
+        if (_orbitEnabled.value) {
+            LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(_orbitSlider.value))
+        } else {
+            // Stop the LFO and center it — a frozen phase would leave the sound
+            // panned to one side instead of "no orbit".
+            LuteaAudioProcessors.spatial8D.setOrbitHz(0f)
+            LuteaAudioProcessors.spatial8D.resetPhase()
+        }
     }
 
     private fun applyAmbience() {

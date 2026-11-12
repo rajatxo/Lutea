@@ -54,6 +54,12 @@ class Spatial8DProcessor : BaseAudioProcessor() {
         width = w.coerceIn(0f, 1f)
     }
 
+    /** Snap the LFO back to center (balance = 0) — used when Orbit is off. */
+    fun resetPhase() {
+        phase = 0.0
+        currentPhase = 0f
+    }
+
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT &&
             inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
