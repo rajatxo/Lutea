@@ -317,7 +317,8 @@ fun EffectVisual(
                         bottomEnd = plateCorner,
                     )
                 )
-                .background(Color.Black),
+                // ★ TEMP: yellow so the plate's position can be judged on device.
+                .background(Color(0xFFFFFF00)),
         )
 
         Box(
