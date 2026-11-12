@@ -2110,7 +2110,7 @@ private fun SphereComposition(
             cx = cx,
             cy = cy,
             rad = sphereR * 0.97f,
-            flow = flowAnim.value,
+            flow = flowAnim,
             rot = rotation * 0.017453292f,
             breath = sin(pulse),
             glow = glow,
