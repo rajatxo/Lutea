@@ -120,7 +120,7 @@ fun EffectVisual(
             holdPulse.animateTo(
                 1f,
                 androidx.compose.animation.core.tween(
-                    3000,
+                    900,
                     easing = androidx.compose.animation.core.FastOutLinearInEasing,
                 ),
             )
@@ -134,8 +134,15 @@ fun EffectVisual(
             )
         }
     }
-    val glowLevel = (holdPulse.value + tapPulse.value * 0.30f).coerceIn(0f, 1f)
+    val glowLevel = (holdPulse.value + tapPulse.value * 0.55f).coerceIn(0f, 1f)
     val spinDeg = holdPulse.value * 540f + tapPulse.value * 30f
+    // Permanent state colour. Toggling cross-fades it, so turning off reads as
+    // green → red and turning on as red → green.
+    val stateTint = androidx.compose.animation.animateColorAsState(
+        targetValue = if (eightDOn) Color(0xFF3DDC84) else Color(0xFFFF3B30),
+        animationSpec = androidx.compose.animation.core.tween(450),
+        label = "eightDTint",
+    ).value
 
     // Sphere rotation + Ball rotation toggles (persisted)
     val context = LocalContext.current
@@ -195,7 +202,7 @@ fun EffectVisual(
                 },
                 glow = glowLevel,
                 spinDeg = spinDeg,
-                glowColor = if (eightDOn) Color(0xFF3DDC84) else Color(0xFFFF3B30),
+                tint = stateTint,
                 onHoldChange = { holding = it },
                 onQuickTap = {
                     tapTick++
@@ -1164,7 +1171,7 @@ private fun SphereComposition(
     onNumberClick: (Int, Boolean) -> Unit = { _, _ -> },
     glow: Float = 0f,
     spinDeg: Float = 0f,
-    glowColor: Color = Color(0xFFD4A03A),
+    tint: Color = Color.White,
     onHoldChange: (Boolean) -> Unit = {},
     onQuickTap: () -> Unit = {},
 ) {
@@ -1544,10 +1551,14 @@ private fun SphereComposition(
             val px = cx + v.x * sphereR
             val py = cy - v.y * sphereR
             val alpha = (0.18f + depth * 0.82f).coerceAtMost(1f)
-            // Glow: green when 8D is on, red when off. Grows with the hold level.
+            // Permanent gradient: white core, state colour toward the rim.
+            val rim = sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) / sphereR
+            val tintMix = ((rim - 0.55f) / 0.45f).coerceIn(0f, 1f)
+            val dotColor = androidx.compose.ui.graphics.lerp(Color.White, tint, tintMix)
+            // Burst halo on tap/hold, in the same state colour.
             if (glow > 0.01f) {
                 drawCircle(
-                    color = glowColor.copy(
+                    color = tint.copy(
                         alpha = (0.26f * glow * (0.35f + depth * 0.65f)).coerceIn(0f, 0.55f)
                     ),
                     radius = dotR * (2.4f + 1.2f * glow),
@@ -1555,7 +1566,7 @@ private fun SphereComposition(
                 )
             }
             drawCircle(
-                color = Cream.copy(alpha = alpha),
+                color = dotColor.copy(alpha = alpha),
                 radius = dotR.coerceAtLeast(0.3f),
                 center = Offset(px, py),
             )
