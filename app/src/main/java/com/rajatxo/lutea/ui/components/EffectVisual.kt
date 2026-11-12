@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -58,6 +60,7 @@ import androidx.compose.ui.geometry.Offset as TapOffset
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
@@ -107,8 +110,9 @@ fun EffectVisual(
         label = "expandProgress",
     ).value
 
+    Box(modifier = modifier.fillMaxSize()) {
     BoxWithConstraints(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(LocalLuteaWindowInsets.current),
     ) {
@@ -146,33 +150,6 @@ fun EffectVisual(
                 },
             )
         }
-
-        // ── Top row: exactly 4 capsules (Sphere Rotation | 8D Audio | Ball Rotation | Reset) ──
-        EffectHeaderRow(
-            enabled = eightDOn,
-            onToggle = {
-                PlaybackConnection.set8DEnabled(it)
-                if (!it) { expandedView = false; expandedSide = 0 }
-            },
-            sphereRotationOn = sphereRotationOn,
-            onSphereRotationToggle = {
-                sphereRotationOn = it
-                prefs.edit().putBoolean("sphere_rotation", it).apply()
-            },
-            ballRotationOn = ballRotationOn,
-            onBallRotationToggle = {
-                ballRotationOn = it
-                prefs.edit().putBoolean("ball_rotation", it).apply()
-            },
-            onDefaultClick = {
-                PlaybackConnection.set8DPreset(com.rajatxo.lutea.playback.Effect8DPreset.BALANCED)
-            },
-            screenWidthPx = widthPx,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = with(density) { (-(widthPx * 0.156f)).toDp() })
-                .padding(top = with(density) { (heightPx * 0.005f).toDp() }),
-        )
 
         // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 8% of screen height ──
         // (User originally asked for 130dp = 16.25% of height, but that squeezed
@@ -332,6 +309,73 @@ fun EffectVisual(
             }
         }
     }
+
+        // ── Top bar: title + 8D toggle (left), playlist menu dots (right) ──
+        // Sits outside the window insets so it lands where the playlist title does.
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val barWidth = maxWidth
+            val toggleWidth = barWidth * 0.075f
+
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 24.dp, top = 16.dp, end = 96.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Spatial Audio : 8D effects",
+                    color = Color.White,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 37.sp,
+                    lineHeight = 40.sp,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .size(toggleWidth, toggleWidth * 0.55f)
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (eightDOn) Color(0xFFD4A03A) else Color.White.copy(alpha = 0.10f)
+                        )
+                        .clickable {
+                            val next = !eightDOn
+                            PlaybackConnection.set8DEnabled(next)
+                            if (!next) { expandedView = false; expandedSide = 0 }
+                        }
+                        .padding(toggleWidth * 0.08f),
+                    contentAlignment = if (eightDOn) Alignment.CenterEnd else Alignment.CenterStart,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(toggleWidth * 0.5f)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White),
+                    )
+                }
+            }
+
+            // Same 4-dot menu button as the playlist page: 40dp box, 8dp hollow dots.
+            // Not wired to the menu yet — told to place it, wiring comes later.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = barWidth * 0.08f, top = 8.dp)
+                    .size(40.dp),
+            ) {
+                listOf(9.dp to 9.dp, 24.dp to 9.dp, 9.dp to 24.dp, 24.dp to 24.dp).forEach { (dx, dy) ->
+                    Box(
+                        modifier = Modifier
+                            .offset(dx, dy)
+                            .size(8.dp)
+                            .border(1.5.dp, Color.White, CircleShape),
+                    )
+                }
+            }
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -356,11 +400,6 @@ private fun EffectCornerCapsule(
         modifier = modifier
             .clip(RoundedCornerShape(corner))
             .background(Color.Black.copy(alpha = 0.55f))
-            .border(
-                width = padH / 12f,
-                color = if (isOn) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.20f),
-                shape = RoundedCornerShape(corner),
-            )
             .clickable { onClick() }
             .padding(horizontal = padH, vertical = padV),
         verticalAlignment = Alignment.CenterVertically,
