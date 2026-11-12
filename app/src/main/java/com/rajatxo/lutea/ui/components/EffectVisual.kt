@@ -170,101 +170,116 @@ fun EffectVisual(
                 maxOf(maxHeadForGap, widthPx * 0.30f),
             ).toDp()
         }
-        // ── Card: fit-to-screen rounded rectangle behind the head image. ──
-        // Width = 88% of screen, height = available vertical space below the sphere
-        // composition (with a 2% gap so it doesn't touch the sphere).
-        // Top 40% = #1A1A1A (head image's dominant tone), bottom 60% = black, with a
-        // smoothstep blend at the 40% line for a seamless transition. A dot grid
-        // (like the reference image) fills the entire card.
-        // Head image + glow ball sit at the bottom center of the card, at their
-        // original size — the card extends upward with empty dot-grid space above.
-        val cardWidthDp = with(density) { (widthPx * 0.88f).toDp() }
-        val cardHeightDp = with(density) {
-            val sphereBottomPx = widthPx * compositionHeightFrac
-            val gapPx = heightPx * 0.02f
-            (heightPx - sphereBottomPx - gapPx).coerceAtLeast(widthPx * 0.40f).toDp()
-        }
-        val cardCornerDp = cardWidthDp * 0.06f
-        val cardColor = Color(0xFF1A1A1A)
-        val dotColor = Color(0xFF2E2E2E)
-        val dotRadiusPx = with(density) { 2.dp.toPx() }
-        val dotSpacingPx = with(density) { 20.dp.toPx() }
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
+            // ── Rounded card behind the head ──
+            // Card is wider than the head (full screen width minus 1% gap each side).
+            // Height = head height + padding top and bottom.
+            // Gradient: top 40% solid grey (#1A1A1A), next 10% darker transition,
+            // bottom 50% blends to pure black (merges with existing blend-to-black).
+            val cardSideGapDp = with(density) { (widthPx * 0.01f).toDp() }
+            val cardWidthDp = with(density) { (widthPx - widthPx * 0.01f * 2).toDp() }
+            val cardPadDp = with(density) { (widthPx * 0.04f).toDp() }
+            val cardHeightDp = headSizeDp + cardPadDp * 2
+            val cardCornerDp = with(density) { (widthPx * 0.05f).toDp() }
+            val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
+
             Box(
                 modifier = Modifier
+                    .padding(
+                        start = cardSideGapDp,
+                        end = cardSideGapDp,
+                        bottom = cardBottomPadDp,
+                    )
                     .size(cardWidthDp, cardHeightDp)
                     .clip(RoundedCornerShape(cardCornerDp))
                     .drawWithCache {
-                        // Gradient: 0→40% solid #1A1A1A, 40→50% smoothstep blend,
-                        // 50→100% solid black. ("Bottom 60% black" = 10% blend + 50% solid.)
-                        val stops = ArrayList<Pair<Float, Color>>(12)
-                        stops.add(0.00f to cardColor)
-                        stops.add(0.40f to cardColor)
-                        val blendSteps = 8
-                        for (i in 1..blendSteps) {
-                            val t = i / blendSteps.toFloat()
-                            val smoothT = t * t * (3f - 2f * t)
-                            stops.add((0.40f + 0.10f * t) to Color(
-                                cardColor.red + (Color.Black.red - cardColor.red) * smoothT,
-                                cardColor.green + (Color.Black.green - cardColor.green) * smoothT,
-                                cardColor.blue + (Color.Black.blue - cardColor.blue) * smoothT,
-                            ))
-                        }
-                        stops.add(1.00f to Color.Black)
-                        val gradientBrush = Brush.verticalGradient(*stops.toTypedArray())
-                        // Dot grid — centered in the card, clipped by the rounded corners.
-                        val cols = (size.width / dotSpacingPx).toInt() + 1
-                        val rows = (size.height / dotSpacingPx).toInt() + 1
-                        val startX = (size.width - (cols - 1) * dotSpacingPx) / 2f
-                        val startY = (size.height - (rows - 1) * dotSpacingPx) / 2f
+                        // Top 40%: solid dark grey (#1A1A1A)
+                        // Next 10%: transition to darker grey
+                        // Bottom 50%: gradient to pure black (blends with blend-to-black)
+                        val grey = Color(0xFF1A1A1A)
+                        val darkerGrey = Color(0xFF0F0F0F)
+                        val black = Color(0xFF000000)
+                        val brush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to grey,         // 0-40%: solid grey
+                                0.40f to grey,        // 0-40%: solid grey
+                                0.50f to darkerGrey,  // 40-50%: transition
+                                1.0f to black,        // 50-100%: blend to black
+                            )
+                        )
                         onDrawBehind {
-                            drawRect(gradientBrush)
-                            for (row in 0 until rows) {
-                                for (col in 0 until cols) {
+                            drawRect(brush)
+                            // ── Dot grid pattern on the card ──
+                            // Subtle, low opacity dots in a regular grid.
+                            val dotSpacing = size.minDimension * 0.04f
+                            val dotRadius = size.minDimension * 0.004f
+                            val dotColor = Color.White.copy(alpha = 0.06f)
+                            var yPos = dotSpacing
+                            while (yPos < size.height) {
+                                var xPos = dotSpacing
+                                while (xPos < size.width) {
                                     drawCircle(
-                                        dotColor,
-                                        dotRadiusPx,
-                                        Offset(startX + col * dotSpacingPx, startY + row * dotSpacingPx),
+                                        color = dotColor,
+                                        radius = dotRadius,
+                                        center = Offset(xPos, yPos),
+                                    )
+                                    xPos += dotSpacing
+                                }
+                                yPos += dotSpacing
+                            }
+                            // ── Metamorphic particle structure behind the head ──
+                            // Radial burst of small dots fanning out from center-top
+                            // of the card, behind where the head sits. Faint grey, like
+                            // a soft energy field. Only visible in the top 40% of the card.
+                            val centerX = size.width / 2f
+                            val centerY = size.height * 0.35f
+                            val maxRadius = size.minDimension * 0.35f
+                            val particleCount = 60
+                            for (i in 0 until particleCount) {
+                                val angle = (Math.PI * 2 * i / particleCount).toFloat()
+                                // Random-ish distance via golden ratio for even distribution
+                                val dist = maxRadius * (0.3f + 0.7f * ((i * 0.6180339887f) % 1f))
+                                val px = centerX + dist * cos(angle)
+                                val py = centerY + dist * sin(angle)
+                                val alpha = (1f - dist / maxRadius) * 0.12f
+                                if (alpha > 0.01f) {
+                                    drawCircle(
+                                        color = Color.White.copy(alpha = alpha),
+                                        radius = dotRadius * 1.5f,
+                                        center = Offset(px, py),
                                     )
                                 }
                             }
                         }
                     },
+                contentAlignment = Alignment.BottomCenter,
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.BottomCenter,
-                ) {
-                    Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
-                        Image(
-                            painter = painterResource(headRes),
-                            contentDescription = "Spatial audio head",
-                            contentScale = ContentScale.Fit,
+                Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
+                    Image(
+                        painter = painterResource(headRes),
+                        contentDescription = "Spatial audio head",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    // ── Glowing 8D ball that orbits the head ──
+                    if (eightDOn) {
+                        SpatialOrbBall(
+                            headSizePx = with(density) { headSizeDp.toPx() },
                             modifier = Modifier.fillMaxSize(),
                         )
-                        // ── Glowing 8D ball that orbits the head ──
-                        // Tracks the Spatial8DProcessor's LFO phase in real-time.
-                        // Ball position = head center + orbitRadius × (−sin(phase), −cos(phase))
-                        // Negative sin = user perspective mirror (sound right → ball screen-left).
-                        // Sunset palette (EA6113 → F88F22 → FBB931 → FFE3B3) with radial glow.
-                        if (eightDOn) {
-                            SpatialOrbBall(
-                                headSizePx = with(density) { headSizeDp.toPx() },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .drawWithCache {
-                                    val brush = Brush.verticalGradient(*blendStops(Color.Black))
-                                    onDrawBehind { drawRect(brush) }
-                                },
-                        )
                     }
+                    // ── Existing blend-to-black on the head image ──
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .drawWithCache {
+                                val brush = Brush.verticalGradient(*blendStops(Color.Black))
+                                onDrawBehind { drawRect(brush) }
+                            },
+                    )
                 }
             }
         }
