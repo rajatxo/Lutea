@@ -278,11 +278,14 @@ fun EffectVisual(
         // edge stops just above them, and the bottom corners are rounded to the
         // same radius as a panel's width, so the plate slots into the canal the
         // side bars carve out of the card.
-        // ★ TEMP: provisional bottom, being tuned on device. Bars are drawn on
-        //   top of the plate, so expanding past them only hides card, not bars.
-        val plateBottomFrac = 0.72f
+        // The bottom edge sits exactly on the line where the side panels start:
+        //   panelHeight = 0.46w, panelCentre = 0.62h  ->  panelTop = 0.62h - 0.23w
+        // so the plate's straight bottom border and the bars' top corners share
+        // one line on any screen size.
+        val platePanelH = widthPx * 0.46f
+        val plateBottomPx = heightPx * 0.62f - platePanelH / 2f
         val plateCorner = with(density) { (widthPx * 0.108f).toDp() }  // = panelW
-        val plateHeight = with(density) { (heightPx * plateBottomFrac).toDp() }
+        val plateHeight = with(density) { plateBottomPx.toDp() }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
