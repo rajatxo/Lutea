@@ -55,8 +55,10 @@ import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
@@ -77,8 +79,10 @@ import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.random.Random
 
 private val Cream = Color(0xFFF5F0E6)
 
@@ -1246,18 +1250,381 @@ private fun EffectOverlay(
 // Sphere + arrows + concentric rings + 8 tag icons + direction labels
 // ─────────────────────────────────────────────────────────────────────────────
 
-private data class SpherePoint(val x: Float, val y: Float, val z: Float)
+// ─────────────────────────────────────────────────────────────────────────────
+// Coral jellyfish sphere
+//
+// A glowing bioluminescent jellyfish that replaces the old dot sphere:
+//   • ~300 hair-thin strands that flow from a bright, elongated core out to the rim.
+//     Neighbouring strands sway together (coherent bundles), a slow wave travels
+//     outward along them, and a swirl twists them near the core.
+//   • every "capped" strand ends in a small white half-disc (the jellyfish bell /
+//     umbrella) that faces outward and swings a little.
+//   • a translucent periwinkle band of bigger half-discs sits just inside the caps.
+//   • tiny twinkling squares float around it (a few red / teal accents).
+//   • everything is tinted by [tint], so the green ⇄ red 8D state colour still
+//     cross-fades through the whole creature.
+//
+// All motion is built from INTEGER harmonics of one looping phase (`flow`), so the
+// 15 s animation loops perfectly with no jump. Nothing allocates per strand.
+// ─────────────────────────────────────────────────────────────────────────────
 
-private fun fibonacciSphere(n: Int): List<SpherePoint> {
-    val out = ArrayList<SpherePoint>(n)
-    val phi = (Math.PI * (3.0 - Math.sqrt(5.0))).toFloat()
-    for (i in 0 until n) {
-        val y = 1f - (i.toFloat() / (n - 1)) * 2f
-        val r = sqrt(1f - y * y)
-        val theta = phi * i
-        out.add(SpherePoint(cos(theta) * r, y, sin(theta) * r))
+private const val JELLY_SAMPLES = 14
+private const val TWO_PI_F = 6.2831855f
+private const val RAD_TO_DEG = 57.29578f
+
+private class JellyField(seed: Int = 11) {
+    val capCount = 76
+    val fiberCount = 240
+    val total = capCount + fiberCount
+
+    // Strands: caps first, then loose fibres.
+    val theta = FloatArray(total)
+    val rEnd = FloatArray(total)
+    val phase = FloatArray(total)
+    val indiv = FloatArray(total)
+    val alpha = FloatArray(total)
+    val widthIdx = IntArray(total)
+
+    // Caps (one per capped strand), recomputed each frame.
+    val capSize = FloatArray(capCount)
+    val capTiltPhase = FloatArray(capCount)
+    val capTiltAmp = FloatArray(capCount)
+    val capAlpha = FloatArray(capCount)
+    val capX = FloatArray(capCount)
+    val capY = FloatArray(capCount)
+    val capAng = FloatArray(capCount)
+
+    // Per-sample lookup tables (t = 0 at the core, 1 at the rim).
+    val radial = FloatArray(JELLY_SAMPLES)
+    val env = FloatArray(JELLY_SAMPLES)
+    val swirlW = FloatArray(JELLY_SAMPLES)
+    val lam = FloatArray(JELLY_SAMPLES)
+    val cB1 = FloatArray(JELLY_SAMPLES)
+    val sB1 = FloatArray(JELLY_SAMPLES)
+    val cB2 = FloatArray(JELLY_SAMPLES)
+    val sB2 = FloatArray(JELLY_SAMPLES)
+    val cB3 = FloatArray(JELLY_SAMPLES)
+    val sB3 = FloatArray(JELLY_SAMPLES)
+    val cB4 = FloatArray(JELLY_SAMPLES)
+    val sB4 = FloatArray(JELLY_SAMPLES)
+
+    // Periwinkle band clusters.
+    val bandN = 11
+    val bandBase = FloatArray(bandN)
+    val bandCount = IntArray(bandN)
+    val bandPh = FloatArray(bandN)
+    val bandSize = FloatArray(bandN)
+
+    // Floating square particles.
+    val pn = 70
+    val pA = FloatArray(pn)
+    val pR = FloatArray(pn)
+    val pS = FloatArray(pn)
+    val pPh = FloatArray(pn)
+    val pK = IntArray(pn)
+    val pKind = IntArray(pn)
+
+    // Scratch, reused every frame.
+    val xs = FloatArray(JELLY_SAMPLES)
+    val ys = FloatArray(JELLY_SAMPLES)
+    val path = Path()
+
+    init {
+        val rnd = Random(seed)
+
+        for (i in 0 until capCount) {
+            theta[i] = TWO_PI_F * (i + (rnd.nextFloat() - 0.5f) * 0.9f) / capCount
+            rEnd[i] = 0.93f + (rnd.nextFloat() - 0.5f) * 0.07f
+        }
+        for (i in capCount until total) {
+            theta[i] = rnd.nextFloat() * TWO_PI_F
+            rEnd[i] = 0.78f + rnd.nextFloat() * 0.20f
+        }
+        for (i in 0 until total) {
+            phase[i] = rnd.nextFloat() * TWO_PI_F
+            indiv[i] = 0.4f + rnd.nextFloat() * 0.9f
+            alpha[i] =
+                if (i < capCount) 0.70f + rnd.nextFloat() * 0.28f
+                else 0.50f + rnd.nextFloat() * 0.35f
+            widthIdx[i] = rnd.nextInt(3)
+        }
+        for (i in 0 until capCount) {
+            capSize[i] = 0.035f * (0.8f + rnd.nextFloat() * 0.4f)
+            capTiltPhase[i] = rnd.nextFloat() * TWO_PI_F
+            capTiltAmp[i] = if (rnd.nextFloat() < 0.12f) 0.7f else 0.12f + rnd.nextFloat() * 0.18f
+            capAlpha[i] = 0.82f + rnd.nextFloat() * 0.18f
+        }
+
+        for (j in 0 until JELLY_SAMPLES) {
+            val t = j / (JELLY_SAMPLES - 1).toFloat()
+            radial[j] = 0.02f + 0.98f * t.pow(0.85f)
+            // max(0) guards the float rounding of sin(pi) at t = 1 (tiny negative → NaN in pow).
+            env[j] = maxOf(0f, sin(3.1415927f * t)).pow(1.2f)
+            swirlW[j] = (1f - t).pow(1.5f)
+            val u = (t / 0.4f).coerceIn(0f, 1f)
+            lam[j] = u * u * (3f - 2f * u)
+            cB1[j] = cos(4.2f * t); sB1[j] = sin(4.2f * t)
+            cB2[j] = cos(7.5f * t); sB2[j] = sin(7.5f * t)
+            cB3[j] = cos(13.0f * t); sB3[j] = sin(13.0f * t)
+            cB4[j] = cos(23.0f * t); sB4[j] = sin(23.0f * t)
+        }
+
+        for (c in 0 until bandN) {
+            bandBase[c] = (c + rnd.nextFloat() * 0.6f) * TWO_PI_F / bandN
+            bandCount[c] = 3 + rnd.nextInt(4)
+            bandPh[c] = rnd.nextFloat() * TWO_PI_F
+            bandSize[c] = 0.06f + rnd.nextFloat() * 0.025f
+        }
+
+        for (k in 0 until pn) {
+            pA[k] = rnd.nextFloat() * TWO_PI_F
+            pR[k] = 0.12f + sqrt(rnd.nextFloat()) * 0.94f
+            pS[k] = 0.007f + rnd.nextFloat() * 0.011f
+            pPh[k] = rnd.nextFloat() * TWO_PI_F
+            pK[k] = 1 + rnd.nextInt(4)
+            val kind = rnd.nextFloat()
+            pKind[k] = if (kind < 0.08f) 1 else if (kind < 0.15f) 2 else 0
+        }
     }
-    return out
+}
+
+private fun jmix(a: Color, b: Color, t: Float): Color =
+    androidx.compose.ui.graphics.lerp(a, b, t)
+
+/** Half-disc whose flat side passes through (x, y) and whose dome faces direction [ang] (radians). */
+private fun DrawScope.drawHalfDisc(x: Float, y: Float, ang: Float, radius: Float, color: Color) {
+    drawArc(
+        color = color,
+        startAngle = ang * RAD_TO_DEG - 90f,
+        sweepAngle = 180f,
+        useCenter = true,
+        topLeft = Offset(x - radius, y - radius),
+        size = Size(radius * 2f, radius * 2f),
+    )
+}
+
+/**
+ * @param rad    radius of the cap ring in px
+ * @param flow   looping phase 0..2π (15 s)
+ * @param rot    slow swirl angle in radians (0 when Sphere Rotation is off)
+ * @param breath -1..1, gentle core breathing
+ * @param glow   0..0.55 tap burst
+ * @param tint   8D state colour (green / red)
+ */
+private fun DrawScope.drawJellyfish(
+    f: JellyField,
+    cx: Float,
+    cy: Float,
+    rad: Float,
+    flow: Float,
+    rot: Float,
+    breath: Float,
+    glow: Float,
+    tint: Color,
+) {
+    val white = Color.White
+    val strandCol = jmix(white, tint, 0.38f)
+    val capCol = jmix(white, tint, 0.10f)
+    val bandCol = jmix(tint, white, 0.28f)
+    val haloCol = jmix(tint, white, 0.08f)
+    val coreCol = jmix(white, tint, 0.18f)
+    val c0 = Offset(cx, cy)
+    val burst = glow / 0.55f   // 1 → 0 over the tap pulse
+
+    // ── 1. Halo + interior wash ──
+    val g = 1f + glow * 1.6f
+    val haloR = rad * 1.12f
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to haloCol.copy(alpha = (0.10f * g).coerceAtMost(0.9f)),
+            0.49f to haloCol.copy(alpha = (0.14f * g).coerceAtMost(0.9f)),
+            0.866f to haloCol.copy(alpha = (0.50f * g).coerceAtMost(0.95f)),
+            1f to haloCol.copy(alpha = 0f),
+            center = c0,
+            radius = haloR,
+        ),
+        radius = haloR,
+        center = c0,
+    )
+
+    // ── 2. Periwinkle band of big translucent half-discs, just inside the caps ──
+    for (c in 0 until f.bandN) {
+        for (k in 0 until f.bandCount[c]) {
+            val ang = f.bandBase[c] + rot + 0.12f * sin(2f * flow + f.bandPh[c]) + k * 0.055f
+            val rr = (0.865f + 0.02f * sin(3f * flow + f.bandPh[c] + k * 0.7f)) * rad
+            val sw = sin(k * 1.7f + f.bandPh[c])
+            val sz = f.bandSize[c] * rad * (0.85f + 0.3f * sw * sw)
+            drawHalfDisc(cx + rr * cos(ang), cy + rr * sin(ang), ang, sz, bandCol.copy(alpha = 0.5f))
+        }
+    }
+
+    // ── 3. Strands ──
+    val unit = 0.0042f * rad
+    val widths = floatArrayOf(0.75f, 1f, 1.3f)
+    val capStrokes = Array(3) { Stroke(width = maxOf(0.6f, unit * widths[it]), cap = StrokeCap.Round) }
+    val fiberStrokes = Array(3) { Stroke(width = maxOf(0.5f, unit * widths[it] * 0.72f), cap = StrokeCap.Round) }
+
+    // Elongated, slowly turning core: strands start on this ellipse and fan out radially.
+    val e = 0.5f + 0.5f * sin(3f * flow)
+    val aCore = 1f + 0.9f * sin(2f * flow + 0.3f) + rot
+    val ca = cos(aCore)
+    val sa = sin(aCore)
+    val ea = 0.085f * rad * (1f + 0.7f * e) * (1f + 0.5f * glow)
+    val eb = 0.085f * rad / (1f + 0.7f * e)
+    val gl = 1f + glow * 0.7f
+
+    val xs = f.xs
+    val ys = f.ys
+    val path = f.path
+    val n = JELLY_SAMPLES
+
+    for (s in 0 until f.total) {
+        val th = f.theta[s]
+        val ring = 0.045f * sin(3f * th + 2f * flow + 0.5f) + 0.03f * sin(5f * th - 3f * flow + 1.3f)
+        val rEff = f.rEnd[s] * rad * (1f + ring) * (1f + 0.03f * glow)
+
+        val a1 = 3f * th - 3f * flow + 0.4f
+        val a2 = 7f * th + 2f * flow + 1.9f
+        val a3 = f.phase[s] + 5f * flow
+        val a4 = 1.7f * f.phase[s] + 4f * flow
+        val sA1 = sin(a1); val cA1 = cos(a1)
+        val sA2 = sin(a2); val cA2 = cos(a2)
+        val sA3 = sin(a3); val cA3 = cos(a3)
+        val sA4 = sin(a4); val cA4 = cos(a4)
+        val swirl = 0.55f * sin(2f * th + 2f * flow + 0.7f) + 0.35f * sin(3f * th - flow + 0.2f)
+        val indiv = f.indiv[s]
+
+        val cth = cos(th)
+        val sth = sin(th)
+        val startX = cx + ea * cth * ca - eb * sth * sa
+        val startY = cy + ea * cth * sa + eb * sth * ca
+
+        for (j in 0 until n) {
+            // sin(A + B) via angle addition: the per-strand part is computed once above.
+            val s1 = sA1 * f.cB1[j] + cA1 * f.sB1[j]
+            val s2 = sA2 * f.cB2[j] + cA2 * f.sB2[j]
+            val s3 = sA3 * f.cB3[j] + cA3 * f.sB3[j]
+            val s4 = sA4 * f.cB4[j] + cA4 * f.sB4[j]
+            val wob = f.env[j] * (0.13f * s1 + 0.085f * s2 + 0.07f * indiv * s3 + 0.035f * indiv * s4)
+            val phi = th + rot + swirl * f.swirlW[j] + wob
+            val r = rEff * f.radial[j]
+            val qx = cx + r * cos(phi)
+            val qy = cy + r * sin(phi)
+            val l = f.lam[j]
+            xs[j] = startX + l * (qx - startX)
+            ys[j] = startY + l * (qy - startY)
+        }
+
+        // Catmull-Rom spline through the samples, as cubic Béziers.
+        path.reset()
+        path.moveTo(xs[0], ys[0])
+        for (j in 0 until n - 1) {
+            val i0 = if (j > 0) j - 1 else 0
+            val i3 = if (j + 2 < n) j + 2 else n - 1
+            path.cubicTo(
+                xs[j] + (xs[j + 1] - xs[i0]) / 6f, ys[j] + (ys[j + 1] - ys[i0]) / 6f,
+                xs[j + 1] - (xs[i3] - xs[j]) / 6f, ys[j + 1] - (ys[i3] - ys[j]) / 6f,
+                xs[j + 1], ys[j + 1],
+            )
+        }
+
+        val isCap = s < f.capCount
+        drawPath(
+            path = path,
+            color = strandCol,
+            alpha = minOf(1f, f.alpha[s] * gl),
+            style = if (isCap) capStrokes[f.widthIdx[s]] else fiberStrokes[f.widthIdx[s]],
+        )
+
+        if (isCap) {
+            // The strand ends exactly at the flat side of its cap.
+            val phe = th + rot
+            f.capX[s] = cx + rEff * cos(phe)
+            f.capY[s] = cy + rEff * sin(phe)
+            f.capAng[s] = phe + f.capTiltAmp[s] * sin(6f * flow + f.capTiltPhase[s])
+        }
+    }
+
+    // ── 4. Caps: white half-discs, dome facing outward ──
+    for (s in 0 until f.capCount) {
+        drawHalfDisc(
+            f.capX[s], f.capY[s], f.capAng[s],
+            f.capSize[s] * rad,
+            capCol.copy(alpha = f.capAlpha[s]),
+        )
+    }
+
+    // ── 5. Core glow (elongated along the core axis) ──
+    val cb = 1f + 0.12f * breath
+    val elong = 1f + 0.7f * e
+    val coreR = rad * 0.46f * cb * (1f + glow * 0.8f)
+    val hotR = rad * 0.15f * cb
+    rotate(degrees = aCore * RAD_TO_DEG, pivot = c0) {
+        scale(scaleX = elong, scaleY = 1f / elong, pivot = c0) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0f to coreCol.copy(alpha = 1f),
+                    0.12f to coreCol.copy(alpha = 0.92f),
+                    0.35f to coreCol.copy(alpha = 0.55f),
+                    0.7f to coreCol.copy(alpha = 0.18f),
+                    1f to coreCol.copy(alpha = 0f),
+                    center = c0,
+                    radius = coreR,
+                ),
+                radius = coreR,
+                center = c0,
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0f to white.copy(alpha = 1f),
+                    0.6f to white.copy(alpha = 0.85f),
+                    1f to white.copy(alpha = 0f),
+                    center = c0,
+                    radius = hotR,
+                ),
+                radius = hotR,
+                center = c0,
+            )
+        }
+    }
+
+    // ── 6. Tap burst: a ring of light that runs from the core out to the rim ──
+    if (burst > 0.02f) {
+        drawCircle(
+            color = white.copy(alpha = (burst * 0.55f).coerceIn(0f, 1f)),
+            radius = rad * (1f - burst) * 1.05f + 1f,
+            center = c0,
+            style = Stroke(width = rad * 0.02f),
+        )
+    }
+
+    // ── 7. Floating squares ──
+    val teal = Color(0xFF21D1BF)
+    val coral = Color(0xFFFF4066)
+    for (k in 0 until f.pn) {
+        val ang = f.pA[k] + rot * 0.6f + 0.12f * sin(f.pK[k] * flow + f.pPh[k])
+        val rr = f.pR[k] * rad * (1f + 0.03f * sin(f.pK[k] * flow + f.pPh[k] * 2f))
+        val px = cx + rr * cos(ang)
+        val py = cy + rr * sin(ang)
+        val sz = f.pS[k] * rad
+        val tw = 0.35f + 0.65f * (0.5f + 0.5f * sin(f.pK[k] * 2f * flow + f.pPh[k]))
+        val col = when (f.pKind[k]) {
+            1 -> teal
+            2 -> coral
+            else -> capCol
+        }
+        drawRect(
+            color = col.copy(alpha = minOf(1f, tw * 1.1f)),
+            topLeft = Offset(px - sz / 2f, py - sz / 2f),
+            size = Size(sz, sz),
+        )
+    }
+    // The little red marker sitting in the heart of the core.
+    drawRect(
+        color = Color(0xFFD9365C).copy(alpha = 0.95f),
+        topLeft = Offset(cx - 0.012f * rad, cy - 0.012f * rad),
+        size = Size(0.024f * rad, 0.024f * rad),
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1372,7 +1739,7 @@ private fun SphereComposition(
     tint: Color = Color.White,
     onQuickTap: () -> Unit = {},
 ) {
-    val points = remember { fibonacciSphere(180) }
+    val jelly = remember { JellyField() }
     val infinite = rememberInfiniteTransition(label = "sphere")
     // When 8D is off, the rotation value is forced to 0 — sphere stays still.
     // When on, it spins via the infinite transition. The infinite transition
@@ -1397,6 +1764,17 @@ private fun SphereComposition(
             repeatMode = RepeatMode.Restart,
         ),
         label = "pulse",
+    )
+    // Master loop for strand sway / caps / particles. Everything uses integer
+    // harmonics of this phase, so the 15 s loop is seamless.
+    val flowAnim by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(15000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "flow",
     )
 
     // OLD look: 8 tag icons at compass positions + LEFT/RIGHT/UP/DOWN text labels.
@@ -1724,46 +2102,20 @@ private fun SphereComposition(
             }
         }
 
-        // ── Dot sphere — white dots only, no color sync ──
-        val baseDot = size.width * 0.0075f
-        val ang = Math.toRadians(rotation.toDouble()).toFloat()
-        val cosA = cos(ang); val sinA = sin(ang)
-        val projected = ArrayList<SpherePoint>(points.size)
-        for (p in points) {
-            val x1 = p.x * cosA + p.z * sinA
-            val z1 = -p.x * sinA + p.z * cosA
-            projected.add(SpherePoint(x1, p.y, z1))
-        }
-        projected.sortBy { it.z }
-        val pulseAmp = 0.10f + 0.35f * glow
-        for (v in projected) {
-            val depth = (v.z + 1f) * 0.5f
-            val wave = sin(pulse + depth * 3f)
-            val scale = 1f + pulseAmp * wave
-            val dotR = baseDot * (0.4f + depth * 0.9f) * scale * (1f + glow * 1.0f)
-            val px = cx + v.x * sphereR
-            val py = cy - v.y * sphereR
-            val alpha = (0.18f + depth * 0.82f).coerceAtMost(1f)
-            // Permanent gradient: white core, state colour toward the rim.
-            val rim = sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) / sphereR
-            val tintMix = ((rim - 0.55f) / 0.45f).coerceIn(0f, 1f)
-            val dotColor = androidx.compose.ui.graphics.lerp(Color.White, tint, tintMix)
-            // Burst halo on tap/hold, in the same state colour.
-            if (glow > 0.01f) {
-                drawCircle(
-                    color = tint.copy(
-                        alpha = (0.26f * glow * (0.35f + depth * 0.65f)).coerceIn(0f, 0.55f)
-                    ),
-                    radius = dotR * (2.4f + 1.2f * glow),
-                    center = Offset(px, py),
-                )
-            }
-            drawCircle(
-                color = dotColor.copy(alpha = alpha),
-                radius = dotR.coerceAtLeast(0.3f),
-                center = Offset(px, py),
-            )
-        }
+        // ── Jellyfish sphere (replaces the old dot sphere) ──
+        // Colour = `tint` (green / red 8D state). Spin = `rotation` (slow swirl,
+        // 0 when Sphere Rotation is off). Tap burst = `glow`.
+        drawJellyfish(
+            f = jelly,
+            cx = cx,
+            cy = cy,
+            rad = sphereR * 0.97f,
+            flow = flowAnim.value,
+            rot = rotation * 0.017453292f,
+            breath = sin(pulse),
+            glow = glow,
+            tint = tint,
+        )
         }
 
         // Tap overlay for clicking on numbers
