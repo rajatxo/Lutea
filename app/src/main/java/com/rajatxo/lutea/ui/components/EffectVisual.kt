@@ -189,8 +189,7 @@ fun EffectVisual(
             ).toDp()
         }
         // Bottom inset shared by the card and the head layer.
-        // Reduced to almost zero so the card extends down to the nav bar.
-        val cardBottomPadDp = with(density) { (heightPx * 0.002f).toDp() }
+        val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
 
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -225,13 +224,15 @@ fun EffectVisual(
                         )
                     )
                     .drawWithCache {
-                        // Pure black card — seamless with the screen background.
-                        // Top portion has a very slight lift from the dot grid/particles,
-                        // bottom blends to pure black naturally.
+                        // Gradient: top 25% grey, next 10% transition, bottom 65% → black.
+                        val grey = Color(0xFF1A1A1A)
+                        val darkerGrey = Color(0xFF0F0F0F)
                         val black = Color(0xFF000000)
                         val brush = Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.0f to black,
+                                0.0f to grey,
+                                0.25f to grey,
+                                0.35f to darkerGrey,
                                 1.0f to black,
                             )
                         )
@@ -276,14 +277,18 @@ fun EffectVisual(
         // edge stops just above them, and the bottom corners are rounded to the
         // same radius as a panel's width, so the plate slots into the canal the
         // side bars carve out of the card.
-        // The bottom edge sits exactly on the line where the side panels start:
+        // The bottom edge must sit on the line where the side panels start:
         //   panelHeight = 0.46w, panelCentre = 0.62h  ->  panelTop = 0.62h - 0.23w
-        // so the plate's straight bottom border and the bars' top corners share
-        // one line on any screen size.
-        val platePanelH = widthPx * 0.46f
-        // Tiny extra drop past the bar-top line, so the corners nest into the canal.
-        val plateExtraDrop = widthPx * 0.030f
-        val plateBottomPx = heightPx * 0.62f - platePanelH / 2f + plateExtraDrop
+        // ★ The bars are laid out against the FULL screen height, but this plate
+        //   lives inside the inset-padded box (which starts below the header and
+        //   ends above the tabs). Converting the line into this box's coordinates
+        //   is what closes the gap that used to be between plate and bars.
+        val windowInsets = LocalLuteaWindowInsets.current
+        val topInsetPx = windowInsets.getTop(density).toFloat()
+        val bottomInsetPx = windowInsets.getBottom(density).toFloat()
+        val fullHeightPx = heightPx + topInsetPx + bottomInsetPx
+        val barTopOnScreenPx = fullHeightPx * 0.62f - (widthPx * 0.46f) / 2f
+        val plateBottomPx = barTopOnScreenPx - topInsetPx
         val plateCorner = with(density) { (widthPx * 0.108f).toDp() }  // = panelW
         val plateHeight = with(density) { plateBottomPx.toDp() }
         Box(
