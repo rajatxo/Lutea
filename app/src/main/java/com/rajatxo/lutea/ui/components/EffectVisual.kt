@@ -288,7 +288,9 @@ fun EffectVisual(
         val bottomInsetPx = windowInsets.getBottom(density).toFloat()
         val fullHeightPx = heightPx + topInsetPx + bottomInsetPx
         val barTopOnScreenPx = fullHeightPx * 0.62f - (widthPx * 0.46f) / 2f
-        val plateBottomPx = barTopOnScreenPx - topInsetPx
+        // Nudge past the line, so the plate tucks slightly into the canal.
+        val plateExtraDrop = widthPx * 0.015f
+        val plateBottomPx = barTopOnScreenPx - topInsetPx + plateExtraDrop
         val plateCorner = with(density) { (widthPx * 0.108f).toDp() }  // = panelW
         val plateHeight = with(density) { plateBottomPx.toDp() }
         Box(
