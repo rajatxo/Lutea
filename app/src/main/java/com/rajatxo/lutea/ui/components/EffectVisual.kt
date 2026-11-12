@@ -153,7 +153,11 @@ fun EffectVisual(
         label = "expandProgress",
     ).value
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -188,138 +192,74 @@ fun EffectVisual(
                 maxOf(maxHeadForGap, widthPx * 0.30f),
             ).toDp()
         }
+        // ── Dotted grid: lower part of the screen only. It fades in from below the
+        // sphere composition, so the dots dissolve before reaching the sphere ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithCache {
+                    val spacing = size.width * 0.04f
+                    val radius = size.width * 0.004f
+                    // Start just under the sphere composition box, then fade in.
+                    val startY = size.width * compositionHeightFrac * 0.92f
+                    val fadeSpan = size.height * 0.18f
+                    onDrawBehind {
+                        var y = startY
+                        while (y < size.height) {
+                            val a = ((y - startY) / fadeSpan).coerceIn(0f, 1f)
+                            if (a > 0.02f) {
+                                var x = spacing
+                                while (x < size.width) {
+                                    drawCircle(
+                                        color = Color.White.copy(alpha = 0.07f * a),
+                                        radius = radius,
+                                        center = Offset(x, y),
+                                    )
+                                    x += spacing
+                                }
+                            }
+                            y += spacing
+                        }
+                    }
+                },
+        )
+
+        // ── Head image at the bottom ──
+        val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            // ── Rounded card behind the head ──
-            val cardSideGapDp = with(density) { (widthPx * 0.01f).toDp() }
-            val cardWidthDp = with(density) { (widthPx - widthPx * 0.01f * 2).toDp() }
-            val cardPadDp = with(density) { (widthPx * 0.04f).toDp() }
-            // Reach up behind the lower third of the sphere, so the dotted grid
-            // runs under the sphere and disappears into a black panel.
-            val sphereOverlapDp = compositionHeightDp * 0.33f
-            val cardHeightDp = headSizeDp + cardPadDp * 2 + sphereOverlapDp
-            val cardCornerDp = with(density) { (widthPx * 0.05f).toDp() }
-            // Same curvature as the side bars: flare depth = bar height x 0.27,
-            // bar height = 46% of the screen width.
-            val cardTopCornerDp = with(density) { (widthPx * 0.46f * 0.27f).toDp() }
-            val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
-
             Box(
                 modifier = Modifier
-                    .padding(
-                        start = cardSideGapDp,
-                        end = cardSideGapDp,
-                        bottom = cardBottomPadDp,
-                    )
-                    .size(cardWidthDp, cardHeightDp)
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = cardTopCornerDp,
-                            topEnd = cardTopCornerDp,
-                            bottomStart = cardCornerDp,
-                            bottomEnd = cardCornerDp,
-                        )
-                    )
-                    .drawWithCache {
-                        // Gradient: top 25% grey, next 10% transition, bottom 65% → black.
-                        // More black at bottom for seamless blend with head image's gradient.
-                        val grey = Color(0xFF1A1A1A)
-                        val darkerGrey = Color(0xFF0F0F0F)
-                        val black = Color(0xFF000000)
-                        val brush = Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.0f to grey,
-                                0.25f to grey,
-                                0.35f to darkerGrey,
-                                1.0f to black,
-                            )
-                        )
-                        onDrawBehind {
-                            drawRect(brush)
-                            // Dot grid
-                            val dotSpacing = size.minDimension * 0.04f
-                            val dotRadius = size.minDimension * 0.004f
-                            val dotColor = Color.White.copy(alpha = 0.06f)
-                            var yPos = dotSpacing
-                            while (yPos < size.height) {
-                                var xPos = dotSpacing
-                                while (xPos < size.width) {
-                                    drawCircle(color = dotColor, radius = dotRadius, center = Offset(xPos, yPos))
-                                    xPos += dotSpacing
-                                }
-                                yPos += dotSpacing
-                            }
-                            // Metamorphic particles
-                            val centerX = size.width / 2f
-                            val centerY = size.height * 0.35f
-                            val maxRadius = size.minDimension * 0.35f
-                            for (i in 0 until 60) {
-                                val angle = (Math.PI * 2 * i / 60).toFloat()
-                                val dist = maxRadius * (0.3f + 0.7f * ((i * 0.6180339887f) % 1f))
-                                val px = centerX + dist * cos(angle)
-                                val py = centerY + dist * sin(angle)
-                                val alpha = (1f - dist / maxRadius) * 0.12f
-                                if (alpha > 0.01f) {
-                                    drawCircle(color = Color.White.copy(alpha = alpha), radius = dotRadius * 1.5f, center = Offset(px, py))
-                                }
-                            }
-                        }
-                    },
-                contentAlignment = Alignment.BottomCenter,
+                    .padding(bottom = cardBottomPadDp)
+                    .size(headSizeDp, headSizeDp),
             ) {
-                // ── Black panel over the grid behind the sphere ──
-                // Sits on top of the dot grid and fades out at its bottom edge, so
-                // the grid appears to slide into it.
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .height(sphereOverlapDp)
-                        .clip(
-                            RoundedCornerShape(
-                                topStart = cardTopCornerDp,
-                                topEnd = cardTopCornerDp,
-                            )
-                        )
-                        .background(
-                            Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0.0f to Color.Black,
-                                    0.62f to Color.Black,
-                                    1.0f to Color.Transparent,
-                                )
-                            )
-                        ),
+                Image(
+                    painter = painterResource(headRes),
+                    contentDescription = "Spatial audio head",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
                 )
-
-                Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
-                    Image(
-                        painter = painterResource(headRes),
-                        contentDescription = "Spatial audio head",
-                        contentScale = ContentScale.Fit,
+                // ── Glowing 8D ball that orbits the head ──
+                if (eightDOn && ballRotationOn) {
+                    SpatialOrbBall(
+                        headSizePx = with(density) { headSizeDp.toPx() },
                         modifier = Modifier.fillMaxSize(),
                     )
-                    // ── Glowing 8D ball that orbits the head ──
-                    if (eightDOn && ballRotationOn) {
-                        SpatialOrbBall(
-                            headSizePx = with(density) { headSizeDp.toPx() },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    // ── Existing blend-to-black on the head image ──
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .drawWithCache {
-                                val brush = Brush.verticalGradient(*blendStops(Color.Black))
-                                onDrawBehind { drawRect(brush) }
-                            },
-                    )
                 }
+                // ── Blend-to-black on the head image ──
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .drawWithCache {
+                            val brush = Brush.verticalGradient(*blendStops(Color.Black))
+                            onDrawBehind { drawRect(brush) }
+                        },
+                )
             }
         }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
