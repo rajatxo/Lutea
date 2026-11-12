@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -137,24 +138,19 @@ fun EffectVisual(
                 expandedSide = expandedSide,
                 selectedOrbit = orbitSlider,
                 selectedAmbience = ambienceSlider,
-                phase = com.rajatxo.lutea.playback.LuteaAudioProcessors.spatial8D.currentPhase,
+                onNumberClick = { num, isTop ->
+                    if (isTop) PlaybackConnection.setOrbitSpeed(num)
+                    else PlaybackConnection.setSpatialAmbience(num)
+                },
             )
         }
 
-        // ── Capsule row: Sphere Rot | 8D Audio | Orbit Speed | Spatial Ambience | Ball Rot | Default ──
+        // ── Top row: exactly 4 capsules (Sphere Rotation | 8D Audio | Ball Rotation | Reset) ──
         EffectHeaderRow(
             enabled = eightDOn,
             onToggle = {
                 PlaybackConnection.set8DEnabled(it)
                 if (!it) { expandedView = false; expandedSide = 0 }
-            },
-            onOrbitSpeedClick = {
-                if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
-                else { expandedView = true; expandedSide = 1 }
-            },
-            onSpatialAmbienceClick = {
-                if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
-                else { expandedView = true; expandedSide = 2 }
             },
             sphereRotationOn = sphereRotationOn,
             onSphereRotationToggle = {
@@ -200,10 +196,6 @@ fun EffectVisual(
             contentAlignment = Alignment.BottomCenter,
         ) {
             // ── Rounded card behind the head ──
-            // Card is wider than the head (full screen width minus 1% gap each side).
-            // Height = head height + padding top and bottom.
-            // Gradient: top 40% solid grey (#1A1A1A), next 10% darker transition,
-            // bottom 50% blends to pure black (merges with existing blend-to-black).
             val cardSideGapDp = with(density) { (widthPx * 0.01f).toDp() }
             val cardWidthDp = with(density) { (widthPx - widthPx * 0.01f * 2).toDp() }
             val cardPadDp = with(density) { (widthPx * 0.04f).toDp() }
@@ -221,24 +213,22 @@ fun EffectVisual(
                     .size(cardWidthDp, cardHeightDp)
                     .clip(RoundedCornerShape(cardCornerDp))
                     .drawWithCache {
-                        // Top 40%: solid dark grey (#1A1A1A)
-                        // Next 10%: transition to darker grey
-                        // Bottom 50%: gradient to pure black (blends with blend-to-black)
+                        // Gradient: top 25% grey, next 10% transition, bottom 65% → black.
+                        // More black at bottom for seamless blend with head image's gradient.
                         val grey = Color(0xFF1A1A1A)
                         val darkerGrey = Color(0xFF0F0F0F)
                         val black = Color(0xFF000000)
                         val brush = Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.0f to grey,         // 0-40%: solid grey
-                                0.40f to grey,        // 0-40%: solid grey
-                                0.50f to darkerGrey,  // 40-50%: transition
-                                1.0f to black,        // 50-100%: blend to black
+                                0.0f to grey,
+                                0.25f to grey,
+                                0.35f to darkerGrey,
+                                1.0f to black,
                             )
                         )
                         onDrawBehind {
                             drawRect(brush)
-                            // ── Dot grid pattern on the card ──
-                            // Subtle, low opacity dots in a regular grid.
+                            // Dot grid
                             val dotSpacing = size.minDimension * 0.04f
                             val dotRadius = size.minDimension * 0.004f
                             val dotColor = Color.White.copy(alpha = 0.06f)
@@ -246,42 +236,88 @@ fun EffectVisual(
                             while (yPos < size.height) {
                                 var xPos = dotSpacing
                                 while (xPos < size.width) {
-                                    drawCircle(
-                                        color = dotColor,
-                                        radius = dotRadius,
-                                        center = Offset(xPos, yPos),
-                                    )
+                                    drawCircle(color = dotColor, radius = dotRadius, center = Offset(xPos, yPos))
                                     xPos += dotSpacing
                                 }
                                 yPos += dotSpacing
                             }
-                            // ── Metamorphic particle structure behind the head ──
-                            // Radial burst of small dots fanning out from center-top
-                            // of the card, behind where the head sits. Faint grey, like
-                            // a soft energy field. Only visible in the top 40% of the card.
+                            // Metamorphic particles
                             val centerX = size.width / 2f
                             val centerY = size.height * 0.35f
                             val maxRadius = size.minDimension * 0.35f
-                            val particleCount = 60
-                            for (i in 0 until particleCount) {
-                                val angle = (Math.PI * 2 * i / particleCount).toFloat()
-                                // Random-ish distance via golden ratio for even distribution
+                            for (i in 0 until 60) {
+                                val angle = (Math.PI * 2 * i / 60).toFloat()
                                 val dist = maxRadius * (0.3f + 0.7f * ((i * 0.6180339887f) % 1f))
                                 val px = centerX + dist * cos(angle)
                                 val py = centerY + dist * sin(angle)
                                 val alpha = (1f - dist / maxRadius) * 0.12f
                                 if (alpha > 0.01f) {
-                                    drawCircle(
-                                        color = Color.White.copy(alpha = alpha),
-                                        radius = dotRadius * 1.5f,
-                                        center = Offset(px, py),
-                                    )
+                                    drawCircle(color = Color.White.copy(alpha = alpha), radius = dotRadius * 1.5f, center = Offset(px, py))
                                 }
                             }
                         }
                     },
                 contentAlignment = Alignment.BottomCenter,
             ) {
+                // ── Orbit Speed capsule at top-left corner of card ──
+                if (eightDOn) {
+                    val cornerCapsulePadH = with(density) { (widthPx * 0.018f).toDp() }
+                    val cornerCapsulePadV = with(density) { (widthPx * 0.008f).toDp() }
+                    val cornerCapsuleCorner = with(density) { (widthPx * 0.025f).toDp() }
+                    val cornerTextSize = with(density) { (widthPx * 0.020f).toSp() }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(top = cornerCapsulePadV, start = cornerCapsulePadH)
+                            .clip(RoundedCornerShape(cornerCapsuleCorner))
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .border(
+                                width = cornerCapsulePadH / 12f,
+                                color = Cream.copy(alpha = 0.18f),
+                                shape = RoundedCornerShape(cornerCapsuleCorner),
+                            )
+                            .clickable {
+                                if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
+                                else { expandedView = true; expandedSide = 1 }
+                            }
+                            .padding(horizontal = cornerCapsulePadH, vertical = cornerCapsulePadV),
+                    ) {
+                        Text(
+                            text = "Orbit Speed",
+                            color = Cream,
+                            fontFamily = CalSansFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = cornerTextSize,
+                        )
+                    }
+                    // ── Spatial Ambience capsule at top-right corner of card ──
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = cornerCapsulePadV, end = cornerCapsulePadH)
+                            .clip(RoundedCornerShape(cornerCapsuleCorner))
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .border(
+                                width = cornerCapsulePadH / 12f,
+                                color = Cream.copy(alpha = 0.18f),
+                                shape = RoundedCornerShape(cornerCapsuleCorner),
+                            )
+                            .clickable {
+                                if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
+                                else { expandedView = true; expandedSide = 2 }
+                            }
+                            .padding(horizontal = cornerCapsulePadH, vertical = cornerCapsulePadV),
+                    ) {
+                        Text(
+                            text = "Spatial Ambience",
+                            color = Cream,
+                            fontFamily = CalSansFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = cornerTextSize,
+                        )
+                    }
+                }
+
                 Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
                     Image(
                         painter = painterResource(headRes),
@@ -319,8 +355,6 @@ fun EffectVisual(
 private fun EffectHeaderRow(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,
-    onOrbitSpeedClick: () -> Unit,
-    onSpatialAmbienceClick: () -> Unit,
     sphereRotationOn: Boolean,
     onSphereRotationToggle: (Boolean) -> Unit,
     ballRotationOn: Boolean,
@@ -331,13 +365,13 @@ private fun EffectHeaderRow(
 ) {
     val density = LocalDensity.current
     val widthPx = screenWidthPx
-    val labelTextSize = with(density) { (widthPx * 0.024f).toSp() }
-    val smallTextSize = with(density) { (widthPx * 0.020f).toSp() }
-    val capsulePadHDp = with(density) { (widthPx * 0.018f).toDp() }
+    // 4 capsules must fit horizontally — calculate size accordingly.
+    val labelTextSize = with(density) { (widthPx * 0.026f).toSp() }
+    val capsulePadHDp = with(density) { (widthPx * 0.020f).toDp() }
     val capsulePadVDp = with(density) { (widthPx * 0.010f).toDp() }
     val capsuleCornerDp = with(density) { (widthPx * 0.03f).toDp() }
-    val toggleSizeDp = with(density) { (widthPx * 0.050f).toDp() }
-    val sideCapsuleSpacing = with(density) { (widthPx * 0.012f).toDp() }
+    val toggleSizeDp = with(density) { (widthPx * 0.045f).toDp() }
+    val sideCapsuleSpacing = with(density) { (widthPx * 0.010f).toDp() }
     val goldColor = Color(0xFFD4A03A)
 
     Row(
@@ -345,19 +379,19 @@ private fun EffectHeaderRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(sideCapsuleSpacing, Alignment.CenterHorizontally),
     ) {
-        // Sphere Rotation toggle (default ON, for users who get dizzy)
+        // 1. Sphere Rotation toggle
         ToggleCapsule(
-            label = "Sphere Rot",
+            label = "Sphere Rotation",
             isOn = sphereRotationOn,
             onToggle = onSphereRotationToggle,
-            textSize = smallTextSize,
+            textSize = labelTextSize,
             toggleSize = toggleSizeDp,
             padH = capsulePadHDp,
             padV = capsulePadVDp,
             corner = capsuleCornerDp,
         )
 
-        // 8D Audio capsule + toggle
+        // 2. 8D Audio toggle
         ToggleCapsule(
             label = "8D Audio",
             isOn = enabled,
@@ -369,93 +403,65 @@ private fun EffectHeaderRow(
             corner = capsuleCornerDp,
         )
 
-        // Orbit Speed (only when 8D is on)
-        if (enabled) {
-            SideCapsule(
-                label = "Orbit Speed",
-                labelTextSize = smallTextSize,
-                padH = capsulePadHDp,
-                padV = capsulePadVDp,
-                corner = capsuleCornerDp,
-                onClick = onOrbitSpeedClick,
-            )
-        }
-
-        // Spatial Ambience (only when 8D is on)
-        if (enabled) {
-            SideCapsule(
-                label = "Spatial Ambience",
-                labelTextSize = smallTextSize,
-                padH = capsulePadHDp,
-                padV = capsulePadVDp,
-                corner = capsuleCornerDp,
-                onClick = onSpatialAmbienceClick,
-            )
-        }
-
-        // Ball Rotation toggle (default ON)
+        // 3. Ball Rotation toggle
         ToggleCapsule(
-            label = "Ball Rot",
+            label = "Ball Rotation",
             isOn = ballRotationOn,
             onToggle = onBallRotationToggle,
-            textSize = smallTextSize,
+            textSize = labelTextSize,
             toggleSize = toggleSizeDp,
             padH = capsulePadHDp,
             padV = capsulePadVDp,
             corner = capsuleCornerDp,
         )
 
-        // Default button — resets to BALANCED (13/13)
-        if (enabled) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(capsuleCornerDp))
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .border(
-                        width = capsulePadHDp / 12f,
-                        color = Cream.copy(alpha = 0.18f),
-                        shape = RoundedCornerShape(capsuleCornerDp),
-                    )
-                    .clickable { onDefaultClick() }
-                    .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Default",
-                        color = Cream,
-                        fontFamily = CalSansFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = smallTextSize,
-                    )
-                    Spacer(Modifier.width(with(density) { (widthPx * 0.008f).toDp() }))
-                    // Circular arrow icon (simple Canvas)
-                    Box(modifier = Modifier.size(with(density) { (widthPx * 0.022f).toDp() })) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val r = size.minDimension * 0.35f
-                            val c = Offset(size.width / 2f, size.height / 2f)
-                            drawArc(
-                                color = goldColor,
-                                startAngle = -45f,
-                                sweepAngle = 270f,
-                                useCenter = false,
-                                topLeft = Offset(c.x - r, c.y - r),
-                                size = Size(r * 2, r * 2),
-                                style = Stroke(width = size.minDimension * 0.08f, cap = StrokeCap.Round),
-                            )
-                            // Arrow head
-                            drawPath(
-                                path = Path().apply {
-                                    val tipX = c.x + r * cos(Math.toRadians(225.0).toFloat())
-                                    val tipY = c.y + r * sin(Math.toRadians(225.0).toFloat())
-                                    moveTo(tipX, tipY)
-                                    lineTo(tipX - size.minDimension * 0.08f, tipY - size.minDimension * 0.04f)
-                                    lineTo(tipX - size.minDimension * 0.04f, tipY + size.minDimension * 0.08f)
-                                    close()
-                                },
-                                color = goldColor,
-                            )
-                        }
+        // 4. Reset button with circular arrow
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(capsuleCornerDp))
+                .background(Color.Black.copy(alpha = 0.45f))
+                .border(
+                    width = capsulePadHDp / 12f,
+                    color = Cream.copy(alpha = 0.18f),
+                    shape = RoundedCornerShape(capsuleCornerDp),
+                )
+                .clickable { onDefaultClick() }
+                .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Reset",
+                    color = Cream,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = labelTextSize,
+                )
+                Spacer(Modifier.width(with(density) { (widthPx * 0.008f).toDp() }))
+                Box(modifier = Modifier.size(with(density) { (widthPx * 0.022f).toDp() })) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val r = size.minDimension * 0.35f
+                        val c = Offset(size.width / 2f, size.height / 2f)
+                        drawArc(
+                            color = goldColor,
+                            startAngle = -45f,
+                            sweepAngle = 270f,
+                            useCenter = false,
+                            topLeft = Offset(c.x - r, c.y - r),
+                            size = Size(r * 2, r * 2),
+                            style = Stroke(width = size.minDimension * 0.08f, cap = StrokeCap.Round),
+                        )
+                        drawPath(
+                            path = Path().apply {
+                                val tipX = c.x + r * cos(Math.toRadians(225.0).toFloat())
+                                val tipY = c.y + r * sin(Math.toRadians(225.0).toFloat())
+                                moveTo(tipX, tipY)
+                                lineTo(tipX - size.minDimension * 0.08f, tipY - size.minDimension * 0.04f)
+                                lineTo(tipX - size.minDimension * 0.04f, tipY + size.minDimension * 0.08f)
+                                close()
+                            },
+                            color = goldColor,
+                        )
                     }
                 }
             }
@@ -928,7 +934,7 @@ private fun SphereComposition(
     expandedSide: Int = 0,
     selectedOrbit: Int = 13,
     selectedAmbience: Int = 13,
-    phase: Float = 0f,
+    onNumberClick: (Int, Boolean) -> Unit = { _, _ -> },
 ) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
@@ -974,7 +980,8 @@ private fun SphereComposition(
 
     val tagPainter = painterResource(R.drawable.ic_effect_tag)
 
-    Canvas(modifier = modifier) {
+    Box(modifier = modifier) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
         // Universal Layout Law #7: sizes are fractions of screen dimensions.
         // User said "make the whole composition smaller" — so we widen the edge
         // gap from 1.11% (4dp) to 8% of screen width. Everything (rings, arrows,
@@ -1260,11 +1267,7 @@ private fun SphereComposition(
             }
         }
 
-        // ── Dot sphere ──
-        // Dots get sunset-colored based on their angular position relative to the
-        // LFO phase. The dot closest to where the audio "is" (sin(phase) direction)
-        // is the brightest (deep orange). Dots further from that direction fade.
-        // This syncs the sphere's color with the 8D audio movement.
+        // ── Dot sphere — white dots only, no color sync ──
         val baseDot = size.width * 0.0075f
         val ang = Math.toRadians(rotation.toDouble()).toFloat()
         val cosA = cos(ang); val sinA = sin(ang)
@@ -1276,10 +1279,6 @@ private fun SphereComposition(
         }
         projected.sortBy { it.z }
         val pulseAmp = 0.10f
-        // LFO direction in screen space: the "audio position" moves left-right.
-        // sin(phase) gives the horizontal direction. When 8D is on, dots near
-        // that direction get sunset colors; dots far away stay cream.
-        val lfoDir = if (arrowsHighlighted) sin(phase.toDouble()).toFloat() else 0f
         for (v in projected) {
             val depth = (v.z + 1f) * 0.5f
             val wave = sin(pulse + depth * 3f)
@@ -1288,32 +1287,58 @@ private fun SphereComposition(
             val px = cx + v.x * sphereR
             val py = cy - v.y * sphereR
             val alpha = 0.18f + depth * 0.82f
-
-            // Distance from the LFO direction: how close is this dot's X position
-            // to where the audio "is"? 0 = right at the audio, 1 = opposite side.
-            val dotDir = v.x  // -1 to 1 (left to right on screen)
-            val audioDist = kotlin.math.abs(dotDir - lfoDir) / 2f  // 0 = same, 1 = opposite
-
-            val dotColor = if (arrowsHighlighted && audioDist < 0.5f) {
-                // Blend sunset color based on proximity to audio direction
-                val sunsetIdx = (audioDist * 2f * palette.size.toFloat()).toInt()
-                    .coerceIn(0, palette.lastIndex)
-                val sunsetColor = palette[sunsetIdx]
-                val sunsetAlpha = (1f - audioDist * 2f) * alpha
-                Color(
-                    red = android.graphics.Color.red(sunsetColor) / 255f,
-                    green = android.graphics.Color.green(sunsetColor) / 255f,
-                    blue = android.graphics.Color.blue(sunsetColor) / 255f,
-                    alpha = sunsetAlpha.coerceIn(0f, 1f),
-                )
-            } else {
-                Cream.copy(alpha = alpha)
-            }
-
             drawCircle(
-                color = dotColor,
+                color = Cream.copy(alpha = alpha),
                 radius = dotR.coerceAtLeast(0.3f),
                 center = Offset(px, py),
+            )
+        }
+        }
+
+        // Tap overlay for clicking on numbers
+        if (expandProgress > 0.5f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(expandedSide) {
+                        androidx.compose.foundation.gestures.detectTapGestures { offset ->
+                            val w = size.width.toFloat()
+                            val edgeGapPx = w * 0.08f
+                            val labelFontSize = w * 0.028f
+                            val labelHalfWidth = labelFontSize * 6f * 0.55f / 2f
+                            val tagToLabelGap = w * 0.012f
+                            val labelCenterFromCenter = w / 2f - edgeGapPx - labelHalfWidth
+                            val tagSize = w * 0.028f
+                            val tagR = labelCenterFromCenter - labelHalfWidth - tagSize / 2f - tagToLabelGap
+                            val dottedR = tagR - tagSize / 2f - w * 0.008f
+                            val smallTagSize = w * 0.018f
+                            val numberDistance = smallTagSize / 2f + w * 0.030f
+                            val cx = w / 2f
+                            val cy = w / 2f
+                            val labelR = dottedR + numberDistance
+                            val tapR = w * 0.04f
+                            for (k in 0 until 25) {
+                                val num = k + 1
+                                val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / 24f)
+                                val lx = cx + labelR * cos(angleRad)
+                                val ly = cy + labelR * sin(angleRad)
+                                if ((offset.x - lx) * (offset.x - lx) + (offset.y - ly) * (offset.y - ly) < tapR * tapR) {
+                                    onNumberClick(num, true)
+                                    return@detectTapGestures
+                                }
+                            }
+                            for (k in 0 until 23) {
+                                val num = k + 2
+                                val angleRad = Math.PI.toFloat() - ((k + 1).toFloat() * Math.PI.toFloat() / 24f)
+                                val lx = cx + labelR * cos(angleRad)
+                                val ly = cy + labelR * sin(angleRad)
+                                if ((offset.x - lx) * (offset.x - lx) + (offset.y - ly) * (offset.y - ly) < tapR * tapR) {
+                                    onNumberClick(num, false)
+                                    return@detectTapGestures
+                                }
+                            }
+                        }
+                    },
             )
         }
     }
