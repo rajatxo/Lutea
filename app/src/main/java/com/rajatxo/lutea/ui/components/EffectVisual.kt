@@ -320,6 +320,31 @@ fun EffectVisual(
                 }
             }
         }
+        // ── Solid black plate behind the whole sphere composition ──
+        // It sits ON TOP of the gradient/dot card, so the sphere never shows the
+        // grid behind it. It never reaches the two edge panels either: the bottom
+        // edge stops just above them, and the bottom corners are rounded to the
+        // same radius as a panel's width, so the plate slots into the canal the
+        // side bars carve out of the card.
+        val platePanelH = widthPx * 0.46f                 // matches EffectSidePanel height
+        val platePanelTop = heightPx * 0.62f - platePanelH / 2f
+        val plateGap = widthPx * 0.024f                   // breathing room above the bars
+        val plateCorner = with(density) { (widthPx * 0.108f).toDp() }  // = panelW
+        val plateHeight = with(density) { (platePanelTop - plateGap).toDp() }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(plateHeight.coerceAtLeast(0.dp))
+                .clip(
+                    RoundedCornerShape(
+                        bottomStart = plateCorner,
+                        bottomEnd = plateCorner,
+                    )
+                )
+                .background(Color.Black),
+        )
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
