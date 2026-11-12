@@ -85,6 +85,8 @@ fun EffectVisual(
     val eightDOn by PlaybackConnection.is8DEnabled.collectAsState()
     val orbitSlider by PlaybackConnection.orbitSlider.collectAsState()
     val ambienceSlider by PlaybackConnection.ambienceSlider.collectAsState()
+    val orbitOn by PlaybackConnection.orbitEnabled.collectAsState()
+    val ambienceOn by PlaybackConnection.ambienceEnabled.collectAsState()
 
     // Local UI state
     var expandedView by remember { mutableStateOf(false) }
@@ -265,59 +267,45 @@ fun EffectVisual(
                 if (eightDOn) {
                     val cornerCapsulePadH = with(density) { (widthPx * 0.018f).toDp() }
                     val cornerCapsulePadV = with(density) { (widthPx * 0.008f).toDp() }
-                    val cornerCapsuleCorner = with(density) { (widthPx * 0.025f).toDp() }
+                    // Same radius as the card it sits on, so the corners line up with the square.
+                    val cornerCapsuleCorner = cardCornerDp
                     val cornerTextSize = with(density) { (widthPx * 0.020f).toSp() }
-                    Box(
+                    val cornerSwitchWidth = with(density) { (widthPx * 0.040f).toDp() }
+                    EffectCornerCapsule(
+                        label = "Orbit Speed",
+                        isOn = orbitOn,
+                        onToggle = { PlaybackConnection.setOrbitEnabled(it) },
+                        onClick = {
+                            if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
+                            else { expandedView = true; expandedSide = 1 }
+                        },
+                        textSize = cornerTextSize,
+                        switchWidth = cornerSwitchWidth,
+                        padH = cornerCapsulePadH,
+                        padV = cornerCapsulePadV,
+                        corner = cornerCapsuleCorner,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(top = cornerCapsulePadV, start = cornerCapsulePadH)
-                            .clip(RoundedCornerShape(cornerCapsuleCorner))
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .border(
-                                width = cornerCapsulePadH / 12f,
-                                color = Cream.copy(alpha = 0.18f),
-                                shape = RoundedCornerShape(cornerCapsuleCorner),
-                            )
-                            .clickable {
-                                if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
-                                else { expandedView = true; expandedSide = 1 }
-                            }
-                            .padding(horizontal = cornerCapsulePadH, vertical = cornerCapsulePadV),
-                    ) {
-                        Text(
-                            text = "Orbit Speed",
-                            color = Cream,
-                            fontFamily = CalSansFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = cornerTextSize,
-                        )
-                    }
+                            .padding(top = cornerCapsulePadV, start = cornerCapsulePadH),
+                    )
                     // ── Spatial Ambience capsule at top-right corner of card ──
-                    Box(
+                    EffectCornerCapsule(
+                        label = "Spatial Ambience",
+                        isOn = ambienceOn,
+                        onToggle = { PlaybackConnection.setAmbienceEnabled(it) },
+                        onClick = {
+                            if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
+                            else { expandedView = true; expandedSide = 2 }
+                        },
+                        textSize = cornerTextSize,
+                        switchWidth = cornerSwitchWidth,
+                        padH = cornerCapsulePadH,
+                        padV = cornerCapsulePadV,
+                        corner = cornerCapsuleCorner,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(top = cornerCapsulePadV, end = cornerCapsulePadH)
-                            .clip(RoundedCornerShape(cornerCapsuleCorner))
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .border(
-                                width = cornerCapsulePadH / 12f,
-                                color = Cream.copy(alpha = 0.18f),
-                                shape = RoundedCornerShape(cornerCapsuleCorner),
-                            )
-                            .clickable {
-                                if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
-                                else { expandedView = true; expandedSide = 2 }
-                            }
-                            .padding(horizontal = cornerCapsulePadH, vertical = cornerCapsulePadV),
-                    ) {
-                        Text(
-                            text = "Spatial Ambience",
-                            color = Cream,
-                            fontFamily = CalSansFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = cornerTextSize,
-                        )
-                    }
+                            .padding(top = cornerCapsulePadV, end = cornerCapsulePadH),
+                    )
                 }
 
                 Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
@@ -328,7 +316,9 @@ fun EffectVisual(
                         modifier = Modifier.fillMaxSize(),
                     )
                     // ── Glowing 8D ball that orbits the head ──
-                    if (eightDOn && ballRotationOn) {
+                    // Hidden when Ambience is off: width 0 means no panning, so a
+                    // moving ball would lie about the sound.
+                    if (eightDOn && ballRotationOn && ambienceOn) {
                         SpatialOrbBall(
                             headSizePx = with(density) { headSizeDp.toPx() },
                             modifier = Modifier.fillMaxSize(),
@@ -345,6 +335,67 @@ fun EffectVisual(
                     )
                 }
             }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Corner capsule on the head card: label + inline switch, same corner radius
+// as the card behind it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun EffectCornerCapsule(
+    label: String,
+    isOn: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onClick: () -> Unit,
+    textSize: androidx.compose.ui.unit.TextUnit,
+    switchWidth: androidx.compose.ui.unit.Dp,
+    padH: androidx.compose.ui.unit.Dp,
+    padV: androidx.compose.ui.unit.Dp,
+    corner: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+) {
+    val goldColor = Color(0xFFD4A03A)
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(corner))
+            .background(Color.Black.copy(alpha = 0.55f))
+            .border(
+                width = padH / 12f,
+                color = if (isOn) goldColor.copy(alpha = 0.4f) else Cream.copy(alpha = 0.18f),
+                shape = RoundedCornerShape(corner),
+            )
+            // Tapping the label still opens the number selector.
+            .clickable { onClick() }
+            .padding(horizontal = padH, vertical = padV),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(padH / 2f),
+    ) {
+        Text(
+            text = label,
+            color = if (isOn) Cream else Cream.copy(alpha = 0.5f),
+            fontFamily = CalSansFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = textSize,
+        )
+        // Switch — its own click target, so it doesn't trigger the selector.
+        Box(
+            modifier = Modifier
+                .size(switchWidth, switchWidth * 0.55f)
+                .clip(RoundedCornerShape(50))
+                .background(if (isOn) goldColor else Color.White.copy(alpha = 0.10f))
+                .clickable { onToggle(!isOn) }
+                .padding(switchWidth * 0.08f),
+            contentAlignment = if (isOn) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(switchWidth * 0.5f)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White),
+            )
         }
     }
 }

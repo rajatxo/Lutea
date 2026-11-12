@@ -46,7 +46,8 @@ class Spatial8DProcessor : BaseAudioProcessor() {
     }
 
     fun setOrbitHz(h: Float) {
-        hz = h.coerceIn(0.01f, 1.5f)
+        // 0 freezes the phase (Orbit toggle off) — the LFO stops advancing.
+        hz = h.coerceIn(0f, 1.5f)
     }
 
     fun setSpatialWidth(w: Float) {
