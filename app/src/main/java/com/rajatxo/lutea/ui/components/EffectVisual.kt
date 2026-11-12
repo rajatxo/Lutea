@@ -283,7 +283,9 @@ fun EffectVisual(
         // so the plate's straight bottom border and the bars' top corners share
         // one line on any screen size.
         val platePanelH = widthPx * 0.46f
-        val plateBottomPx = heightPx * 0.62f - platePanelH / 2f
+        // Tiny extra drop past the bar-top line, so the corners nest into the canal.
+        val plateExtraDrop = widthPx * 0.030f
+        val plateBottomPx = heightPx * 0.62f - platePanelH / 2f + plateExtraDrop
         val plateCorner = with(density) { (widthPx * 0.108f).toDp() }  // = panelW
         val plateHeight = with(density) { plateBottomPx.toDp() }
         Box(
