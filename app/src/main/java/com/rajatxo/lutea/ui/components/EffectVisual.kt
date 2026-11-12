@@ -53,6 +53,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.geometry.Offset as TapOffset
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -1301,7 +1303,7 @@ private fun SphereComposition(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(expandedSide) {
-                        androidx.compose.foundation.gestures.detectTapGestures { offset ->
+                        detectTapGestures { offset: Offset ->
                             val w = size.width.toFloat()
                             val edgeGapPx = w * 0.08f
                             val labelFontSize = w * 0.028f
