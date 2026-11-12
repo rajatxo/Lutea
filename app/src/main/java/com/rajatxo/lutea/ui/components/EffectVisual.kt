@@ -289,9 +289,9 @@ fun EffectVisual(
         val fullHeightPx = heightPx + topInsetPx + bottomInsetPx
         val barTopOnScreenPx = fullHeightPx * 0.62f - (widthPx * 0.46f) / 2f
         // Nudge past the line, so the plate tucks slightly into the canal.
-        val plateExtraDrop = widthPx * 0.015f
+        val plateExtraDrop = widthPx * 0.025f
         val plateBottomPx = barTopOnScreenPx - topInsetPx + plateExtraDrop
-        val plateCorner = with(density) { (widthPx * 0.108f).toDp() }  // = panelW
+        val plateCorner = with(density) { (widthPx * 0.140f).toDp() }
         val plateHeight = with(density) { plateBottomPx.toDp() }
         Box(
             modifier = Modifier
