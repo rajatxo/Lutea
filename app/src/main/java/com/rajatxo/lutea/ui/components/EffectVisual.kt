@@ -297,8 +297,7 @@ fun EffectVisual(
                         bottomEnd = plateCorner,
                     )
                 )
-                // ★ TEMP: yellow so the plate's position can be judged on device.
-                .background(Color(0xFFFFFF00)),
+                .background(Color.Black),
         )
 
         // ── Head image — above the plate, so expanding the plate never hides it ──
