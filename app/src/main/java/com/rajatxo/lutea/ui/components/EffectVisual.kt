@@ -87,7 +87,7 @@ import kotlin.random.Random
 private val Cream = Color(0xFFF5F0E6)
 
 /**
- * Effect tab — dot sphere with concentric rings, outward arrows, 8 tag icons
+ * Effect tab — glowing jellyfish sphere (flowing strands + bell caps) with concentric rings, outward arrows, 8 tag icons
  * placed around the ring (4 facing the arrows + 4 at mid-arcs), and directional
  * labels (LEFT/RIGHT/UP/DOWN) next to the arrow-facing tags.
  *
@@ -128,10 +128,10 @@ fun EffectVisual(
     val glowLevel = (tapPulse.value * 0.55f).coerceIn(0f, 1f)
     val spinDeg = tapPulse.value * 30f
     // Permanent state colour. Toggling cross-fades it, so turning off reads as
-    // green → red and turning on as red → green.
+    // blue → red and turning on as red → blue.
     val stateTint = androidx.compose.animation.animateColorAsState(
-        targetValue = if (eightDOn) Color(0xFF3DDC84) else Color(0xFFFF3B30),
-        // Slow enough that a hold visibly walks green → red instead of snapping.
+        targetValue = if (eightDOn) Color(0xFF6E82FF) else Color(0xFFFF3B30),
+        // Slow enough that a hold visibly walks blue → red instead of snapping.
         animationSpec = androidx.compose.animation.core.tween(
             900,
             easing = androidx.compose.animation.core.FastOutSlowInEasing,
@@ -1261,7 +1261,11 @@ private fun EffectOverlay(
 //     umbrella) that faces outward and swings a little.
 //   • a translucent periwinkle band of bigger half-discs sits just inside the caps.
 //   • tiny twinkling squares float around it (a few red / teal accents).
-//   • everything is tinted by [tint], so the green ⇄ red 8D state colour still
+//   • the whole BODY moves like a real jelly — it breathes in and out, its outline
+//     swells into soft lobes and relaxes again, and it drifts a little — but the
+//     outline always stays a circle and it NEVER rotates. The lobes are standing
+//     waves (they swell and fade in place instead of travelling round the ring).
+//   • everything is tinted by [tint], so the blue ⇄ red 8D state colour
 //     cross-fades through the whole creature.
 //
 // All motion is built from INTEGER harmonics of one looping phase (`flow`), so the
@@ -1273,8 +1277,8 @@ private const val TWO_PI_F = 6.2831855f
 private const val RAD_TO_DEG = 57.29578f
 
 private class JellyField(seed: Int = 11) {
-    val capCount = 76
-    val fiberCount = 240
+    val capCount = 96
+    val fiberCount = 220
     val total = capCount + fiberCount
 
     // Strands: caps first, then loose fibres.
@@ -1284,6 +1288,13 @@ private class JellyField(seed: Int = 11) {
     val indiv = FloatArray(total)
     val alpha = FloatArray(total)
     val widthIdx = IntArray(total)
+    // Fixed (non-moving) angular patterns: which sectors sway, and how the bundles twist.
+    val amp1 = FloatArray(total)
+    val amp2 = FloatArray(total)
+    val amp3 = FloatArray(total)
+    val swA = FloatArray(total)
+    val swB = FloatArray(total)
+    val swC = FloatArray(total)
 
     // Caps (one per capped strand), recomputed each frame.
     val capSize = FloatArray(capCount)
@@ -1299,17 +1310,18 @@ private class JellyField(seed: Int = 11) {
     val env = FloatArray(JELLY_SAMPLES)
     val swirlW = FloatArray(JELLY_SAMPLES)
     val lam = FloatArray(JELLY_SAMPLES)
-    val cB1 = FloatArray(JELLY_SAMPLES)
-    val sB1 = FloatArray(JELLY_SAMPLES)
-    val cB2 = FloatArray(JELLY_SAMPLES)
-    val sB2 = FloatArray(JELLY_SAMPLES)
+    val tj = FloatArray(JELLY_SAMPLES)
+    // Per-frame radial ripple (shared by all strands): travels ALONG the strand, never round the ring.
+    val rf1 = FloatArray(JELLY_SAMPLES)
+    val rf2 = FloatArray(JELLY_SAMPLES)
+    val rf3 = FloatArray(JELLY_SAMPLES)
     val cB3 = FloatArray(JELLY_SAMPLES)
     val sB3 = FloatArray(JELLY_SAMPLES)
     val cB4 = FloatArray(JELLY_SAMPLES)
     val sB4 = FloatArray(JELLY_SAMPLES)
 
     // Periwinkle band clusters.
-    val bandN = 11
+    val bandN = 12
     val bandBase = FloatArray(bandN)
     val bandCount = IntArray(bandN)
     val bandPh = FloatArray(bandN)
@@ -1334,7 +1346,7 @@ private class JellyField(seed: Int = 11) {
 
         for (i in 0 until capCount) {
             theta[i] = TWO_PI_F * (i + (rnd.nextFloat() - 0.5f) * 0.9f) / capCount
-            rEnd[i] = 0.93f + (rnd.nextFloat() - 0.5f) * 0.07f
+            rEnd[i] = 0.93f + (rnd.nextFloat() - 0.5f) * 0.09f
         }
         for (i in capCount until total) {
             theta[i] = rnd.nextFloat() * TWO_PI_F
@@ -1348,8 +1360,17 @@ private class JellyField(seed: Int = 11) {
                 else 0.50f + rnd.nextFloat() * 0.35f
             widthIdx[i] = rnd.nextInt(3)
         }
+        for (i in 0 until total) {
+            val th = theta[i]
+            amp1[i] = sin(3f * th + 0.4f)
+            amp2[i] = sin(5f * th + 1.9f)
+            amp3[i] = sin(8f * th + 0.8f)
+            swA[i] = sin(2f * th + 0.7f)
+            swB[i] = sin(3f * th - 0.8f)
+            swC[i] = sin(3f * th + 0.2f)
+        }
         for (i in 0 until capCount) {
-            capSize[i] = 0.035f * (0.8f + rnd.nextFloat() * 0.4f)
+            capSize[i] = 0.032f * (0.8f + rnd.nextFloat() * 0.4f)
             capTiltPhase[i] = rnd.nextFloat() * TWO_PI_F
             capTiltAmp[i] = if (rnd.nextFloat() < 0.12f) 0.7f else 0.12f + rnd.nextFloat() * 0.18f
             capAlpha[i] = 0.82f + rnd.nextFloat() * 0.18f
@@ -1363,17 +1384,16 @@ private class JellyField(seed: Int = 11) {
             swirlW[j] = (1f - t).pow(1.5f)
             val u = (t / 0.4f).coerceIn(0f, 1f)
             lam[j] = u * u * (3f - 2f * u)
-            cB1[j] = cos(4.2f * t); sB1[j] = sin(4.2f * t)
-            cB2[j] = cos(7.5f * t); sB2[j] = sin(7.5f * t)
+            tj[j] = t
             cB3[j] = cos(13.0f * t); sB3[j] = sin(13.0f * t)
             cB4[j] = cos(23.0f * t); sB4[j] = sin(23.0f * t)
         }
 
         for (c in 0 until bandN) {
             bandBase[c] = (c + rnd.nextFloat() * 0.6f) * TWO_PI_F / bandN
-            bandCount[c] = 3 + rnd.nextInt(4)
+            bandCount[c] = 5 + rnd.nextInt(5)
             bandPh[c] = rnd.nextFloat() * TWO_PI_F
-            bandSize[c] = 0.06f + rnd.nextFloat() * 0.025f
+            bandSize[c] = 0.055f + rnd.nextFloat() * 0.02f
         }
 
         for (k in 0 until pn) {
@@ -1404,20 +1424,19 @@ private fun DrawScope.drawHalfDisc(x: Float, y: Float, ang: Float, radius: Float
 }
 
 /**
+ * @param baseX,baseY centre of the creature in px
  * @param rad    radius of the cap ring in px
  * @param flow   looping phase 0..2π (15 s)
- * @param rot    slow swirl angle in radians (0 when Sphere Rotation is off)
  * @param breath -1..1, gentle core breathing
  * @param glow   0..0.55 tap burst
- * @param tint   8D state colour (green / red)
+ * @param tint   8D state colour (blue / red)
  */
 private fun DrawScope.drawJellyfish(
     f: JellyField,
-    cx: Float,
-    cy: Float,
+    baseX: Float,
+    baseY: Float,
     rad: Float,
     flow: Float,
-    rot: Float,
     breath: Float,
     glow: Float,
     tint: Color,
@@ -1428,17 +1447,34 @@ private fun DrawScope.drawJellyfish(
     val bandCol = jmix(tint, white, 0.28f)
     val haloCol = jmix(tint, white, 0.08f)
     val coreCol = jmix(white, tint, 0.18f)
+
+    // ── Body motion ──────────────────────────────────────────────────────────
+    // The whole jelly drifts a hair around its centre…
+    val cx = baseX + 0.016f * rad * sin(2f * flow + 0.9f) + 0.008f * rad * sin(3f * flow)
+    val cy = baseY + 0.014f * rad * sin(3f * flow + 0.2f) + 0.007f * rad * sin(flow + 1.0f)
+    // …and its outline breathes + swells into soft lobes. Every term is a STANDING
+    // wave: sin(time) × cos(m·angle). Lobes grow and fade in place, never travel
+    // round the ring, so nothing spins and the shape keeps coming back to a circle.
+    val tB = 0.050f * sin(flow + 0.3f) + 0.018f * sin(2f * flow + 1.7f)
+    val t2 = 0.042f * sin(2f * flow + 0.4f)
+    val t3 = 0.032f * sin(3f * flow + 1.1f)
+    val t4 = 0.022f * sin(4f * flow + 2.0f)
+    val t5 = 0.016f * sin(5f * flow + 0.2f)
+    fun bodyMod(a: Float): Float =
+        tB + t2 * cos(2f * a - 0.6f) + t3 * cos(3f * a + 0.9f) +
+            t4 * cos(4f * a - 0.3f) + t5 * cos(5f * a + 1.4f)
+
     val c0 = Offset(cx, cy)
     val burst = glow / 0.55f   // 1 → 0 over the tap pulse
 
     // ── 1. Halo + interior wash ──
     val g = 1f + glow * 1.6f
-    val haloR = rad * 1.12f
+    val haloR = rad * 1.08f
     drawCircle(
         brush = Brush.radialGradient(
             0f to haloCol.copy(alpha = (0.10f * g).coerceAtMost(0.9f)),
-            0.49f to haloCol.copy(alpha = (0.14f * g).coerceAtMost(0.9f)),
-            0.866f to haloCol.copy(alpha = (0.50f * g).coerceAtMost(0.95f)),
+            0.509f to haloCol.copy(alpha = (0.13f * g).coerceAtMost(0.9f)),
+            0.898f to haloCol.copy(alpha = (0.32f * g).coerceAtMost(0.95f)),
             1f to haloCol.copy(alpha = 0f),
             center = c0,
             radius = haloR,
@@ -1450,8 +1486,8 @@ private fun DrawScope.drawJellyfish(
     // ── 2. Periwinkle band of big translucent half-discs, just inside the caps ──
     for (c in 0 until f.bandN) {
         for (k in 0 until f.bandCount[c]) {
-            val ang = f.bandBase[c] + rot + 0.12f * sin(2f * flow + f.bandPh[c]) + k * 0.055f
-            val rr = (0.865f + 0.02f * sin(3f * flow + f.bandPh[c] + k * 0.7f)) * rad
+            val ang = f.bandBase[c] + 0.12f * sin(2f * flow + f.bandPh[c]) + k * 0.05f
+            val rr = (0.865f + 0.02f * sin(3f * flow + f.bandPh[c] + k * 0.7f)) * rad * (1f + bodyMod(ang))
             val sw = sin(k * 1.7f + f.bandPh[c])
             val sz = f.bandSize[c] * rad * (0.85f + 0.3f * sw * sw)
             drawHalfDisc(cx + rr * cos(ang), cy + rr * sin(ang), ang, sz, bandCol.copy(alpha = 0.5f))
@@ -1466,7 +1502,7 @@ private fun DrawScope.drawJellyfish(
 
     // Elongated, slowly turning core: strands start on this ellipse and fan out radially.
     val e = 0.5f + 0.5f * sin(3f * flow)
-    val aCore = 1f + 0.9f * sin(2f * flow + 0.3f) + rot
+    val aCore = 1f + 0.9f * sin(2f * flow + 0.3f)
     val ca = cos(aCore)
     val sa = sin(aCore)
     val ea = 0.085f * rad * (1f + 0.7f * e) * (1f + 0.5f * glow)
@@ -1478,20 +1514,30 @@ private fun DrawScope.drawJellyfish(
     val path = f.path
     val n = JELLY_SAMPLES
 
+    // Ripple + twist are STANDING in the angular direction (fixed sectors that swell and
+    // relax) and only travel outward along the strands — so the strand field never circulates.
+    for (j in 0 until n) {
+        val tj = f.tj[j]
+        f.rf1[j] = sin(4.2f * tj - 3f * flow + 0.7f)
+        f.rf2[j] = sin(6.1f * tj + 2f * flow + 0.3f)
+        f.rf3[j] = sin(9.0f * tj - 4f * flow + 1.4f)
+    }
+    val swT1 = sin(2f * flow + 0.9f)
+    val swT2 = sin(flow + 2.1f)
+
     for (s in 0 until f.total) {
         val th = f.theta[s]
-        val ring = 0.045f * sin(3f * th + 2f * flow + 0.5f) + 0.03f * sin(5f * th - 3f * flow + 1.3f)
+        val ring = bodyMod(th)
         val rEff = f.rEnd[s] * rad * (1f + ring) * (1f + 0.03f * glow)
 
-        val a1 = 3f * th - 3f * flow + 0.4f
-        val a2 = 7f * th + 2f * flow + 1.9f
         val a3 = f.phase[s] + 5f * flow
         val a4 = 1.7f * f.phase[s] + 4f * flow
-        val sA1 = sin(a1); val cA1 = cos(a1)
-        val sA2 = sin(a2); val cA2 = cos(a2)
         val sA3 = sin(a3); val cA3 = cos(a3)
         val sA4 = sin(a4); val cA4 = cos(a4)
-        val swirl = 0.55f * sin(2f * th + 2f * flow + 0.7f) + 0.35f * sin(3f * th - flow + 0.2f)
+        val swirl = 0.30f * f.swC[s] + 0.45f * f.swA[s] * swT1 + 0.30f * f.swB[s] * swT2
+        val amp1 = f.amp1[s]
+        val amp2 = f.amp2[s]
+        val amp3 = f.amp3[s]
         val indiv = f.indiv[s]
 
         val cth = cos(th)
@@ -1500,13 +1546,12 @@ private fun DrawScope.drawJellyfish(
         val startY = cy + ea * cth * sa + eb * sth * ca
 
         for (j in 0 until n) {
-            // sin(A + B) via angle addition: the per-strand part is computed once above.
-            val s1 = sA1 * f.cB1[j] + cA1 * f.sB1[j]
-            val s2 = sA2 * f.cB2[j] + cA2 * f.sB2[j]
+            // Individual ripple: sin(A + B) via angle addition (per-strand part computed once above).
             val s3 = sA3 * f.cB3[j] + cA3 * f.sB3[j]
             val s4 = sA4 * f.cB4[j] + cA4 * f.sB4[j]
-            val wob = f.env[j] * (0.13f * s1 + 0.085f * s2 + 0.07f * indiv * s3 + 0.035f * indiv * s4)
-            val phi = th + rot + swirl * f.swirlW[j] + wob
+            val wob = f.env[j] * (0.17f * amp1 * f.rf1[j] + 0.11f * amp2 * f.rf2[j] + 0.08f * amp3 * f.rf3[j] +
+            0.07f * indiv * s3 + 0.035f * indiv * s4)
+            val phi = th + swirl * f.swirlW[j] + wob
             val r = rEff * f.radial[j]
             val qx = cx + r * cos(phi)
             val qy = cy + r * sin(phi)
@@ -1538,7 +1583,7 @@ private fun DrawScope.drawJellyfish(
 
         if (isCap) {
             // The strand ends exactly at the flat side of its cap.
-            val phe = th + rot
+            val phe = th
             f.capX[s] = cx + rEff * cos(phe)
             f.capY[s] = cy + rEff * sin(phe)
             f.capAng[s] = phe + f.capTiltAmp[s] * sin(6f * flow + f.capTiltPhase[s])
@@ -1602,7 +1647,7 @@ private fun DrawScope.drawJellyfish(
     val teal = Color(0xFF21D1BF)
     val coral = Color(0xFFFF4066)
     for (k in 0 until f.pn) {
-        val ang = f.pA[k] + rot * 0.6f + 0.12f * sin(f.pK[k] * flow + f.pPh[k])
+        val ang = f.pA[k] + 0.12f * sin(f.pK[k] * flow + f.pPh[k])
         val rr = f.pR[k] * rad * (1f + 0.03f * sin(f.pK[k] * flow + f.pPh[k] * 2f))
         val px = cx + rr * cos(ang)
         val py = cy + rr * sin(ang)
@@ -1741,22 +1786,10 @@ private fun SphereComposition(
 ) {
     val jelly = remember { JellyField() }
     val infinite = rememberInfiniteTransition(label = "sphere")
-    // When 8D is off, the rotation value is forced to 0 — sphere stays still.
-    // When on, it spins via the infinite transition. The infinite transition
-    // keeps running internally (minor battery cost) but the rendered value is
-    // discarded when 8D is off.
-    val animRotation by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(9000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "rot",
-    )
-    // Tap/hold add extra spin: tiny on a click, up to 1.5 turns while held.
-    val rotation = (if (rotationEnabled) animRotation else 0f) + spinDeg
-    val pulse by infinite.animateFloat(
+    // States are read inside the Canvas draw lambda (not here), so the 60 fps
+    // animation only re-draws — it does not recompose this whole composable.
+    // Core breathing.
+    val pulseAnim = infinite.animateFloat(
         initialValue = 0f,
         targetValue = (2f * Math.PI).toFloat(),
         animationSpec = infiniteRepeatable(
@@ -1766,8 +1799,8 @@ private fun SphereComposition(
         label = "pulse",
     )
     // Master loop for strand sway / caps / particles. Everything uses integer
-    // harmonics of this phase, so the 15 s loop is seamless.
-    val flowAnim by infinite.animateFloat(
+    // harmonics of this phase, so the loop is seamless.
+    val flowAnim = infinite.animateFloat(
         initialValue = 0f,
         targetValue = (2f * Math.PI).toFloat(),
         animationSpec = infiniteRepeatable(
@@ -2103,16 +2136,16 @@ private fun SphereComposition(
         }
 
         // ── Jellyfish sphere (replaces the old dot sphere) ──
-        // Colour = `tint` (green / red 8D state). Spin = `rotation` (slow swirl,
-        // 0 when Sphere Rotation is off). Tap burst = `glow`.
+        // Colour = `tint` (blue = 8D on, red = off). It moves (breathes, lobes, drift)
+        // but never rotates, whether 8D is on or off — so `rotationEnabled` and
+        // `spinDeg` are intentionally not used here. Tap burst = `glow`.
         drawJellyfish(
             f = jelly,
-            cx = cx,
-            cy = cy,
-            rad = sphereR * 0.97f,
-            flow = flowAnim,
-            rot = rotation * 0.017453292f,
-            breath = sin(pulse),
+            baseX = cx,
+            baseY = cy,
+            rad = sphereR * 0.93f,
+            flow = flowAnim.value,
+            breath = sin(pulseAnim.value),
             glow = glow,
             tint = tint,
         )
