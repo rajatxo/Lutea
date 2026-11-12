@@ -95,11 +95,10 @@ fun EffectVisual(
     var expandedView by remember { mutableStateOf(false) }
     var expandedSide by remember { mutableStateOf(0) }  // 0=none, 1=orbit(top), 2=ambience(bottom)
     var topMenuOpen by remember { mutableStateOf(false) }
-    // Quick tap → small burst + toggle. Hold → glow and spin build up gradually.
+    // Any touch on the sphere toggles 8D immediately. Holding only lets you
+    // watch the colour cross-fade — there is no separate hold behaviour.
     var tapTick by remember { mutableStateOf(0) }
     val tapPulse = remember { androidx.compose.animation.core.Animatable(0f) }
-    var holding by remember { mutableStateOf(false) }
-    val holdPulse = remember { androidx.compose.animation.core.Animatable(0f) }
 
     androidx.compose.runtime.LaunchedEffect(tapTick) {
         if (tapTick > 0) {
@@ -107,40 +106,23 @@ fun EffectVisual(
             tapPulse.animateTo(
                 0f,
                 androidx.compose.animation.core.tween(
-                    420,
+                    520,
                     easing = androidx.compose.animation.core.LinearOutSlowInEasing,
                 ),
             )
         }
     }
-    androidx.compose.runtime.LaunchedEffect(holding) {
-        if (holding) {
-            // Accelerating ramp: every moment adds more glow and more speed than
-            // the last, layer by layer, instead of jumping straight to full.
-            holdPulse.animateTo(
-                1f,
-                androidx.compose.animation.core.tween(
-                    900,
-                    easing = androidx.compose.animation.core.FastOutLinearInEasing,
-                ),
-            )
-        } else {
-            holdPulse.animateTo(
-                0f,
-                androidx.compose.animation.core.tween(
-                    500,
-                    easing = androidx.compose.animation.core.LinearOutSlowInEasing,
-                ),
-            )
-        }
-    }
-    val glowLevel = (holdPulse.value + tapPulse.value * 0.55f).coerceIn(0f, 1f)
-    val spinDeg = holdPulse.value * 540f + tapPulse.value * 30f
+    val glowLevel = (tapPulse.value * 0.55f).coerceIn(0f, 1f)
+    val spinDeg = tapPulse.value * 30f
     // Permanent state colour. Toggling cross-fades it, so turning off reads as
     // green → red and turning on as red → green.
     val stateTint = androidx.compose.animation.animateColorAsState(
         targetValue = if (eightDOn) Color(0xFF3DDC84) else Color(0xFFFF3B30),
-        animationSpec = androidx.compose.animation.core.tween(450),
+        // Slow enough that a hold visibly walks green → red instead of snapping.
+        animationSpec = androidx.compose.animation.core.tween(
+            900,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+        ),
         label = "eightDTint",
     ).value
 
@@ -203,7 +185,6 @@ fun EffectVisual(
                 glow = glowLevel,
                 spinDeg = spinDeg,
                 tint = stateTint,
-                onHoldChange = { holding = it },
                 onQuickTap = {
                     tapTick++
                     val next = !eightDOn
@@ -1172,7 +1153,6 @@ private fun SphereComposition(
     glow: Float = 0f,
     spinDeg: Float = 0f,
     tint: Color = Color.White,
-    onHoldChange: (Boolean) -> Unit = {},
     onQuickTap: () -> Unit = {},
 ) {
     val points = remember { fibonacciSphere(180) }
@@ -1231,16 +1211,12 @@ private fun SphereComposition(
                     val dx = offset.x - w / 2f
                     val dy = offset.y - w / 2f
                     val sphereR = w * 0.2026f
-                    if (dx * dx + dy * dy > sphereR * sphereR) {
-                        tryAwaitRelease()
-                        return@detectTapGestures
+                    if (dx * dx + dy * dy <= sphereR * sphereR) {
+                        // Toggles on touch, not on release — holding makes no
+                        // difference, it only lets you watch the colour fade.
+                        onQuickTap()
                     }
-                    val startedAt = System.currentTimeMillis()
-                    onHoldChange(true)
-                    val released = tryAwaitRelease()
-                    onHoldChange(false)
-                    // Under 320ms counts as a click: toggle 8D with the small burst.
-                    if (released && System.currentTimeMillis() - startedAt < 320) onQuickTap()
+                    tryAwaitRelease()
                 },
             )
         },
