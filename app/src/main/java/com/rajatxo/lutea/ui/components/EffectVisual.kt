@@ -326,7 +326,7 @@ fun EffectVisual(
             val endPad = 20.dp
             val gap = 8.dp
             val dotsSize = 40.dp
-            val titleText = "Spatial Audio : 8D"
+            val titleText = "8D : Spatial Audio"
             val titleStyle = TextStyle(
                 fontFamily = CalSansFamily,
                 fontWeight = FontWeight.Bold,
@@ -536,7 +536,7 @@ private fun SideChevron(
         }
         drawPath(
             path = path,
-            color = Color.White.copy(alpha = if (enabled) 0.85f else 0.25f),
+            color = Color.Black.copy(alpha = if (enabled) 0.85f else 0.25f),
             style = Stroke(width = sw, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round),
         )
     }
@@ -569,19 +569,13 @@ private fun EffectSidePanel(
     val canUp = safeIndex < labels.size - 1      // swipe up   -> next capsule
     val canDown = safeIndex > 0                  // swipe down -> previous capsule
 
-    // Black at the screen edge fading to grey on the inner side.
-    val edgeBlack = Color(0xFF000000)
-    val innerGrey = Color(0xFF3A3A3E)
     var dragSum by remember { mutableStateOf(0f) }
 
     Box(
         modifier = modifier
             .size(width, height)
             .clip(shape)
-            .background(
-                if (isLeft) Brush.horizontalGradient(listOf(edgeBlack, innerGrey))
-                else Brush.horizontalGradient(listOf(innerGrey, edgeBlack))
-            )
+            .background(Color.White.copy(alpha = 0.95f))
             .pointerInput(labels.size, safeIndex) {
                 detectVerticalDragGestures(
                     onDragStart = { dragSum = 0f },
@@ -612,7 +606,7 @@ private fun EffectSidePanel(
                     .weight(1f)
                     .width(width * 0.74f)
                     .clip(RoundedCornerShape(50))
-                    .background(Color.White)
+                    .background(Color.Black)
                     .clickable { onToggle() },
                 contentAlignment = Alignment.Center,
             ) {
@@ -625,7 +619,7 @@ private fun EffectSidePanel(
                 ) {
                     Text(
                         text = labels.getOrElse(safeIndex) { label },
-                        color = Color.Black.copy(alpha = if (isOn) 1f else 0.75f),
+                        color = Color.White.copy(alpha = if (isOn) 1f else 0.75f),
                         fontFamily = CalSansFamily,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = textSize,
