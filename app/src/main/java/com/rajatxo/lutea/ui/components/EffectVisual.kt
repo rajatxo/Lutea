@@ -348,7 +348,7 @@ fun EffectVisual(
             val capsulePadV = with(density) { (barWidth.toPx() * 0.012f).toDp() }
 
             // ── Edge panels: Orbit Speed (left), Spatial Ambience (right) ──
-            val panelW = barWidth * 0.125f
+            val panelW = barWidth * 0.108f
             val panelH = barWidth * 0.46f
             // Vertical centre of the tabs, as a fraction of the screen height.
             val panelTop = maxHeight * 0.62f - panelH / 2f
@@ -484,7 +484,7 @@ fun EffectVisual(
  */
 private class SideAttachShape(
     private val isLeft: Boolean,
-    private val flareFrac: Float = 0.14f,   // flare height as a fraction of the bar height
+    private val flareFrac: Float = 0.27f,   // flare height as a fraction of the bar height
 ) : Shape {
     override fun createOutline(
         size: Size,
@@ -497,15 +497,15 @@ private class SideAttachShape(
         val path = Path().apply {
             if (isLeft) {
                 moveTo(0f, 0f)
-                cubicTo(0f, f * 0.55f, w, f * 0.45f, w, f)
+                cubicTo(0f, f * 0.50f, w, f * 0.50f, w, f)
                 lineTo(w, h - f)
-                cubicTo(w, h - f * 0.45f, 0f, h - f * 0.55f, 0f, h)
+                cubicTo(w, h - f * 0.50f, 0f, h - f * 0.50f, 0f, h)
                 close()
             } else {
                 moveTo(w, 0f)
-                cubicTo(w, f * 0.55f, 0f, f * 0.45f, 0f, f)
+                cubicTo(w, f * 0.50f, 0f, f * 0.50f, 0f, f)
                 lineTo(0f, h - f)
-                cubicTo(0f, h - f * 0.45f, w, h - f * 0.55f, w, h)
+                cubicTo(0f, h - f * 0.50f, w, h - f * 0.50f, w, h)
                 close()
             }
         }
@@ -600,7 +600,7 @@ private fun EffectSidePanel(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(vertical = height * 0.15f),
+                .padding(vertical = height * 0.20f),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(height * 0.03f),
         ) {
@@ -610,7 +610,7 @@ private fun EffectSidePanel(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .width(width * 0.76f)
+                    .width(width * 0.74f)
                     .clip(RoundedCornerShape(50))
                     .background(Color.White)
                     .clickable { onToggle() },
@@ -620,7 +620,7 @@ private fun EffectSidePanel(
                 Box(
                     modifier = Modifier
                         .drawRotate(if (isLeft) -90f else 90f)
-                        .requiredWidth(height * 0.50f),
+                        .requiredWidth(height * 0.44f),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
