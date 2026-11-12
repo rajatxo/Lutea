@@ -161,10 +161,15 @@ fun LuteaArc(
 
     // ── Wheel rotation state (Animatable for physics fling + spring snap) ──
     val wheelPrefs = remember { context.getSharedPreferences("lutea_wheel", android.content.Context.MODE_PRIVATE) }
-    // ★ Save RAW scroll value (float) — remembers exact thumb position on restart.
-    val savedScroll = remember { wheelPrefs.getFloat("wheel_scroll_offset", 0f) }
-    val savedIndex = remember { wheelPrefs.getInt("wheel_center_index", 0) }
     val pxPerItem = with(density) { 64.dp.toPx() }
+    // ★ Restore the saved position snapped to the nearest item. A raw float saved
+    //    mid-fling left the centre label tilted by a few degrees when this screen
+    //    came back (e.g. after switching tabs), because the wheel never re-snapped.
+    val savedScroll = remember {
+        val raw = wheelPrefs.getFloat("wheel_scroll_offset", 0f)
+        (raw / pxPerItem).roundToInt() * pxPerItem
+    }
+    val savedIndex = remember { wheelPrefs.getInt("wheel_center_index", 0) }
     val scrollOffset = remember { Animatable(savedScroll) }
     var lastSnappedIndex by remember { mutableStateOf(savedIndex) }
 
@@ -254,7 +259,8 @@ fun LuteaArc(
             lastSavedCenter = centerIndex
             wheelPrefs.edit()
                 .putInt("wheel_center_index", centerIndex)
-                .putFloat("wheel_scroll_offset", scrollOffset.value)
+                // Store the snapped position, so a restore never lands mid-item.
+                .putFloat("wheel_scroll_offset", (scrollOffset.value / pxPerItem).roundToInt() * pxPerItem)
                 .apply()
         }
     }

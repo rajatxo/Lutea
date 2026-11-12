@@ -112,10 +112,17 @@ object PlaybackConnection {
         if (controller != null) return
         try {
             val app = context.applicationContext
-            // Load persisted 8D slider values
+            appContext = app
+            // Restore the last 8D session: on/off plus both slider values.
             val prefs = app.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE)
-            _orbitSlider.value = prefs.getInt("orbit_slider", 13)
-            _ambienceSlider.value = prefs.getInt("ambience_slider", 13)
+            _orbitSlider.value = prefs.getInt("orbit_slider", 13).coerceIn(1, 25)
+            _ambienceSlider.value = prefs.getInt("ambience_slider", 13).coerceIn(1, 25)
+            val savedOn = prefs.getBoolean("enabled", false)
+            _is8DEnabled.value = savedOn
+            _is8DActive.value = savedOn
+            LuteaAudioProcessors.spatial8D.set8DEnabled(savedOn)
+            LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(_orbitSlider.value))
+            LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(_ambienceSlider.value))
 
             val sessionToken = SessionToken(app, ComponentName(app, LuteaPlaybackService::class.java))
             val c = MediaController.Builder(app, sessionToken).buildAsync().await()
@@ -175,6 +182,9 @@ object PlaybackConnection {
         // Apply current slider values to the processor
         LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(_orbitSlider.value))
         LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(_ambienceSlider.value))
+        // Persist, so the next launch starts in the same state
+        appContext?.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE)
+            ?.edit()?.putBoolean("enabled", enabled)?.apply()
     }
 
     /** Slider drag: writes to the processor in real-time. Value is 1..25. */

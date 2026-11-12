@@ -198,11 +198,13 @@ fun EffectVisual(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithCache {
-                    val spacing = size.width * 0.04f
-                    val radius = size.width * 0.004f
-                    // Start just under the sphere composition box, then fade in.
-                    val startY = size.width * compositionHeightFrac * 0.92f
-                    val fadeSpan = size.height * 0.18f
+                    val spacing = size.width * 0.038f
+                    val radius = size.width * 0.0055f
+                    // Never above the sphere composition; the fade starts around the
+                    // middle of the screen and runs all the way to the bottom.
+                    val sphereBottom = size.width * compositionHeightFrac * 0.92f
+                    val startY = maxOf(sphereBottom, size.height * 0.50f)
+                    val fadeSpan = size.height * 0.38f
                     onDrawBehind {
                         var y = startY
                         while (y < size.height) {
@@ -211,7 +213,7 @@ fun EffectVisual(
                                 var x = spacing
                                 while (x < size.width) {
                                     drawCircle(
-                                        color = Color.White.copy(alpha = 0.07f * a),
+                                        color = Color.White.copy(alpha = 0.16f * a),
                                         radius = radius,
                                         center = Offset(x, y),
                                     )
