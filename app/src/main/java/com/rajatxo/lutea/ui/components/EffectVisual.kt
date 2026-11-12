@@ -281,50 +281,6 @@ fun EffectVisual(
                     },
                 contentAlignment = Alignment.BottomCenter,
             ) {
-                // ── Orbit Speed capsule at top-left corner of card ──
-                if (eightDOn) {
-                    val cornerCapsulePadH = with(density) { (widthPx * 0.018f).toDp() }
-                    val cornerCapsulePadV = with(density) { (widthPx * 0.008f).toDp() }
-                    // Same radius as the card it sits on, so the corners line up with the square.
-                    val cornerCapsuleCorner = cardCornerDp
-                    val cornerTextSize = with(density) { (widthPx * 0.020f).toSp() }
-                    val cornerSwitchWidth = with(density) { (widthPx * 0.040f).toDp() }
-                    EffectCornerCapsule(
-                        label = "Orbit Speed",
-                        // Switch = show this effect's numbers around the sphere.
-                        isOn = expandedView && expandedSide == 1,
-                        onClick = {
-                            if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
-                            else { expandedView = true; expandedSide = 1 }
-                        },
-                        textSize = cornerTextSize,
-                        switchWidth = cornerSwitchWidth,
-                        padH = cornerCapsulePadH,
-                        padV = cornerCapsulePadV,
-                        corner = cornerCapsuleCorner,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(top = cornerCapsulePadV, start = cornerCapsulePadH),
-                    )
-                    // ── Spatial Ambience capsule at top-right corner of card ──
-                    EffectCornerCapsule(
-                        label = "Spatial Ambience",
-                        isOn = expandedView && expandedSide == 2,
-                        onClick = {
-                            if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
-                            else { expandedView = true; expandedSide = 2 }
-                        },
-                        textSize = cornerTextSize,
-                        switchWidth = cornerSwitchWidth,
-                        padH = cornerCapsulePadH,
-                        padV = cornerCapsulePadV,
-                        corner = cornerCapsuleCorner,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = cornerCapsulePadV, end = cornerCapsulePadH),
-                    )
-                }
-
                 Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
                     Image(
                         painter = painterResource(headRes),
@@ -424,6 +380,40 @@ fun EffectVisual(
                     }
                 }
 
+            // ── Edge panels: Orbit Speed (left), Spatial Ambience (right) ──
+            val panelW = barWidth * 0.26f
+            val panelH = maxHeight * 0.55f
+            val panelText = with(density) { (barWidth.toPx() * 0.020f).toSp() }
+            val panelSwitch = barWidth * 0.075f
+            EffectSidePanel(
+                label = "Orbit Speed",
+                isOn = expandedView && expandedSide == 1,
+                onToggle = {
+                    if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
+                    else { expandedView = true; expandedSide = 1 }
+                },
+                width = panelW,
+                height = panelH,
+                isLeft = true,
+                textSize = panelText,
+                switchWidth = panelSwitch,
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
+            EffectSidePanel(
+                label = "Spatial Ambience",
+                isOn = expandedView && expandedSide == 2,
+                onToggle = {
+                    if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
+                    else { expandedView = true; expandedSide = 2 }
+                },
+                width = panelW,
+                height = panelH,
+                isLeft = false,
+                textSize = panelText,
+                switchWidth = panelSwitch,
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+
                 // ── Menu: three capsules under the title, fitted to the screen ──
                 if (topMenuOpen) {
                     Spacer(Modifier.height(12.dp))
@@ -473,6 +463,73 @@ fun EffectVisual(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EffectSidePanel(
+    label: String,
+    isOn: Boolean,
+    onToggle: () -> Unit,
+    width: androidx.compose.ui.unit.Dp,
+    height: androidx.compose.ui.unit.Dp,
+    isLeft: Boolean,
+    textSize: androidx.compose.ui.unit.TextUnit,
+    switchWidth: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+) {
+    // Rounded on the inner edge only — the outer edge stays flush with the screen.
+    val r = width * 0.22f
+    val shape = if (isLeft) {
+        RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = r, bottomEnd = r)
+    } else {
+        RoundedCornerShape(topStart = r, bottomStart = r, topEnd = 0.dp, bottomEnd = 0.dp)
+    }
+    // Black base with the blue-violet glow bleeding toward the inner edge.
+    val dark = Color(0xFF030305)
+    val mid = Color(0xFF0B0A16)
+    val violet = Color(0xFF2B1B63)
+    Box(
+        modifier = modifier
+            .size(width, height)
+            .clip(shape)
+            .background(
+                if (isLeft) Brush.horizontalGradient(listOf(dark, mid, violet))
+                else Brush.horizontalGradient(listOf(violet, mid, dark))
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
+            .clickable { onToggle() }
+            .padding(horizontal = width * 0.10f, vertical = height * 0.08f),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = label,
+                color = if (isOn) Color.White else Color.White.copy(alpha = 0.45f),
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = textSize,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 2,
+            )
+            Spacer(Modifier.height(switchWidth * 0.6f))
+            Box(
+                modifier = Modifier
+                    .size(switchWidth, switchWidth * 0.55f)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (isOn) Color(0xFFD4A03A) else Color.White.copy(alpha = 0.10f))
+                    .clickable { onToggle() }
+                    .padding(switchWidth * 0.08f),
+                contentAlignment = if (isOn) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(switchWidth * 0.5f)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White),
+                )
             }
         }
     }
