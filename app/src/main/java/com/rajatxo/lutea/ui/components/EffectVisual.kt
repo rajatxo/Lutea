@@ -269,31 +269,6 @@ fun EffectVisual(
                     },
                 contentAlignment = Alignment.BottomCenter,
             ) {
-                // ── Black panel over the grid behind the sphere ──
-                // Sits on top of the dot grid and fades out at its bottom edge, so
-                // the grid appears to slide into it.
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .height(sphereOverlapDp)
-                        .clip(
-                            RoundedCornerShape(
-                                topStart = cardTopCornerDp,
-                                topEnd = cardTopCornerDp,
-                            )
-                        )
-                        .background(
-                            Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0.0f to Color.Black,
-                                    0.62f to Color.Black,
-                                    1.0f to Color.Transparent,
-                                )
-                            )
-                        ),
-                )
-
                 Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
                     Image(
                         painter = painterResource(headRes),
