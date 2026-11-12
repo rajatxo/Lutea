@@ -95,28 +95,48 @@ fun EffectVisual(
     var expandedView by remember { mutableStateOf(false) }
     var expandedSide by remember { mutableStateOf(0) }  // 0=none, 1=orbit(top), 2=ambience(bottom)
     var topMenuOpen by remember { mutableStateOf(false) }
-    // Bumped on every sphere tap; drives the glow + spin burst.
-    var touchTick by remember { mutableStateOf(0) }
-    val touchPulse = remember { androidx.compose.animation.core.Animatable(0f) }
-    androidx.compose.runtime.LaunchedEffect(touchTick) {
-        if (touchTick > 0) {
-            touchPulse.snapTo(0f)
-            touchPulse.animateTo(
-                1f,
-                androidx.compose.animation.core.tween(
-                    160,
-                    easing = androidx.compose.animation.core.FastOutLinearInEasing,
-                ),
-            )
-            touchPulse.animateTo(
+    // Quick tap → small burst + toggle. Hold → glow and spin build up gradually.
+    var tapTick by remember { mutableStateOf(0) }
+    val tapPulse = remember { androidx.compose.animation.core.Animatable(0f) }
+    var holding by remember { mutableStateOf(false) }
+    val holdPulse = remember { androidx.compose.animation.core.Animatable(0f) }
+
+    androidx.compose.runtime.LaunchedEffect(tapTick) {
+        if (tapTick > 0) {
+            tapPulse.snapTo(1f)
+            tapPulse.animateTo(
                 0f,
                 androidx.compose.animation.core.tween(
-                    620,
+                    420,
                     easing = androidx.compose.animation.core.LinearOutSlowInEasing,
                 ),
             )
         }
     }
+    androidx.compose.runtime.LaunchedEffect(holding) {
+        if (holding) {
+            // Accelerating ramp: every moment adds more glow and more speed than
+            // the last, layer by layer, instead of jumping straight to full.
+            holdPulse.animateTo(
+                1f,
+                androidx.compose.animation.core.tween(
+                    3000,
+                    easing = androidx.compose.animation.core.FastOutLinearInEasing,
+                ),
+            )
+        } else {
+            holdPulse.animateTo(
+                0f,
+                androidx.compose.animation.core.tween(
+                    500,
+                    easing = androidx.compose.animation.core.LinearOutSlowInEasing,
+                ),
+            )
+        }
+    }
+    val glowLevel = (holdPulse.value + tapPulse.value * 0.30f).coerceIn(0f, 1f)
+    val spinDeg = holdPulse.value * 540f + tapPulse.value * 30f
+
     // Sphere rotation + Ball rotation toggles (persisted)
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE) }
@@ -173,9 +193,12 @@ fun EffectVisual(
                     if (isTop) PlaybackConnection.setOrbitSpeed(num)
                     else PlaybackConnection.setSpatialAmbience(num)
                 },
-                touchPulse = touchPulse.value,
-                onSphereTap = {
-                    touchTick++
+                glow = glowLevel,
+                spinDeg = spinDeg,
+                glowColor = if (eightDOn) Color(0xFF3DDC84) else Color(0xFFFF3B30),
+                onHoldChange = { holding = it },
+                onQuickTap = {
+                    tapTick++
                     val next = !eightDOn
                     PlaybackConnection.set8DEnabled(next)
                     if (!next) { expandedView = false; expandedSide = 0 }
@@ -1139,8 +1162,11 @@ private fun SphereComposition(
     selectedOrbit: Int = 13,
     selectedAmbience: Int = 13,
     onNumberClick: (Int, Boolean) -> Unit = { _, _ -> },
-    touchPulse: Float = 0f,
-    onSphereTap: () -> Unit = {},
+    glow: Float = 0f,
+    spinDeg: Float = 0f,
+    glowColor: Color = Color(0xFFD4A03A),
+    onHoldChange: (Boolean) -> Unit = {},
+    onQuickTap: () -> Unit = {},
 ) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
@@ -1157,8 +1183,8 @@ private fun SphereComposition(
         ),
         label = "rot",
     )
-    // Tap burst adds a short extra spin so the movement visibly changes.
-    val rotation = (if (rotationEnabled) animRotation else 0f) + touchPulse * 90f
+    // Tap/hold add extra spin: tiny on a click, up to 1.5 turns while held.
+    val rotation = (if (rotationEnabled) animRotation else 0f) + spinDeg
     val pulse by infinite.animateFloat(
         initialValue = 0f,
         targetValue = (2f * Math.PI).toFloat(),
@@ -1190,15 +1216,26 @@ private fun SphereComposition(
     Box(
         modifier = modifier.pointerInput(expandProgress > 0.5f) {
             if (expandProgress > 0.5f) return@pointerInput
-            detectTapGestures { offset ->
-                // Tap the sphere body to turn 8D on/off. While the number ring is
-                // open its own tap layer handles the taps instead.
-                val w = size.width.toFloat()
-                val dx = offset.x - w / 2f
-                val dy = offset.y - w / 2f
-                val sphereR = w * 0.2026f
-                if (dx * dx + dy * dy <= sphereR * sphereR) onSphereTap()
-            }
+            detectTapGestures(
+                onPress = { offset ->
+                    // Only the sphere body reacts. While the number ring is open
+                    // its own tap layer handles the taps instead.
+                    val w = size.width.toFloat()
+                    val dx = offset.x - w / 2f
+                    val dy = offset.y - w / 2f
+                    val sphereR = w * 0.2026f
+                    if (dx * dx + dy * dy > sphereR * sphereR) {
+                        tryAwaitRelease()
+                        return@detectTapGestures
+                    }
+                    val startedAt = System.currentTimeMillis()
+                    onHoldChange(true)
+                    val released = tryAwaitRelease()
+                    onHoldChange(false)
+                    // Under 320ms counts as a click: toggle 8D with the small burst.
+                    if (released && System.currentTimeMillis() - startedAt < 320) onQuickTap()
+                },
+            )
         },
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -1498,22 +1535,22 @@ private fun SphereComposition(
             projected.add(SpherePoint(x1, p.y, z1))
         }
         projected.sortBy { it.z }
-        val pulseAmp = 0.10f + 0.30f * touchPulse
+        val pulseAmp = 0.10f + 0.35f * glow
         for (v in projected) {
             val depth = (v.z + 1f) * 0.5f
             val wave = sin(pulse + depth * 3f)
             val scale = 1f + pulseAmp * wave
-            val dotR = baseDot * (0.4f + depth * 0.9f) * scale * (1f + touchPulse * 1.2f)
+            val dotR = baseDot * (0.4f + depth * 0.9f) * scale * (1f + glow * 1.0f)
             val px = cx + v.x * sphereR
             val py = cy - v.y * sphereR
             val alpha = (0.18f + depth * 0.82f).coerceAtMost(1f)
-            // Tap burst: every dot gets a soft gold halo, brighter toward the front.
-            if (touchPulse > 0.01f) {
+            // Glow: green when 8D is on, red when off. Grows with the hold level.
+            if (glow > 0.01f) {
                 drawCircle(
-                    color = Color(0xFFD4A03A).copy(
-                        alpha = (0.22f * touchPulse * (0.35f + depth * 0.65f)).coerceIn(0f, 0.5f)
+                    color = glowColor.copy(
+                        alpha = (0.26f * glow * (0.35f + depth * 0.65f)).coerceIn(0f, 0.55f)
                     ),
-                    radius = dotR * 3.4f,
+                    radius = dotR * (2.4f + 1.2f * glow),
                     center = Offset(px, py),
                 )
             }
