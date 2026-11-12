@@ -64,6 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.geometry.Offset as TapOffset
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -476,36 +477,79 @@ fun EffectVisual(
 }
 
 /**
- * Rounded rectangle with a semicircular notch carved into the outer edge, so the
- * tab wraps around the simulated side button of the phone.
+ * Edge-attached pill, like the reference: the screen edge flows into the bar through a smooth
+ * S-curve (concave where it leaves the edge, convex where it becomes the body), a straight
+ * inner side, then the same S-curve back to the edge. Mirrored for the right side.
+ * The shape's box = the full bar including both flares, so size/position stay as before.
  */
-private class SideNotchShape(
+private class SideAttachShape(
     private val isLeft: Boolean,
-    private val cornerRadiusPx: Float,
-    private val notchRadiusPx: Float,
+    private val flareFrac: Float = 0.14f,   // flare height as a fraction of the bar height
 ) : Shape {
     override fun createOutline(
         size: Size,
         layoutDirection: androidx.compose.ui.unit.LayoutDirection,
         density: androidx.compose.ui.unit.Density,
     ): Outline {
-        val body = Path().apply {
-            addRoundRect(
-                RoundRect(
-                    rect = Rect(0f, 0f, size.width, size.height),
-                    cornerRadius = CornerRadius(cornerRadiusPx),
-                )
-            )
+        val w = size.width
+        val h = size.height
+        val f = h * flareFrac
+        val path = Path().apply {
+            if (isLeft) {
+                moveTo(0f, 0f)
+                cubicTo(0f, f * 0.55f, w, f * 0.45f, w, f)
+                lineTo(w, h - f)
+                cubicTo(w, h - f * 0.45f, 0f, h - f * 0.55f, 0f, h)
+                close()
+            } else {
+                moveTo(w, 0f)
+                cubicTo(w, f * 0.55f, 0f, f * 0.45f, 0f, f)
+                lineTo(0f, h - f)
+                cubicTo(0f, h - f * 0.45f, w, h - f * 0.55f, w, h)
+                close()
+            }
         }
-        val notch = Path().apply {
-            val edgeX = if (isLeft) 0f else size.width
-            addOval(Rect(center = Offset(edgeX, size.height / 2f), radius = notchRadiusPx))
-        }
-        val path = Path().apply { op(body, notch, PathOperation.Difference) }
         return Outline.Generic(path)
     }
 }
 
+/** Chevron drawn with two strokes (no icon dependency). */
+@Composable
+private fun SideChevron(
+    up: Boolean,
+    enabled: Boolean,
+    width: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.size(width, width * 0.55f)) {
+        val sw = size.width * 0.14f
+        val path = Path().apply {
+            if (up) {
+                moveTo(sw, size.height - sw)
+                lineTo(size.width / 2f, sw)
+                lineTo(size.width - sw, size.height - sw)
+            } else {
+                moveTo(sw, sw)
+                lineTo(size.width / 2f, size.height - sw)
+                lineTo(size.width - sw, sw)
+            }
+        }
+        drawPath(
+            path = path,
+            color = Color.White.copy(alpha = if (enabled) 0.85f else 0.25f),
+            style = Stroke(width = sw, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round),
+        )
+    }
+}
+
+/**
+ * Side bar attached to the screen edge:
+ *   [ chevron up ]
+ *   [ white capsule with the label ]
+ *   [ chevron down ]
+ * Swipe up / down on the bar steps through [labels]. The chevrons sit outside the capsule but
+ * inside the bar.
+ */
 @Composable
 private fun EffectSidePanel(
     label: String,
@@ -516,53 +560,83 @@ private fun EffectSidePanel(
     isLeft: Boolean,
     textSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
+    labels: List<String> = listOf(label),
+    onStep: (index: Int) -> Unit = {},
 ) {
-    val density = LocalDensity.current
-    // Rounded card with a side-button notch cut into the outer edge.
-    val shape = remember(isLeft, width, height) {
-        with(density) {
-            SideNotchShape(
-                isLeft = isLeft,
-                cornerRadiusPx = width.toPx() * 0.40f,
-                notchRadiusPx = width.toPx() * 0.36f,
-            )
-        }
-    }
-    // Black base with the blue-violet glow only at the inner edge.
-    val dark = Color(0xFF030305)
-    val mid = Color(0xFF0A0913)
-    val violet = Color(0xFF241653)
+    val shape = remember(isLeft) { SideAttachShape(isLeft) }
+    var index by remember { mutableStateOf(0) }
+    val safeIndex = index.coerceIn(0, (labels.size - 1).coerceAtLeast(0))
+    val canUp = safeIndex < labels.size - 1      // swipe up   -> next capsule
+    val canDown = safeIndex > 0                  // swipe down -> previous capsule
+
+    // Black at the screen edge fading to grey on the inner side.
+    val edgeBlack = Color(0xFF000000)
+    val innerGrey = Color(0xFF3A3A3E)
+    var dragSum by remember { mutableStateOf(0f) }
+
     Box(
         modifier = modifier
             .size(width, height)
             .clip(shape)
             .background(
-                if (isLeft) Brush.horizontalGradient(listOf(dark, dark, mid, violet))
-                else Brush.horizontalGradient(listOf(violet, mid, dark, dark))
+                if (isLeft) Brush.horizontalGradient(listOf(edgeBlack, innerGrey))
+                else Brush.horizontalGradient(listOf(innerGrey, edgeBlack))
             )
-            .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
-            .clickable { onToggle() },
+            .pointerInput(labels.size, safeIndex) {
+                detectVerticalDragGestures(
+                    onDragStart = { dragSum = 0f },
+                    onVerticalDrag = { _, dy -> dragSum += dy },
+                    onDragEnd = {
+                        val threshold = 24.dp.toPx()
+                        if (dragSum <= -threshold && canUp) { index = safeIndex + 1; onStep(index) }
+                        else if (dragSum >= threshold && canDown) { index = safeIndex - 1; onStep(index) }
+                        dragSum = 0f
+                    },
+                    onDragCancel = { dragSum = 0f },
+                )
+            },
         contentAlignment = Alignment.Center,
     ) {
-        // Text runs along the tab: bottom-to-top on the left, top-to-bottom on
-        // the right. Pushed slightly inward so it clears the side notch.
-        Box(
+        Column(
             modifier = Modifier
-                .offset(x = if (isLeft) width * 0.11f else -width * 0.11f)
-                .drawRotate(if (isLeft) -90f else 90f)
-                .requiredWidth(height * 0.80f),
-            contentAlignment = Alignment.Center,
+                .fillMaxSize()
+                .padding(vertical = height * 0.15f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(height * 0.03f),
         ) {
-            Text(
-                text = label,
-                color = if (isOn) Color.White else Color.White.copy(alpha = 0.50f),
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = textSize,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                maxLines = 1,
-                softWrap = false,
-            )
+            SideChevron(up = true, enabled = canUp, width = width * 0.34f)
+
+            // White capsule
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .width(width * 0.76f)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White)
+                    .clickable { onToggle() },
+                contentAlignment = Alignment.Center,
+            ) {
+                // Text runs along the capsule: bottom-to-top on the left, top-to-bottom on the right.
+                Box(
+                    modifier = Modifier
+                        .drawRotate(if (isLeft) -90f else 90f)
+                        .requiredWidth(height * 0.50f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = labels.getOrElse(safeIndex) { label },
+                        color = Color.Black.copy(alpha = if (isOn) 1f else 0.75f),
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = textSize,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+            }
+
+            SideChevron(up = false, enabled = canDown, width = width * 0.34f)
         }
     }
 }
