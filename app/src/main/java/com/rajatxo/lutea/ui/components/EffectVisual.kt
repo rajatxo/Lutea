@@ -80,12 +80,18 @@ fun EffectVisual(
     val orbitSlider by PlaybackConnection.orbitSlider.collectAsState()
     val ambienceSlider by PlaybackConnection.ambienceSlider.collectAsState()
 
-    // Local UI state: when true, the sphere shows the new structure (1-25 top + 2-24 bottom)
-    // with a fade-in rotation animation. When false, shows the OLD look (8 tag icons +
-    // LEFT/RIGHT/UP/DOWN text). Tapping Orbit Speed or Spatial Ambience toggles this.
+    // Local UI state
     var expandedView by remember { mutableStateOf(false) }
-    // Which side is highlighted: 0=none, 1=orbit(top), 2=ambience(bottom)
-    var expandedSide by remember { mutableStateOf(0) }
+    var expandedSide by remember { mutableStateOf(0) }  // 0=none, 1=orbit(top), 2=ambience(bottom)
+    // Sphere rotation + Ball rotation toggles (persisted)
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE) }
+    var sphereRotationOn by remember {
+        mutableStateOf(prefs.getBoolean("sphere_rotation", true))
+    }
+    var ballRotationOn by remember {
+        mutableStateOf(prefs.getBoolean("ball_rotation", true))
+    }
     val expandProgress = androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (expandedView) 1f else 0f,
         animationSpec = androidx.compose.animation.core.tween(
@@ -122,19 +128,22 @@ fun EffectVisual(
             // LEFT/RIGHT/UP/DOWN text) and new (1-25 top + 2-24 bottom) structures.
             SphereComposition(
                 modifier = Modifier.fillMaxSize(),
-                rotationEnabled = eightDOn,
+                rotationEnabled = eightDOn && sphereRotationOn,
                 arrowsHighlighted = eightDOn,
                 expandProgress = expandProgress,
                 expandedSide = expandedSide,
+                selectedOrbit = orbitSlider,
+                selectedAmbience = ambienceSlider,
+                phase = com.rajatxo.lutea.playback.LuteaAudioProcessors.spatial8D.currentPhase,
             )
         }
 
-        // ── 8D Audio capsule + toggle + flanking Orbit Speed / Spatial Ambience capsules ──
+        // ── Capsule row: Sphere Rot | 8D Audio | Orbit Speed | Spatial Ambience | Ball Rot | Default ──
         EffectHeaderRow(
             enabled = eightDOn,
             onToggle = {
                 PlaybackConnection.set8DEnabled(it)
-                if (!it) expandedView = false   // collapse when toggling off
+                if (!it) { expandedView = false; expandedSide = 0 }
             },
             onOrbitSpeedClick = {
                 if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
@@ -143,6 +152,19 @@ fun EffectVisual(
             onSpatialAmbienceClick = {
                 if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
                 else { expandedView = true; expandedSide = 2 }
+            },
+            sphereRotationOn = sphereRotationOn,
+            onSphereRotationToggle = {
+                sphereRotationOn = it
+                prefs.edit().putBoolean("sphere_rotation", it).apply()
+            },
+            ballRotationOn = ballRotationOn,
+            onBallRotationToggle = {
+                ballRotationOn = it
+                prefs.edit().putBoolean("ball_rotation", it).apply()
+            },
+            onDefaultClick = {
+                PlaybackConnection.set8DPreset(com.rajatxo.lutea.playback.Effect8DPreset.BALANCED)
             },
             screenWidthPx = widthPx,
             modifier = Modifier
@@ -265,7 +287,7 @@ fun EffectVisual(
                         modifier = Modifier.fillMaxSize(),
                     )
                     // ── Glowing 8D ball that orbits the head ──
-                    if (eightDOn) {
+                    if (eightDOn && ballRotationOn) {
                         SpatialOrbBall(
                             headSizePx = with(density) { headSizeDp.toPx() },
                             modifier = Modifier.fillMaxSize(),
@@ -296,18 +318,23 @@ private fun EffectHeaderRow(
     onToggle: (Boolean) -> Unit,
     onOrbitSpeedClick: () -> Unit,
     onSpatialAmbienceClick: () -> Unit,
+    sphereRotationOn: Boolean,
+    onSphereRotationToggle: (Boolean) -> Unit,
+    ballRotationOn: Boolean,
+    onBallRotationToggle: (Boolean) -> Unit,
+    onDefaultClick: () -> Unit,
     screenWidthPx: Float,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
     val widthPx = screenWidthPx
-    val labelTextSize = with(density) { (widthPx * 0.030f).toSp() }
-    val sideLabelSize = with(density) { (widthPx * 0.024f).toSp() }
-    val capsulePadHDp = with(density) { (widthPx * 0.025f).toDp() }
-    val capsulePadVDp = with(density) { (widthPx * 0.012f).toDp() }
-    val capsuleCornerDp = with(density) { (widthPx * 0.04f).toDp() }
-    val toggleSizeDp = with(density) { (widthPx * 0.080f).toDp() }
-    val sideCapsuleSpacing = with(density) { (widthPx * 0.020f).toDp() }
+    val labelTextSize = with(density) { (widthPx * 0.024f).toSp() }
+    val smallTextSize = with(density) { (widthPx * 0.020f).toSp() }
+    val capsulePadHDp = with(density) { (widthPx * 0.018f).toDp() }
+    val capsulePadVDp = with(density) { (widthPx * 0.010f).toDp() }
+    val capsuleCornerDp = with(density) { (widthPx * 0.03f).toDp() }
+    val toggleSizeDp = with(density) { (widthPx * 0.050f).toDp() }
+    val sideCapsuleSpacing = with(density) { (widthPx * 0.012f).toDp() }
     val goldColor = Color(0xFFD4A03A)
 
     Row(
@@ -315,12 +342,35 @@ private fun EffectHeaderRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(sideCapsuleSpacing, Alignment.CenterHorizontally),
     ) {
-        // Left capsule — Orbit Speed (only when 8D is on). Tapping toggles the
-        // expanded sphere structure (1-25 + 2-24 numbers with fade-in animation).
+        // Sphere Rotation toggle (default ON, for users who get dizzy)
+        ToggleCapsule(
+            label = "Sphere Rot",
+            isOn = sphereRotationOn,
+            onToggle = onSphereRotationToggle,
+            textSize = smallTextSize,
+            toggleSize = toggleSizeDp,
+            padH = capsulePadHDp,
+            padV = capsulePadVDp,
+            corner = capsuleCornerDp,
+        )
+
+        // 8D Audio capsule + toggle
+        ToggleCapsule(
+            label = "8D Audio",
+            isOn = enabled,
+            onToggle = onToggle,
+            textSize = labelTextSize,
+            toggleSize = toggleSizeDp,
+            padH = capsulePadHDp,
+            padV = capsulePadVDp,
+            corner = capsuleCornerDp,
+        )
+
+        // Orbit Speed (only when 8D is on)
         if (enabled) {
             SideCapsule(
                 label = "Orbit Speed",
-                labelTextSize = sideLabelSize,
+                labelTextSize = smallTextSize,
                 padH = capsulePadHDp,
                 padV = capsulePadVDp,
                 corner = capsuleCornerDp,
@@ -328,57 +378,135 @@ private fun EffectHeaderRow(
             )
         }
 
-        // Center: 8D Audio capsule + toggle
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // Spatial Ambience (only when 8D is on)
+        if (enabled) {
+            SideCapsule(
+                label = "Spatial Ambience",
+                labelTextSize = smallTextSize,
+                padH = capsulePadHDp,
+                padV = capsulePadVDp,
+                corner = capsuleCornerDp,
+                onClick = onSpatialAmbienceClick,
+            )
+        }
+
+        // Ball Rotation toggle (default ON)
+        ToggleCapsule(
+            label = "Ball Rot",
+            isOn = ballRotationOn,
+            onToggle = onBallRotationToggle,
+            textSize = smallTextSize,
+            toggleSize = toggleSizeDp,
+            padH = capsulePadHDp,
+            padV = capsulePadVDp,
+            corner = capsuleCornerDp,
+        )
+
+        // Default button — resets to BALANCED (13/13)
+        if (enabled) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(capsuleCornerDp))
                     .background(Color.Black.copy(alpha = 0.45f))
                     .border(
-                        width = with(density) { (widthPx * 0.002f).toDp() },
+                        width = capsulePadHDp / 12f,
                         color = Cream.copy(alpha = 0.18f),
                         shape = RoundedCornerShape(capsuleCornerDp),
                     )
+                    .clickable { onDefaultClick() }
                     .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "8D Audio",
-                    color = Cream,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = labelTextSize,
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .padding(start = with(density) { (widthPx * 0.015f).toDp() })
-                    .size(toggleSizeDp, toggleSizeDp * 0.55f)
-                    .clip(RoundedCornerShape(50))
-                    .background(if (enabled) goldColor else Color.White.copy(alpha = 0.10f))
-                    .clickable { onToggle(!enabled) }
-                    .padding(with(density) { (widthPx * 0.005f).toDp() }),
-                contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
-            ) {
-                val knobSize = with(density) { (widthPx * 0.040f).toDp() }
-                Box(
-                    modifier = Modifier
-                        .size(knobSize)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.White),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Default",
+                        color = Cream,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = smallTextSize,
+                    )
+                    Spacer(Modifier.width(with(density) { (widthPx * 0.008f).toDp() }))
+                    // Circular arrow icon (simple Canvas)
+                    Box(modifier = Modifier.size(with(density) { (widthPx * 0.022f).toDp() })) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val r = size.minDimension * 0.35f
+                            val c = Offset(size.width / 2f, size.height / 2f)
+                            drawArc(
+                                color = goldColor,
+                                startAngle = -45f,
+                                sweepAngle = 270f,
+                                useCenter = false,
+                                topLeft = Offset(c.x - r, c.y - r),
+                                size = Size(r * 2, r * 2),
+                                style = Stroke(width = size.minDimension * 0.08f, cap = StrokeCap.Round),
+                            )
+                            // Arrow head
+                            drawPath(
+                                path = Path().apply {
+                                    val tipX = c.x + r * cos(Math.toRadians(225.0).toFloat())
+                                    val tipY = c.y + r * sin(Math.toRadians(225.0).toFloat())
+                                    moveTo(tipX, tipY)
+                                    lineTo(tipX - size.minDimension * 0.08f, tipY - size.minDimension * 0.04f)
+                                    lineTo(tipX - size.minDimension * 0.04f, tipY + size.minDimension * 0.08f)
+                                    close()
+                                },
+                                color = goldColor,
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+}
 
-        // Right capsule — Spatial Ambience (only when 8D is on). Tapping toggles
-        // the expanded sphere structure too.
-        if (enabled) {
-            SideCapsule(
-                label = "Spatial Ambience",
-                labelTextSize = sideLabelSize,
-                padH = capsulePadHDp,
-                padV = capsulePadVDp,
-                corner = capsuleCornerDp,
-                onClick = onSpatialAmbienceClick,
+@Composable
+private fun ToggleCapsule(
+    label: String,
+    isOn: Boolean,
+    onToggle: (Boolean) -> Unit,
+    textSize: androidx.compose.ui.unit.TextUnit,
+    toggleSize: androidx.compose.ui.unit.Dp,
+    padH: androidx.compose.ui.unit.Dp,
+    padV: androidx.compose.ui.unit.Dp,
+    corner: androidx.compose.ui.unit.Dp,
+) {
+    val goldColor = Color(0xFFD4A03A)
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(corner))
+            .background(Color.Black.copy(alpha = 0.45f))
+            .border(
+                width = padH / 12f,
+                color = if (isOn) goldColor.copy(alpha = 0.4f) else Cream.copy(alpha = 0.18f),
+                shape = RoundedCornerShape(corner),
+            )
+            .clickable { onToggle(!isOn) }
+            .padding(horizontal = padH, vertical = padV),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(padH / 3f),
+    ) {
+        Text(
+            text = label,
+            color = if (isOn) Cream else Cream.copy(alpha = 0.5f),
+            fontFamily = CalSansFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = textSize,
+        )
+        // Small toggle inside the capsule
+        Box(
+            modifier = Modifier
+                .size(toggleSize, toggleSize * 0.55f)
+                .clip(RoundedCornerShape(50))
+                .background(if (isOn) goldColor else Color.White.copy(alpha = 0.10f))
+                .padding(toggleSize * 0.08f),
+            contentAlignment = if (isOn) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(toggleSize * 0.5f)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White),
             )
         }
     }
@@ -794,7 +922,10 @@ private fun SphereComposition(
     rotationEnabled: Boolean = true,
     arrowsHighlighted: Boolean = false,
     expandProgress: Float = 0f,
-    expandedSide: Int = 0,   // 0=none, 1=orbit(top), 2=ambience(bottom)
+    expandedSide: Int = 0,
+    selectedOrbit: Int = 13,
+    selectedAmbience: Int = 13,
+    phase: Float = 0f,
 ) {
     val points = remember { fibonacciSphere(180) }
     val infinite = rememberInfiniteTransition(label = "sphere")
@@ -993,14 +1124,13 @@ private fun SphereComposition(
         )
 
         // Returns the ARGB color for a number given which side is active.
-        // If the number is on the active side → sunset gradient based on distance from 13.
-        // If on the inactive side → dimmed cream (30% alpha).
-        fun numColor(num: Int, isActiveSide: Boolean, alpha: Float): Int {
+        // The SELECTED value (selectedOrbit or selectedAmbience) is the center of the
+        // sunset gradient — not always 13. User can click any number to re-center.
+        fun numColor(num: Int, isActiveSide: Boolean, alpha: Float, selectedValue: Int): Int {
             if (!isActiveSide) {
-                // Dimmed — low opacity cream
                 return android.graphics.Color.argb((70 * alpha).toInt(), 245, 240, 230)
             }
-            val dist = kotlin.math.abs(num - 13)
+            val dist = kotlin.math.abs(num - selectedValue)
             val baseColor = palette[dist.coerceIn(0, palette.lastIndex)]
             val baseAlpha = when {
                 dist == 0 -> 255
@@ -1105,7 +1235,7 @@ private fun SphereComposition(
                 val labelR = dottedR + numberDistance
                 val lx = cx + labelR * cos(angleRad)
                 val ly = cy + labelR * sin(angleRad)
-                numberPaint.color = numColor(num, topIsActive, newAlpha)
+                numberPaint.color = numColor(num, topIsActive, newAlpha, selectedOrbit)
                 drawIntoCanvas { canvas ->
                     canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
                 }
@@ -1120,7 +1250,7 @@ private fun SphereComposition(
                 val labelR = dottedR + numberDistance
                 val lx = cx + labelR * cos(angleRad)
                 val ly = cy + labelR * sin(angleRad)
-                numberPaint.color = numColor(num, bottomIsActive, newAlpha)
+                numberPaint.color = numColor(num, bottomIsActive, newAlpha, selectedAmbience)
                 drawIntoCanvas { canvas ->
                     canvas.nativeCanvas.drawText(num.toString(), lx, ly + numberPaint.textSize / 3f, numberPaint)
                 }
@@ -1128,6 +1258,10 @@ private fun SphereComposition(
         }
 
         // ── Dot sphere ──
+        // Dots get sunset-colored based on their angular position relative to the
+        // LFO phase. The dot closest to where the audio "is" (sin(phase) direction)
+        // is the brightest (deep orange). Dots further from that direction fade.
+        // This syncs the sphere's color with the 8D audio movement.
         val baseDot = size.width * 0.0075f
         val ang = Math.toRadians(rotation.toDouble()).toFloat()
         val cosA = cos(ang); val sinA = sin(ang)
@@ -1139,6 +1273,10 @@ private fun SphereComposition(
         }
         projected.sortBy { it.z }
         val pulseAmp = 0.10f
+        // LFO direction in screen space: the "audio position" moves left-right.
+        // sin(phase) gives the horizontal direction. When 8D is on, dots near
+        // that direction get sunset colors; dots far away stay cream.
+        val lfoDir = if (arrowsHighlighted) sin(phase.toDouble()).toFloat() else 0f
         for (v in projected) {
             val depth = (v.z + 1f) * 0.5f
             val wave = sin(pulse + depth * 3f)
@@ -1147,8 +1285,30 @@ private fun SphereComposition(
             val px = cx + v.x * sphereR
             val py = cy - v.y * sphereR
             val alpha = 0.18f + depth * 0.82f
+
+            // Distance from the LFO direction: how close is this dot's X position
+            // to where the audio "is"? 0 = right at the audio, 1 = opposite side.
+            val dotDir = v.x  // -1 to 1 (left to right on screen)
+            val audioDist = kotlin.math.abs(dotDir - lfoDir) / 2f  // 0 = same, 1 = opposite
+
+            val dotColor = if (arrowsHighlighted && audioDist < 0.5f) {
+                // Blend sunset color based on proximity to audio direction
+                val sunsetIdx = (audioDist * 2f * palette.size.toFloat()).toInt()
+                    .coerceIn(0, palette.lastIndex)
+                val sunsetColor = palette[sunsetIdx]
+                val sunsetAlpha = (1f - audioDist * 2f) * alpha
+                Color(
+                    red = android.graphics.Color.red(sunsetColor) / 255f,
+                    green = android.graphics.Color.green(sunsetColor) / 255f,
+                    blue = android.graphics.Color.blue(sunsetColor) / 255f,
+                    alpha = sunsetAlpha.coerceIn(0f, 1f),
+                )
+            } else {
+                Cream.copy(alpha = alpha)
+            }
+
             drawCircle(
-                color = Cream.copy(alpha = alpha),
+                color = dotColor,
                 radius = dotR.coerceAtLeast(0.3f),
                 center = Offset(px, py),
             )
