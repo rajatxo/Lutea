@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.rotate as drawRotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -339,10 +341,9 @@ fun EffectVisual(
             val capsulePadV = with(density) { (barWidth.toPx() * 0.012f).toDp() }
 
             // ── Edge panels: Orbit Speed (left), Spatial Ambience (right) ──
-            val panelW = barWidth * 0.26f
-            val panelH = maxHeight * 0.55f
-            val panelText = with(density) { (barWidth.toPx() * 0.020f).toSp() }
-            val panelSwitch = barWidth * 0.075f
+            val panelW = barWidth * 0.115f
+            val panelH = barWidth * 0.46f
+            val panelText = with(density) { (barWidth.toPx() * 0.021f).toSp() }
             EffectSidePanel(
                 label = "Orbit Speed",
                 isOn = expandedView && expandedSide == 1,
@@ -354,7 +355,6 @@ fun EffectVisual(
                 height = panelH,
                 isLeft = true,
                 textSize = panelText,
-                switchWidth = panelSwitch,
                 modifier = Modifier.align(Alignment.CenterStart),
             )
             EffectSidePanel(
@@ -368,7 +368,6 @@ fun EffectVisual(
                 height = panelH,
                 isLeft = false,
                 textSize = panelText,
-                switchWidth = panelSwitch,
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
 
@@ -477,60 +476,51 @@ private fun EffectSidePanel(
     height: androidx.compose.ui.unit.Dp,
     isLeft: Boolean,
     textSize: androidx.compose.ui.unit.TextUnit,
-    switchWidth: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
-    // Rounded on the inner edge only — the outer edge stays flush with the screen.
-    val r = width * 0.22f
+    // Small edge tab: flush with the screen on the outer edge, heavily rounded
+    // on the inner edge (like the notches in the reference).
+    val r = width * 0.45f
     val shape = if (isLeft) {
         RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = r, bottomEnd = r)
     } else {
         RoundedCornerShape(topStart = r, bottomStart = r, topEnd = 0.dp, bottomEnd = 0.dp)
     }
-    // Black base with the blue-violet glow bleeding toward the inner edge.
+    // Black base with the blue-violet glow only at the inner edge.
     val dark = Color(0xFF030305)
-    val mid = Color(0xFF0B0A16)
-    val violet = Color(0xFF2B1B63)
+    val mid = Color(0xFF0A0913)
+    val violet = Color(0xFF241653)
     Box(
         modifier = modifier
             .size(width, height)
             .clip(shape)
             .background(
-                if (isLeft) Brush.horizontalGradient(listOf(dark, mid, violet))
-                else Brush.horizontalGradient(listOf(violet, mid, dark))
+                if (isLeft) Brush.horizontalGradient(listOf(dark, dark, mid, violet))
+                else Brush.horizontalGradient(listOf(violet, mid, dark, dark))
             )
             .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
-            .clickable { onToggle() }
-            .padding(horizontal = width * 0.10f, vertical = height * 0.08f),
+            .clickable { onToggle() },
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Text runs along the tab: bottom-to-top on the left, top-to-bottom on
+        // the right. requiredWidth ignores the tab width, so the label lays out
+        // lengthwise before it gets rotated into place.
+        Box(
+            modifier = Modifier
+                .drawRotate(if (isLeft) -90f else 90f)
+                .requiredWidth(height * 0.80f),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
                 text = label,
-                color = if (isOn) Color.White else Color.White.copy(alpha = 0.45f),
+                color = if (isOn) Color.White else Color.White.copy(alpha = 0.50f),
                 fontFamily = CalSansFamily,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = textSize,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                maxLines = 2,
+                maxLines = 1,
+                softWrap = false,
             )
-            Spacer(Modifier.height(switchWidth * 0.6f))
-            Box(
-                modifier = Modifier
-                    .size(switchWidth, switchWidth * 0.55f)
-                    .clip(RoundedCornerShape(50))
-                    .background(if (isOn) Color(0xFFD4A03A) else Color.White.copy(alpha = 0.10f))
-                    .clickable { onToggle() }
-                    .padding(switchWidth * 0.08f),
-                contentAlignment = if (isOn) Alignment.CenterEnd else Alignment.CenterStart,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(switchWidth * 0.5f)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.White),
-                )
-            }
         }
     }
 }
