@@ -55,6 +55,7 @@ object PlaybackConnection {
     private const val TAG = "PlaybackConnection"
 
     private var controller: MediaController? = null
+    private var appContext: Context? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _isPlaying = MutableStateFlow(false)
