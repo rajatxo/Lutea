@@ -42,11 +42,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.rotate as drawRotate
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -341,8 +347,10 @@ fun EffectVisual(
             val capsulePadV = with(density) { (barWidth.toPx() * 0.012f).toDp() }
 
             // ── Edge panels: Orbit Speed (left), Spatial Ambience (right) ──
-            val panelW = barWidth * 0.115f
+            val panelW = barWidth * 0.125f
             val panelH = barWidth * 0.46f
+            // Vertical centre of the tabs, as a fraction of the screen height.
+            val panelTop = maxHeight * 0.62f - panelH / 2f
             val panelText = with(density) { (barWidth.toPx() * 0.021f).toSp() }
             EffectSidePanel(
                 label = "Orbit Speed",
@@ -355,7 +363,7 @@ fun EffectVisual(
                 height = panelH,
                 isLeft = true,
                 textSize = panelText,
-                modifier = Modifier.align(Alignment.CenterStart),
+                modifier = Modifier.align(Alignment.TopStart).offset(y = panelTop),
             )
             EffectSidePanel(
                 label = "Spatial Ambience",
@@ -368,7 +376,7 @@ fun EffectVisual(
                 height = panelH,
                 isLeft = false,
                 textSize = panelText,
-                modifier = Modifier.align(Alignment.CenterEnd),
+                modifier = Modifier.align(Alignment.TopEnd).offset(y = panelTop),
             )
 
             Column(
@@ -467,6 +475,37 @@ fun EffectVisual(
     }
 }
 
+/**
+ * Rounded rectangle with a semicircular notch carved into the outer edge, so the
+ * tab wraps around the simulated side button of the phone.
+ */
+private class SideNotchShape(
+    private val isLeft: Boolean,
+    private val cornerRadiusPx: Float,
+    private val notchRadiusPx: Float,
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: androidx.compose.ui.unit.Density,
+    ): Outline {
+        val body = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    rect = Rect(0f, 0f, size.width, size.height),
+                    cornerRadius = CornerRadius(cornerRadiusPx),
+                )
+            )
+        }
+        val notch = Path().apply {
+            val edgeX = if (isLeft) 0f else size.width
+            addOval(Rect(center = Offset(edgeX, size.height / 2f), radius = notchRadiusPx))
+        }
+        val path = Path().apply { op(body, notch, PathOperation.Difference) }
+        return Outline.Generic(path)
+    }
+}
+
 @Composable
 private fun EffectSidePanel(
     label: String,
@@ -478,13 +517,16 @@ private fun EffectSidePanel(
     textSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
 ) {
-    // Small edge tab: flush with the screen on the outer edge, heavily rounded
-    // on the inner edge (like the notches in the reference).
-    val r = width * 0.45f
-    val shape = if (isLeft) {
-        RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = r, bottomEnd = r)
-    } else {
-        RoundedCornerShape(topStart = r, bottomStart = r, topEnd = 0.dp, bottomEnd = 0.dp)
+    val density = LocalDensity.current
+    // Rounded card with a side-button notch cut into the outer edge.
+    val shape = remember(isLeft, width, height) {
+        with(density) {
+            SideNotchShape(
+                isLeft = isLeft,
+                cornerRadiusPx = width.toPx() * 0.40f,
+                notchRadiusPx = width.toPx() * 0.36f,
+            )
+        }
     }
     // Black base with the blue-violet glow only at the inner edge.
     val dark = Color(0xFF030305)
@@ -503,10 +545,10 @@ private fun EffectSidePanel(
         contentAlignment = Alignment.Center,
     ) {
         // Text runs along the tab: bottom-to-top on the left, top-to-bottom on
-        // the right. requiredWidth ignores the tab width, so the label lays out
-        // lengthwise before it gets rotated into place.
+        // the right. Pushed slightly inward so it clears the side notch.
         Box(
             modifier = Modifier
+                .offset(x = if (isLeft) width * 0.11f else -width * 0.11f)
                 .drawRotate(if (isLeft) -90f else 90f)
                 .requiredWidth(height * 0.80f),
             contentAlignment = Alignment.Center,
