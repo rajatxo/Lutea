@@ -189,7 +189,8 @@ fun EffectVisual(
             ).toDp()
         }
         // Bottom inset shared by the card and the head layer.
-        val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
+        // Reduced to almost zero so the card extends down to the nav bar.
+        val cardBottomPadDp = with(density) { (heightPx * 0.002f).toDp() }
 
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -224,16 +225,13 @@ fun EffectVisual(
                         )
                     )
                     .drawWithCache {
-                        // Gradient: top 25% grey, next 10% transition, bottom 65% → black.
-                        // More black at bottom for seamless blend with head image's gradient.
-                        val grey = Color(0xFF1A1A1A)
-                        val darkerGrey = Color(0xFF0F0F0F)
+                        // Pure black card — seamless with the screen background.
+                        // Top portion has a very slight lift from the dot grid/particles,
+                        // bottom blends to pure black naturally.
                         val black = Color(0xFF000000)
                         val brush = Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.0f to grey,
-                                0.25f to grey,
-                                0.35f to darkerGrey,
+                                0.0f to black,
                                 1.0f to black,
                             )
                         )
