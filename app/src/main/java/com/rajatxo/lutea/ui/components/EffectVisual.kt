@@ -188,6 +188,9 @@ fun EffectVisual(
                 maxOf(maxHeadForGap, widthPx * 0.30f),
             ).toDp()
         }
+        // Bottom inset shared by the card and the head layer.
+        val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
+
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter,
@@ -204,8 +207,6 @@ fun EffectVisual(
             // Same curvature as the side bars: flare depth = bar height x 0.27,
             // bar height = 46% of the screen width.
             val cardTopCornerDp = with(density) { (widthPx * 0.46f * 0.27f).toDp() }
-            val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
-
             Box(
                 modifier = Modifier
                     .padding(
@@ -269,30 +270,6 @@ fun EffectVisual(
                     },
                 contentAlignment = Alignment.BottomCenter,
             ) {
-                Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
-                    Image(
-                        painter = painterResource(headRes),
-                        contentDescription = "Spatial audio head",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    // ── Glowing 8D ball that orbits the head ──
-                    if (eightDOn && ballRotationOn) {
-                        SpatialOrbBall(
-                            headSizePx = with(density) { headSizeDp.toPx() },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    // ── Existing blend-to-black on the head image ──
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .drawWithCache {
-                                val brush = Brush.verticalGradient(*blendStops(Color.Black))
-                                onDrawBehind { drawRect(brush) }
-                            },
-                    )
-                }
             }
         }
         // ── Solid black plate behind the whole sphere composition ──
@@ -301,11 +278,11 @@ fun EffectVisual(
         // edge stops just above them, and the bottom corners are rounded to the
         // same radius as a panel's width, so the plate slots into the canal the
         // side bars carve out of the card.
-        val platePanelH = widthPx * 0.46f                 // matches EffectSidePanel height
-        val platePanelTop = heightPx * 0.62f - platePanelH / 2f
-        val plateGap = widthPx * 0.024f                   // breathing room above the bars
+        // ★ TEMP: provisional bottom, being tuned on device. Bars are drawn on
+        //   top of the plate, so expanding past them only hides card, not bars.
+        val plateBottomFrac = 0.72f
         val plateCorner = with(density) { (widthPx * 0.108f).toDp() }  // = panelW
-        val plateHeight = with(density) { (platePanelTop - plateGap).toDp() }
+        val plateHeight = with(density) { (heightPx * plateBottomFrac).toDp() }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -320,6 +297,41 @@ fun EffectVisual(
                 // ★ TEMP: yellow so the plate's position can be judged on device.
                 .background(Color(0xFFFFFF00)),
         )
+
+        // ── Head image — above the plate, so expanding the plate never hides it ──
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(bottom = cardBottomPadDp)
+                    .size(headSizeDp, headSizeDp),
+            ) {
+                Image(
+                    painter = painterResource(headRes),
+                    contentDescription = "Spatial audio head",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // ── Glowing 8D ball that orbits the head ──
+                if (eightDOn && ballRotationOn) {
+                    SpatialOrbBall(
+                        headSizePx = with(density) { headSizeDp.toPx() },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                // ── Blend-to-black on the head image ──
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .drawWithCache {
+                            val brush = Brush.verticalGradient(*blendStops(Color.Black))
+                            onDrawBehind { drawRect(brush) }
+                        },
+                )
+            }
+        }
 
         Box(
             modifier = Modifier
