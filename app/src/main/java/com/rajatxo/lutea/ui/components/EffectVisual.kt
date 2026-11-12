@@ -338,6 +338,40 @@ fun EffectVisual(
             val capsulePadH = with(density) { (barWidth.toPx() * 0.014f).toDp() }
             val capsulePadV = with(density) { (barWidth.toPx() * 0.012f).toDp() }
 
+            // ── Edge panels: Orbit Speed (left), Spatial Ambience (right) ──
+            val panelW = barWidth * 0.26f
+            val panelH = maxHeight * 0.55f
+            val panelText = with(density) { (barWidth.toPx() * 0.020f).toSp() }
+            val panelSwitch = barWidth * 0.075f
+            EffectSidePanel(
+                label = "Orbit Speed",
+                isOn = expandedView && expandedSide == 1,
+                onToggle = {
+                    if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
+                    else { expandedView = true; expandedSide = 1 }
+                },
+                width = panelW,
+                height = panelH,
+                isLeft = true,
+                textSize = panelText,
+                switchWidth = panelSwitch,
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
+            EffectSidePanel(
+                label = "Spatial Ambience",
+                isOn = expandedView && expandedSide == 2,
+                onToggle = {
+                    if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
+                    else { expandedView = true; expandedSide = 2 }
+                },
+                width = panelW,
+                height = panelH,
+                isLeft = false,
+                textSize = panelText,
+                switchWidth = panelSwitch,
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+
             Column(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -379,40 +413,6 @@ fun EffectVisual(
                             }
                     }
                 }
-
-            // ── Edge panels: Orbit Speed (left), Spatial Ambience (right) ──
-            val panelW = barWidth * 0.26f
-            val panelH = maxHeight * 0.55f
-            val panelText = with(density) { (barWidth.toPx() * 0.020f).toSp() }
-            val panelSwitch = barWidth * 0.075f
-            EffectSidePanel(
-                label = "Orbit Speed",
-                isOn = expandedView && expandedSide == 1,
-                onToggle = {
-                    if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
-                    else { expandedView = true; expandedSide = 1 }
-                },
-                width = panelW,
-                height = panelH,
-                isLeft = true,
-                textSize = panelText,
-                switchWidth = panelSwitch,
-                modifier = Modifier.align(Alignment.CenterStart),
-            )
-            EffectSidePanel(
-                label = "Spatial Ambience",
-                isOn = expandedView && expandedSide == 2,
-                onToggle = {
-                    if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
-                    else { expandedView = true; expandedSide = 2 }
-                },
-                width = panelW,
-                height = panelH,
-                isLeft = false,
-                textSize = panelText,
-                switchWidth = panelSwitch,
-                modifier = Modifier.align(Alignment.CenterEnd),
-            )
 
                 // ── Menu: three capsules under the title, fitted to the screen ──
                 if (topMenuOpen) {
