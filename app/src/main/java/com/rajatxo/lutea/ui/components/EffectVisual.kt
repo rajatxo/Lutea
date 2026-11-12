@@ -169,40 +169,6 @@ fun EffectVisual(
         //   headroom = 6.67% of width (24dp ÷ 360dp on reference phone)
         val compositionHeightFrac = 1.0f + 0.0667f
         val compositionHeightDp = with(density) { (widthPx * compositionHeightFrac).toDp() }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(compositionHeightDp)
-                .align(Alignment.TopCenter),
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            // Pass enabled flag — sphere only rotates when 8D is on.
-            // Pass expandProgress so the sphere can cross-fade between old (8 labels +
-            // LEFT/RIGHT/UP/DOWN text) and new (1-25 top + 2-24 bottom) structures.
-            SphereComposition(
-                modifier = Modifier.fillMaxSize(),
-                rotationEnabled = eightDOn && sphereRotationOn,
-                arrowsHighlighted = eightDOn,
-                expandProgress = expandProgress,
-                expandedSide = expandedSide,
-                selectedOrbit = orbitSlider,
-                selectedAmbience = ambienceSlider,
-                onNumberClick = { num, isTop ->
-                    if (isTop) PlaybackConnection.setOrbitSpeed(num)
-                    else PlaybackConnection.setSpatialAmbience(num)
-                },
-                glow = glowLevel,
-                spinDeg = spinDeg,
-                tint = stateTint,
-                onQuickTap = {
-                    tapTick++
-                    val next = !eightDOn
-                    PlaybackConnection.set8DEnabled(next)
-                    if (!next) { expandedView = false; expandedSide = 0 }
-                },
-            )
-        }
-
         // ── Head image at bottom — sized so DOWN-to-headphones gap ≥ 8% of screen height ──
         // (User originally asked for 130dp = 16.25% of height, but that squeezed
         // the head too small. Relaxed to 8% so the head can grow back closer to
@@ -230,8 +196,14 @@ fun EffectVisual(
             val cardSideGapDp = with(density) { (widthPx * 0.01f).toDp() }
             val cardWidthDp = with(density) { (widthPx - widthPx * 0.01f * 2).toDp() }
             val cardPadDp = with(density) { (widthPx * 0.04f).toDp() }
-            val cardHeightDp = headSizeDp + cardPadDp * 2
+            // Reach up behind the lower third of the sphere, so the dotted grid
+            // runs under the sphere and disappears into a black panel.
+            val sphereOverlapDp = compositionHeightDp * 0.33f
+            val cardHeightDp = headSizeDp + cardPadDp * 2 + sphereOverlapDp
             val cardCornerDp = with(density) { (widthPx * 0.05f).toDp() }
+            // Same curvature as the side bars: flare depth = bar height x 0.27,
+            // bar height = 46% of the screen width.
+            val cardTopCornerDp = with(density) { (widthPx * 0.46f * 0.27f).toDp() }
             val cardBottomPadDp = with(density) { (heightPx * 0.01f).toDp() }
 
             Box(
@@ -242,7 +214,14 @@ fun EffectVisual(
                         bottom = cardBottomPadDp,
                     )
                     .size(cardWidthDp, cardHeightDp)
-                    .clip(RoundedCornerShape(cardCornerDp))
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = cardTopCornerDp,
+                            topEnd = cardTopCornerDp,
+                            bottomStart = cardCornerDp,
+                            bottomEnd = cardCornerDp,
+                        )
+                    )
                     .drawWithCache {
                         // Gradient: top 25% grey, next 10% transition, bottom 65% → black.
                         // More black at bottom for seamless blend with head image's gradient.
@@ -290,6 +269,31 @@ fun EffectVisual(
                     },
                 contentAlignment = Alignment.BottomCenter,
             ) {
+                // ── Black panel over the grid behind the sphere ──
+                // Sits on top of the dot grid and fades out at its bottom edge, so
+                // the grid appears to slide into it.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(sphereOverlapDp)
+                        .clip(
+                            RoundedCornerShape(
+                                topStart = cardTopCornerDp,
+                                topEnd = cardTopCornerDp,
+                            )
+                        )
+                        .background(
+                            Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color.Black,
+                                    0.62f to Color.Black,
+                                    1.0f to Color.Transparent,
+                                )
+                            )
+                        ),
+                )
+
                 Box(modifier = Modifier.size(headSizeDp, headSizeDp)) {
                     Image(
                         painter = painterResource(headRes),
@@ -316,6 +320,40 @@ fun EffectVisual(
                 }
             }
         }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(compositionHeightDp)
+                .align(Alignment.TopCenter),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            // Pass enabled flag — sphere only rotates when 8D is on.
+            // Pass expandProgress so the sphere can cross-fade between old (8 labels +
+            // LEFT/RIGHT/UP/DOWN text) and new (1-25 top + 2-24 bottom) structures.
+            SphereComposition(
+                modifier = Modifier.fillMaxSize(),
+                rotationEnabled = eightDOn && sphereRotationOn,
+                arrowsHighlighted = eightDOn,
+                expandProgress = expandProgress,
+                expandedSide = expandedSide,
+                selectedOrbit = orbitSlider,
+                selectedAmbience = ambienceSlider,
+                onNumberClick = { num, isTop ->
+                    if (isTop) PlaybackConnection.setOrbitSpeed(num)
+                    else PlaybackConnection.setSpatialAmbience(num)
+                },
+                glow = glowLevel,
+                spinDeg = spinDeg,
+                tint = stateTint,
+                onQuickTap = {
+                    tapTick++
+                    val next = !eightDOn
+                    PlaybackConnection.set8DEnabled(next)
+                    if (!next) { expandedView = false; expandedSide = 0 }
+                },
+            )
+        }
+
     }
 
         // ── Top bar: title + menu dots on one line ──
@@ -575,7 +613,7 @@ private fun EffectSidePanel(
         modifier = modifier
             .size(width, height)
             .clip(shape)
-            .background(Color.White.copy(alpha = 0.95f))
+            .background(Color.White.copy(alpha = 0.85f))
             .pointerInput(labels.size, safeIndex) {
                 detectVerticalDragGestures(
                     onDragStart = { dragSum = 0f },
