@@ -58,7 +58,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.geometry.Offset as TapOffset
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
@@ -92,6 +94,7 @@ fun EffectVisual(
     // Local UI state
     var expandedView by remember { mutableStateOf(false) }
     var expandedSide by remember { mutableStateOf(0) }  // 0=none, 1=orbit(top), 2=ambience(bottom)
+    var topMenuOpen by remember { mutableStateOf(false) }
     // Sphere rotation + Ball rotation toggles (persisted)
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE) }
@@ -310,71 +313,181 @@ fun EffectVisual(
         }
     }
 
-        // ── Top bar: title + 8D toggle (left), playlist menu dots (right) ──
-        // Sits outside the window insets so it lands where the playlist title does.
+        // ── Top bar: title + 8D toggle + menu dots on one line ──
+        // Outside the window insets, so the sphere, head and card never move.
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val barWidth = maxWidth
+            val startPad = 24.dp
+            val endPad = 20.dp
+            val gap = 8.dp
+            val dotsSize = 40.dp
             val toggleWidth = barWidth * 0.075f
+            val titleText = "Spatial Audio : 8D"
+            val titleStyle = TextStyle(
+                fontFamily = CalSansFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 37.sp,
+            )
+            // Playlist title size (37sp), shrunk only if it would not fit on one line.
+            val measurer = rememberTextMeasurer()
+            val titleWidthPx = with(density) { measurer.measure(titleText, titleStyle).size.width.toFloat() }
+            val availablePx = with(density) {
+                (barWidth - startPad - endPad - toggleWidth - dotsSize - gap * 3f).toPx()
+            }
+            val titleSp =
+                if (titleWidthPx > 0f && titleWidthPx > availablePx) 37f * (availablePx / titleWidthPx)
+                else 37f
 
-            Row(
+            val capsuleTextSize = with(density) { (barWidth.toPx() * 0.023f).toSp() }
+            val capsuleCorner = with(density) { (barWidth.toPx() * 0.03f).toDp() }
+            val capsulePadH = with(density) { (barWidth.toPx() * 0.014f).toDp() }
+            val capsulePadV = with(density) { (barWidth.toPx() * 0.012f).toDp() }
+
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .statusBarsPadding()
-                    .padding(start = 24.dp, top = 16.dp, end = 96.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(start = startPad, end = endPad, top = 16.dp)
+                    .fillMaxWidth(),
             ) {
-                Text(
-                    text = "Spatial Audio : 8D effects",
-                    color = Color.White,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 37.sp,
-                    lineHeight = 40.sp,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Spacer(Modifier.width(12.dp))
-                Box(
-                    modifier = Modifier
-                        .size(toggleWidth, toggleWidth * 0.55f)
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (eightDOn) Color(0xFFD4A03A) else Color.White.copy(alpha = 0.10f)
-                        )
-                        .clickable {
-                            val next = !eightDOn
-                            PlaybackConnection.set8DEnabled(next)
-                            if (!next) { expandedView = false; expandedSide = 0 }
-                        }
-                        .padding(toggleWidth * 0.08f),
-                    contentAlignment = if (eightDOn) Alignment.CenterEnd else Alignment.CenterStart,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Text(
+                        text = titleText,
+                        color = Color.White,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = titleSp.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    Spacer(Modifier.width(gap))
+                    // 8D toggle — grey when off, white when on.
                     Box(
                         modifier = Modifier
-                            .size(toggleWidth * 0.5f)
+                            .size(toggleWidth, toggleWidth * 0.55f)
                             .clip(RoundedCornerShape(50))
-                            .background(Color.White),
-                    )
-                }
-            }
-
-            // Same 4-dot menu button as the playlist page: 40dp box, 8dp hollow dots.
-            // Not wired to the menu yet — told to place it, wiring comes later.
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = barWidth * 0.08f, top = 8.dp)
-                    .size(40.dp),
-            ) {
-                listOf(9.dp to 9.dp, 24.dp to 9.dp, 9.dp to 24.dp, 24.dp to 24.dp).forEach { (dx, dy) ->
+                            .background(if (eightDOn) Color.White else Color(0xFF8C8C8C))
+                            .clickable {
+                                val next = !eightDOn
+                                PlaybackConnection.set8DEnabled(next)
+                                if (!next) { expandedView = false; expandedSide = 0 }
+                            }
+                            .padding(toggleWidth * 0.08f),
+                        contentAlignment = if (eightDOn) Alignment.CenterEnd else Alignment.CenterStart,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(toggleWidth * 0.5f)
+                                .clip(RoundedCornerShape(50))
+                                .background(if (eightDOn) Color.Black else Color.White),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    // Same 4-dot menu button as the playlist page, on the title line.
                     Box(
                         modifier = Modifier
-                            .offset(dx, dy)
-                            .size(8.dp)
-                            .border(1.5.dp, Color.White, CircleShape),
-                    )
+                            .size(dotsSize)
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null,
+                            ) { topMenuOpen = !topMenuOpen },
+                    ) {
+                        listOf(9.dp to 9.dp, 24.dp to 9.dp, 9.dp to 24.dp, 24.dp to 24.dp)
+                            .forEach { (dx, dy) ->
+                                Box(
+                                    modifier = Modifier
+                                        .offset(dx, dy)
+                                        .size(8.dp)
+                                        .border(1.5.dp, Color.White, CircleShape),
+                                )
+                            }
+                    }
+                }
+
+                // ── Menu: three capsules under the title, fitted to the screen ──
+                if (topMenuOpen) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        EffectActionCapsule(
+                            label = "Sphere Rotation",
+                            active = sphereRotationOn,
+                            textSize = capsuleTextSize,
+                            corner = capsuleCorner,
+                            padH = capsulePadH,
+                            padV = capsulePadV,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                sphereRotationOn = !sphereRotationOn
+                                prefs.edit().putBoolean("sphere_rotation", sphereRotationOn).apply()
+                            },
+                        )
+                        EffectActionCapsule(
+                            label = "Ball Rotation",
+                            active = ballRotationOn,
+                            textSize = capsuleTextSize,
+                            corner = capsuleCorner,
+                            padH = capsulePadH,
+                            padV = capsulePadV,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                ballRotationOn = !ballRotationOn
+                                prefs.edit().putBoolean("ball_rotation", ballRotationOn).apply()
+                            },
+                        )
+                        EffectActionCapsule(
+                            label = "Reset Value",
+                            active = true,
+                            textSize = capsuleTextSize,
+                            corner = capsuleCorner,
+                            padH = capsulePadH,
+                            padV = capsulePadV,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                PlaybackConnection.set8DPreset(com.rajatxo.lutea.playback.Effect8DPreset.BALANCED)
+                                expandedView = false
+                                expandedSide = 0
+                            },
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun EffectActionCapsule(
+    label: String,
+    active: Boolean,
+    textSize: androidx.compose.ui.unit.TextUnit,
+    corner: androidx.compose.ui.unit.Dp,
+    padH: androidx.compose.ui.unit.Dp,
+    padV: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(corner))
+            .background(Color.Black.copy(alpha = 0.55f))
+            .clickable { onClick() }
+            .padding(horizontal = padH, vertical = padV),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (active) Color.White else Color.White.copy(alpha = 0.45f),
+            fontFamily = CalSansFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = textSize,
+            maxLines = 1,
+        )
     }
 }
 
