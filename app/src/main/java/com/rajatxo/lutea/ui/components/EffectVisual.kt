@@ -85,8 +85,6 @@ fun EffectVisual(
     val eightDOn by PlaybackConnection.is8DEnabled.collectAsState()
     val orbitSlider by PlaybackConnection.orbitSlider.collectAsState()
     val ambienceSlider by PlaybackConnection.ambienceSlider.collectAsState()
-    val orbitOn by PlaybackConnection.orbitEnabled.collectAsState()
-    val ambienceOn by PlaybackConnection.ambienceEnabled.collectAsState()
 
     // Local UI state
     var expandedView by remember { mutableStateOf(false) }
@@ -273,8 +271,8 @@ fun EffectVisual(
                     val cornerSwitchWidth = with(density) { (widthPx * 0.040f).toDp() }
                     EffectCornerCapsule(
                         label = "Orbit Speed",
-                        isOn = orbitOn,
-                        onToggle = { PlaybackConnection.setOrbitEnabled(it) },
+                        // Switch = show this effect's numbers around the sphere.
+                        isOn = expandedView && expandedSide == 1,
                         onClick = {
                             if (expandedView && expandedSide == 1) { expandedView = false; expandedSide = 0 }
                             else { expandedView = true; expandedSide = 1 }
@@ -291,8 +289,7 @@ fun EffectVisual(
                     // ── Spatial Ambience capsule at top-right corner of card ──
                     EffectCornerCapsule(
                         label = "Spatial Ambience",
-                        isOn = ambienceOn,
-                        onToggle = { PlaybackConnection.setAmbienceEnabled(it) },
+                        isOn = expandedView && expandedSide == 2,
                         onClick = {
                             if (expandedView && expandedSide == 2) { expandedView = false; expandedSide = 0 }
                             else { expandedView = true; expandedSide = 2 }
@@ -316,9 +313,7 @@ fun EffectVisual(
                         modifier = Modifier.fillMaxSize(),
                     )
                     // ── Glowing 8D ball that orbits the head ──
-                    // Hidden when Ambience is off: width 0 means no panning, so a
-                    // moving ball would lie about the sound.
-                    if (eightDOn && ballRotationOn && ambienceOn) {
+                    if (eightDOn && ballRotationOn) {
                         SpatialOrbBall(
                             headSizePx = with(density) { headSizeDp.toPx() },
                             modifier = Modifier.fillMaxSize(),
@@ -348,7 +343,6 @@ fun EffectVisual(
 private fun EffectCornerCapsule(
     label: String,
     isOn: Boolean,
-    onToggle: (Boolean) -> Unit,
     onClick: () -> Unit,
     textSize: androidx.compose.ui.unit.TextUnit,
     switchWidth: androidx.compose.ui.unit.Dp,
@@ -364,10 +358,9 @@ private fun EffectCornerCapsule(
             .background(Color.Black.copy(alpha = 0.55f))
             .border(
                 width = padH / 12f,
-                color = if (isOn) goldColor.copy(alpha = 0.4f) else Cream.copy(alpha = 0.18f),
+                color = if (isOn) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.20f),
                 shape = RoundedCornerShape(corner),
             )
-            // Tapping the label still opens the number selector.
             .clickable { onClick() }
             .padding(horizontal = padH, vertical = padV),
         verticalAlignment = Alignment.CenterVertically,
@@ -380,13 +373,13 @@ private fun EffectCornerCapsule(
             fontWeight = FontWeight.SemiBold,
             fontSize = textSize,
         )
-        // Switch — its own click target, so it doesn't trigger the selector.
+        // Switch — shows/hides the numbers around the sphere for this effect.
         Box(
             modifier = Modifier
                 .size(switchWidth, switchWidth * 0.55f)
                 .clip(RoundedCornerShape(50))
                 .background(if (isOn) goldColor else Color.White.copy(alpha = 0.10f))
-                .clickable { onToggle(!isOn) }
+                .clickable { onClick() }
                 .padding(switchWidth * 0.08f),
             contentAlignment = if (isOn) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
@@ -475,7 +468,7 @@ private fun EffectHeaderRow(
                 .background(Color.Black.copy(alpha = 0.45f))
                 .border(
                     width = capsulePadHDp / 12f,
-                    color = Cream.copy(alpha = 0.18f),
+                    color = Color.White.copy(alpha = 0.20f),
                     shape = RoundedCornerShape(capsuleCornerDp),
                 )
                 .clickable { onDefaultClick() }
@@ -540,7 +533,7 @@ private fun ToggleCapsule(
             .background(Color.Black.copy(alpha = 0.45f))
             .border(
                 width = padH / 12f,
-                color = if (isOn) goldColor.copy(alpha = 0.4f) else Cream.copy(alpha = 0.18f),
+                color = if (isOn) Color.White.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.20f),
                 shape = RoundedCornerShape(corner),
             )
             .clickable { onToggle(!isOn) }
@@ -589,7 +582,7 @@ private fun SideCapsule(
             .background(Color.Black.copy(alpha = 0.45f))
             .border(
                 width = padH / 12f,
-                color = Cream.copy(alpha = 0.18f),
+                color = Color.White.copy(alpha = 0.20f),
                 shape = RoundedCornerShape(corner),
             )
             .clickable { onClick() }
@@ -661,7 +654,7 @@ private fun EffectOverlay(
                     .background(Color.Black.copy(alpha = 0.45f))
                     .border(
                         width = with(density) { (widthPx * 0.002f).toDp() },
-                        color = Cream.copy(alpha = 0.18f),
+                        color = Color.White.copy(alpha = 0.20f),
                         shape = RoundedCornerShape(capsuleCornerDp),
                     )
                     .padding(horizontal = capsulePadHDp, vertical = capsulePadVDp),

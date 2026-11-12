@@ -90,15 +90,6 @@ object PlaybackConnection {
     private val _ambienceSlider = MutableStateFlow(13)
     val ambienceSlider: StateFlow<Int> = _ambienceSlider.asStateFlow()
 
-    // Per-effect switches on the Orbit / Ambience capsules. Off writes a
-    // neutral value to the processor (0 Hz = frozen, 0 width = centered) and
-    // keeps the slider value for when it comes back on.
-    private val _orbitEnabled = MutableStateFlow(true)
-    val orbitEnabled: StateFlow<Boolean> = _orbitEnabled.asStateFlow()
-
-    private val _ambienceEnabled = MutableStateFlow(true)
-    val ambienceEnabled: StateFlow<Boolean> = _ambienceEnabled.asStateFlow()
-
     private val _preset = MutableStateFlow(Effect8DPreset.BALANCED)
     val preset: StateFlow<Effect8DPreset> = _preset.asStateFlow()
 
@@ -125,8 +116,6 @@ object PlaybackConnection {
             val prefs = app.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE)
             _orbitSlider.value = prefs.getInt("orbit_slider", 13)
             _ambienceSlider.value = prefs.getInt("ambience_slider", 13)
-            _orbitEnabled.value = prefs.getBoolean("orbit_enabled", true)
-            _ambienceEnabled.value = prefs.getBoolean("ambience_enabled", true)
 
             val sessionToken = SessionToken(app, ComponentName(app, LuteaPlaybackService::class.java))
             val c = MediaController.Builder(app, sessionToken).buildAsync().await()
@@ -184,48 +173,15 @@ object PlaybackConnection {
         LuteaAudioProcessors.spatial8D.set8DEnabled(enabled)
         _is8DActive.value = enabled
         // Apply current slider values to the processor
-        applyOrbit()
-        applyAmbience()
-    }
-
-    /** Orbit switch: 0 Hz freezes the rotation, slider value is kept. */
-    fun setOrbitEnabled(on: Boolean) {
-        _orbitEnabled.value = on
-        applyOrbit()
-        appContext?.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE)
-            ?.edit()?.putBoolean("orbit_enabled", on)?.apply()
-    }
-
-    /** Ambience switch: 0 width centers the sound, slider value is kept. */
-    fun setAmbienceEnabled(on: Boolean) {
-        _ambienceEnabled.value = on
-        applyAmbience()
-        appContext?.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE)
-            ?.edit()?.putBoolean("ambience_enabled", on)?.apply()
-    }
-
-    private fun applyOrbit() {
-        if (_orbitEnabled.value) {
-            LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(_orbitSlider.value))
-        } else {
-            // Stop the LFO and center it — a frozen phase would leave the sound
-            // panned to one side instead of "no orbit".
-            LuteaAudioProcessors.spatial8D.setOrbitHz(0f)
-            LuteaAudioProcessors.spatial8D.resetPhase()
-        }
-    }
-
-    private fun applyAmbience() {
-        LuteaAudioProcessors.spatial8D.setSpatialWidth(
-            if (_ambienceEnabled.value) sliderToWidth(_ambienceSlider.value) else 0f
-        )
+        LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(_orbitSlider.value))
+        LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(_ambienceSlider.value))
     }
 
     /** Slider drag: writes to the processor in real-time. Value is 1..25. */
     fun setOrbitSpeed(slider: Int) {
         val clamped = slider.coerceIn(1, 25)
         _orbitSlider.value = clamped
-        applyOrbit()
+        LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(clamped))
         // Persist
         appContext?.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE)
             ?.edit()?.putInt("orbit_slider", clamped)?.apply()
@@ -234,7 +190,7 @@ object PlaybackConnection {
     fun setSpatialAmbience(slider: Int) {
         val clamped = slider.coerceIn(1, 25)
         _ambienceSlider.value = clamped
-        applyAmbience()
+        LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(clamped))
         // Persist
         appContext?.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE)
             ?.edit()?.putInt("ambience_slider", clamped)?.apply()
@@ -245,8 +201,8 @@ object PlaybackConnection {
         _preset.value = p
         _orbitSlider.value = p.orbitSlider
         _ambienceSlider.value = p.ambienceSlider
-        applyOrbit()
-        applyAmbience()
+        LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(p.orbitSlider))
+        LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(p.ambienceSlider))
         // Persist
         appContext?.getSharedPreferences("lutea_8d", android.content.Context.MODE_PRIVATE)
             ?.edit()
