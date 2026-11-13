@@ -148,6 +148,14 @@ fun EffectVisual(
     var ballRotationOn by remember {
         mutableStateOf(prefs.getBoolean("ball_rotation", true))
     }
+    // Which sphere the Effect page draws. Metamorphic (the original white dot
+    // sphere) is the default; Ocean Jelly is the newer jellyfish. Persisted.
+    var sphereStyle by remember {
+        mutableStateOf(
+            if (prefs.getString("sphere_style", "metamorphic") == "jelly") SphereStyle.JELLY
+            else SphereStyle.METAMORPHIC
+        )
+    }
     val expandProgress = androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (expandedView) 1f else 0f,
         animationSpec = androidx.compose.animation.core.tween(
@@ -371,6 +379,7 @@ fun EffectVisual(
                 glow = glowLevel,
                 spinDeg = spinDeg,
                 tint = stateTint,
+                sphereStyle = sphereStyle,
                 onQuickTap = {
                     tapTick++
                     val next = !eightDOn
@@ -474,13 +483,22 @@ fun EffectVisual(
                                 indication = null,
                             ) { topMenuOpen = !topMenuOpen },
                     ) {
+                        // Active indicator for 8D: the four dots fill green while the
+                        // sphere is ON, and stay plain white while it is OFF (no red).
+                        val menuActiveGreen = Color(0xFF3DDC84)
                         listOf(9.dp to 9.dp, 24.dp to 9.dp, 9.dp to 24.dp, 24.dp to 24.dp)
                             .forEach { (dx, dy) ->
                                 Box(
                                     modifier = Modifier
                                         .offset(dx, dy)
                                         .size(8.dp)
-                                        .border(1.5.dp, Color.White, CircleShape),
+                                        .then(
+                                            if (eightDOn) {
+                                                Modifier.background(menuActiveGreen, CircleShape)
+                                            } else {
+                                                Modifier.border(1.5.dp, Color.White, CircleShape)
+                                            }
+                                        ),
                                 )
                             }
                     }
@@ -531,6 +549,38 @@ fun EffectVisual(
                                 PlaybackConnection.set8DPreset(com.rajatxo.lutea.playback.Effect8DPreset.BALANCED)
                                 expandedView = false
                                 expandedSide = 0
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        EffectActionCapsule(
+                            label = "Metamorphic Sphere",
+                            active = sphereStyle == SphereStyle.METAMORPHIC,
+                            textSize = capsuleTextSize,
+                            corner = capsuleCorner,
+                            padH = capsulePadH,
+                            padV = capsulePadV,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                sphereStyle = SphereStyle.METAMORPHIC
+                                prefs.edit().putString("sphere_style", "metamorphic").apply()
+                            },
+                        )
+                        EffectActionCapsule(
+                            label = "Ocean Jelly",
+                            active = sphereStyle == SphereStyle.JELLY,
+                            textSize = capsuleTextSize,
+                            corner = capsuleCorner,
+                            padH = capsulePadH,
+                            padV = capsulePadV,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                sphereStyle = SphereStyle.JELLY
+                                prefs.edit().putString("sphere_style", "jelly").apply()
                             },
                         )
                     }
@@ -1251,6 +1301,24 @@ private fun EffectOverlay(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Metamorphic sphere — the original white dot sphere
+// ─────────────────────────────────────────────────────────────────────────────
+
+private data class SpherePoint(val x: Float, val y: Float, val z: Float)
+
+private fun fibonacciSphere(n: Int): List<SpherePoint> {
+    val out = ArrayList<SpherePoint>(n)
+    val phi = (Math.PI * (3.0 - Math.sqrt(5.0))).toFloat()
+    for (i in 0 until n) {
+        val y = 1f - (i.toFloat() / (n - 1)) * 2f
+        val r = sqrt(1f - y * y)
+        val theta = phi * i
+        out.add(SpherePoint(cos(theta) * r, y, sin(theta) * r))
+    }
+    return out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Coral jellyfish sphere
 //
 // A glowing bioluminescent jellyfish that replaces the old dot sphere:
@@ -1769,6 +1837,14 @@ private data class Direction(
     val label: String,
 )
 
+/** Which creature the Effect page shows in the middle. */
+private enum class SphereStyle {
+    /** The original white dot sphere (default). */
+    METAMORPHIC,
+    /** The jellyfish renderer. */
+    JELLY,
+}
+
 @Composable
 private fun SphereComposition(
     modifier: Modifier = Modifier,
@@ -1782,10 +1858,24 @@ private fun SphereComposition(
     glow: Float = 0f,
     spinDeg: Float = 0f,
     tint: Color = Color.White,
+    sphereStyle: SphereStyle = SphereStyle.METAMORPHIC,
     onQuickTap: () -> Unit = {},
 ) {
+    val points = remember { fibonacciSphere(180) }
     val jelly = remember { JellyField() }
     val infinite = rememberInfiniteTransition(label = "sphere")
+    // Slow spin — used by the metamorphic sphere only. 0 when 8D is off (or when
+    // the Sphere Rotation switch is off). The value is read inside the Canvas
+    // draw lambda, so the 60 fps animation only re-draws.
+    val rotationAnim = infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(9000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "rot",
+    )
     // States are read inside the Canvas draw lambda (not here), so the 60 fps
     // animation only re-draws — it does not recompose this whole composable.
     // Core breathing.
@@ -2135,20 +2225,62 @@ private fun SphereComposition(
             }
         }
 
-        // ── Jellyfish sphere (replaces the old dot sphere) ──
-        // Colour = `tint` (blue = 8D on, red = off). It moves (breathes, lobes, drift)
-        // but never rotates, whether 8D is on or off — so `rotationEnabled` and
-        // `spinDeg` are intentionally not used here. Tap burst = `glow`.
-        drawJellyfish(
-            f = jelly,
-            baseX = cx,
-            baseY = cy,
-            rad = sphereR * 0.93f,
-            flow = flowAnim.value,
-            breath = sin(pulseAnim.value),
-            glow = glow,
-            tint = tint,
-        )
+        if (sphereStyle == SphereStyle.JELLY) {
+            // ── Ocean Jelly ──
+            // Colour = `tint` (blue = 8D on, red = off). It moves (breathes, lobes,
+            // drift) but never rotates, whether 8D is on or off — so `rotationEnabled`
+            // and `spinDeg` are intentionally not used here. Tap burst = `glow`.
+            drawJellyfish(
+                f = jelly,
+                baseX = cx,
+                baseY = cy,
+                rad = sphereR * 0.93f,
+                flow = flowAnim.value,
+                breath = sin(pulseAnim.value),
+                glow = glow,
+                tint = tint,
+            )
+        } else {
+            // ── Metamorphic Sphere — the original white dot sphere ──
+            // Pure white, no state colour at all: the 8D state is shown by the
+            // green menu dots, never by the sphere.
+            val rotation = (if (rotationEnabled) rotationAnim.value else 0f) + spinDeg
+            val baseDot = size.width * 0.0075f
+            val ang = Math.toRadians(rotation.toDouble()).toFloat()
+            val cosA = cos(ang); val sinA = sin(ang)
+            val projected = ArrayList<SpherePoint>(points.size)
+            for (p in points) {
+                val x1 = p.x * cosA + p.z * sinA
+                val z1 = -p.x * sinA + p.z * cosA
+                projected.add(SpherePoint(x1, p.y, z1))
+            }
+            projected.sortBy { it.z }
+            val pulseAmp = 0.10f + 0.35f * glow
+            for (v in projected) {
+                val depth = (v.z + 1f) * 0.5f
+                val wave = sin(pulseAnim.value + depth * 3f)
+                val scale = 1f + pulseAmp * wave
+                val dotR = baseDot * (0.4f + depth * 0.9f) * scale * (1f + glow * 1.0f)
+                val px = cx + v.x * sphereR
+                val py = cy - v.y * sphereR
+                val alpha = (0.18f + depth * 0.82f).coerceAtMost(1f)
+                // Burst halo on tap, white like the dots.
+                if (glow > 0.01f) {
+                    drawCircle(
+                        color = Color.White.copy(
+                            alpha = (0.26f * glow * (0.35f + depth * 0.65f)).coerceIn(0f, 0.55f)
+                        ),
+                        radius = dotR * (2.4f + 1.2f * glow),
+                        center = Offset(px, py),
+                    )
+                }
+                drawCircle(
+                    color = Color.White.copy(alpha = alpha),
+                    radius = dotR.coerceAtLeast(0.3f),
+                    center = Offset(px, py),
+                )
+            }
+        }
         }
 
         // Tap overlay for clicking on numbers
