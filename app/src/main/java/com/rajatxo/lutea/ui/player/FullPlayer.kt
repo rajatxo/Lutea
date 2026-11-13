@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.rajatxo.lutea.R
+import com.rajatxo.lutea.playback.LoopMode
 import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
@@ -65,7 +66,7 @@ val LocalPlayerNavigation = staticCompositionLocalOf { PlayerNavigation() }
  * - Large album art (centered, square, rounded corners)
  * - Song title (BillieEilish font, large) + artist (gray, smaller)
  * - Seek bar with position / duration labels
- * - Controls: prev, play/pause, next (large circular buttons)
+ * - Controls: prev, play/pause, next (large circular buttons) + loop on the right
  * - Lyrics icon (top-left) — opens the lyrics page
  * - Swipe down or tap close button to collapse back to mini player
  * - Position polled every 500ms while visible
@@ -102,6 +103,7 @@ private fun FullPlayerContent(onClose: () -> Unit, onLyricsClick: () -> Unit = {
     val isPlaying by PlaybackConnection.isPlaying.collectAsState()
     val positionMs by PlaybackConnection.positionMs.collectAsState()
     val durationMs by PlaybackConnection.durationMs.collectAsState()
+    val loopMode by PlaybackConnection.loopMode.collectAsState()
     val density = LocalDensity.current
     val nav = LocalPlayerNavigation.current
 
@@ -308,36 +310,68 @@ private fun FullPlayerContent(onClose: () -> Unit, onLyricsClick: () -> Unit = {
 
                 Spacer(Modifier.height(24.dp))
 
-                // Controls: prev, play/pause, next
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Previous
-                    PlayerButton(
-                        iconRes = R.drawable.ic_prev,
-                        contentDescription = "Previous",
-                        size = 56.dp,
-                        onClick = { PlaybackConnection.prev() },
-                    )
-                    Spacer(Modifier.width(28.dp))
-                    // Play/pause (large)
-                    PlayerButton(
-                        iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        size = 72.dp,
-                        filled = true,
-                        onClick = { PlaybackConnection.playPause() },
-                    )
-                    Spacer(Modifier.width(28.dp))
-                    // Next
-                    PlayerButton(
-                        iconRes = R.drawable.ic_next,
-                        contentDescription = "Next",
-                        size = 56.dp,
-                        onClick = { PlaybackConnection.next() },
-                    )
+                // Controls: prev, play/pause, next — with loop on the right, so the
+                // play button stays exactly centred.
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Previous
+                        PlayerButton(
+                            iconRes = R.drawable.ic_prev,
+                            contentDescription = "Previous",
+                            size = 56.dp,
+                            onClick = { PlaybackConnection.prev() },
+                        )
+                        Spacer(Modifier.width(28.dp))
+                        // Play/pause (large)
+                        PlayerButton(
+                            iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            size = 72.dp,
+                            filled = true,
+                            onClick = { PlaybackConnection.playPause() },
+                        )
+                        Spacer(Modifier.width(28.dp))
+                        // Next
+                        PlayerButton(
+                            iconRes = R.drawable.ic_next,
+                            contentDescription = "Next",
+                            size = 56.dp,
+                            onClick = { PlaybackConnection.next() },
+                        )
+                    }
+
+                    // Loop: OFF → ALL → ONE (bright when on, with a "1" for one-song)
+                    val loopActive = loopMode != LoopMode.OFF
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = if (loopActive) 0.16f else 0.08f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { PlaybackConnection.cycleLoopMode() },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                if (loopMode == LoopMode.ONE) R.drawable.ic_repeat_one else R.drawable.ic_repeat
+                            ),
+                            contentDescription = when (loopMode) {
+                                LoopMode.OFF -> "Loop off"
+                                LoopMode.ALL -> "Loop queue"
+                                LoopMode.ONE -> "Loop this song"
+                            },
+                            tint = Color.White.copy(alpha = if (loopActive) 1f else 0.45f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(16.dp))

@@ -49,6 +49,9 @@ import kotlinx.coroutines.guava.await
  *    processor runs on the live audio stream.
  *  - No more cache, no more temp files, no more source copying.
  */
+/** Loop / repeat mode for the queue. Cycles OFF -> ALL -> ONE. */
+enum class LoopMode { OFF, ALL, ONE }
+
 @UnstableApi
 object PlaybackConnection {
 
@@ -71,6 +74,12 @@ object PlaybackConnection {
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
     private var queue: List<Song> = emptyList()
+
+    // ── Loop / repeat ──
+    // Default matches the service's initial REPEAT_MODE_ALL, so the button and the
+    // player never disagree on first launch. Persisted in lutea_player/loop_mode.
+    private val _loopMode = MutableStateFlow(LoopMode.ALL)
+    val loopMode: StateFlow<LoopMode> = _loopMode.asStateFlow()
 
     // Last playback error timestamp — used for the auto-skip cooldown in
     // onPlayerErrorChanged. Prevents the rapid-skipping loop where every song
@@ -124,9 +133,16 @@ object PlaybackConnection {
             LuteaAudioProcessors.spatial8D.setOrbitHz(sliderToRps(_orbitSlider.value))
             LuteaAudioProcessors.spatial8D.setSpatialWidth(sliderToWidth(_ambienceSlider.value))
 
+            // Restore the last loop mode before the controller comes up, then push it.
+            val playerPrefs = app.getSharedPreferences("lutea_player", android.content.Context.MODE_PRIVATE)
+            _loopMode.value = runCatching {
+                LoopMode.valueOf(playerPrefs.getString("loop_mode", LoopMode.ALL.name) ?: LoopMode.ALL.name)
+            }.getOrDefault(LoopMode.ALL)
+
             val sessionToken = SessionToken(app, ComponentName(app, LuteaPlaybackService::class.java))
             val c = MediaController.Builder(app, sessionToken).buildAsync().await()
             controller = c
+            c.repeatMode = _loopMode.value.toPlayerRepeatMode()
 
             c.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -271,6 +287,30 @@ object PlaybackConnection {
     fun seekTo(positionMs: Long) {
         try { controller?.seekTo(positionMs) }
         catch (e: Exception) { Log.e(TAG, "seekTo failed", e) }
+    }
+
+    /** Loop button: OFF -> ALL -> ONE -> OFF. */
+    fun cycleLoopMode() {
+        val next = when (_loopMode.value) {
+            LoopMode.OFF -> LoopMode.ALL
+            LoopMode.ALL -> LoopMode.ONE
+            LoopMode.ONE -> LoopMode.OFF
+        }
+        setLoopMode(next)
+    }
+
+    fun setLoopMode(mode: LoopMode) {
+        _loopMode.value = mode
+        try { controller?.repeatMode = mode.toPlayerRepeatMode() }
+        catch (e: Exception) { Log.e(TAG, "setLoopMode failed", e) }
+        appContext?.getSharedPreferences("lutea_player", android.content.Context.MODE_PRIVATE)
+            ?.edit()?.putString("loop_mode", mode.name)?.apply()
+    }
+
+    private fun LoopMode.toPlayerRepeatMode(): Int = when (this) {
+        LoopMode.OFF -> Player.REPEAT_MODE_OFF
+        LoopMode.ALL -> Player.REPEAT_MODE_ALL
+        LoopMode.ONE -> Player.REPEAT_MODE_ONE
     }
 
     fun disconnect() {
