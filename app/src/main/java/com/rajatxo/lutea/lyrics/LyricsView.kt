@@ -1,7 +1,6 @@
 package com.rajatxo.lutea.lyrics
 
 import android.os.Build
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -11,8 +10,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -29,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
@@ -151,28 +147,61 @@ private fun activeLine(lines: List<LyricLine>, t: Long): Int {
     return ans
 }
 
-/**
- * A stretch of the song where nothing is being sung: the intro, or a gap between two
- * lines. [startMs]..[endMs] is mapped onto the three typing dots, one dot per third,
- * so they finish exactly when the vocals come back.
- */
-private data class WaitWindow(val startMs: Float, val endMs: Float) {
-    val durationMs: Float get() = (endMs - startMs).coerceAtLeast(1f)
+// ─────────────────────────────────────────────────────────────────────────────
+//  Lyric rows.
+//
+//  The instrumental indicator is NOT an overlay on the screen: it is a real row in
+//  the lyric list, inserted where the silence is. That is the whole trick — a list
+//  row already sits in the lyric column, keeps the same left margin, the same line
+//  height and the same scroll as the text around it, so the dots read as part of
+//  the lyrics instead of floating somewhere on top of them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+private sealed interface LyricRow {
+    val key: String
+
+    data class Text(val lineIndex: Int) : LyricRow {
+        override val key: String get() = "l$lineIndex"
+    }
+
+    data class Break(val startMs: Long, val endMs: Long) : LyricRow {
+        override val key: String get() = "b$startMs"
+    }
 }
 
-private fun waitWindowFor(lines: List<LyricLine>, t: Float): WaitWindow? {
-    if (lines.isEmpty()) return null
-    val i = activeLine(lines, t.toLong())
-    if (i < 0) {
-        // Intro — nothing sung yet. Only show the dots for a real intro.
-        val firstStart = lines.first().startMs.toFloat()
-        return if (firstStart >= 1500f) WaitWindow(0f, firstStart) else null
+private class RowPlan(val rows: List<LyricRow>, val rowOfLine: IntArray)
+
+private const val INTRO_BREAK_MIN_MS = 1500L
+private const val GAP_BREAK_MIN_MS = 3200L
+
+/** Walks the lines once and lays the breaks in between them. */
+private fun buildRowPlan(lines: List<LyricLine>): RowPlan {
+    val rows = ArrayList<LyricRow>(lines.size + 4)
+    val rowOfLine = IntArray(lines.size)
+    if (lines.isNotEmpty() && lines.first().startMs >= INTRO_BREAK_MIN_MS) {
+        rows.add(LyricRow.Break(0L, lines.first().startMs))
     }
-    val next = lines.getOrNull(i + 1) ?: return null
-    val start = lines[i].endMs.toFloat()      // last word of the current line
-    val end = next.startMs.toFloat()          // first word of the next one
-    return if (end - start >= 3200f) WaitWindow(start, end) else null
+    for (i in lines.indices) {
+        rowOfLine[i] = rows.size
+        rows.add(LyricRow.Text(i))
+        val next = lines.getOrNull(i + 1) ?: continue
+        val start = lines[i].endMs          // last word of this line
+        if (next.startMs - start >= GAP_BREAK_MIN_MS) {
+            rows.add(LyricRow.Break(start, next.startMs))
+        }
+    }
+    return RowPlan(rows, rowOfLine)
 }
+
+/** 0..1 across a break — drives the three dots. */
+private fun breakProgress(t: Float, startMs: Long, endMs: Long): Float {
+    val span = (endMs - startMs).coerceAtLeast(1L).toFloat()
+    return ((t - startMs) / span).coerceIn(0f, 1f)
+}
+
+/** 0 outside the break, 1 inside it, with a 320 ms fade at both edges. */
+private fun breakAlpha(t: Float, startMs: Long, endMs: Long): Float =
+    smooth((t - startMs) / 320f) * smooth((endMs - t) / 320f)
 
 private class DrawParams(
     val sung: Color,
@@ -602,24 +631,17 @@ fun LyricsView(
         derivedStateOf { if (synced) activeLine(lyrics.lines, clock.floatValue.toLong()) else -1 }
     }
 
-    // ★ Instrumental: the intro, or a gap between two lines. The typing dots fill one
-    //   dot per third of that window, so the last dot completes just as the next line
-    //   is sung. Both states only flip when a boundary is crossed, so reading them in
-    //   composition never causes per-frame recomposition.
-    val waitWindow by remember(lyrics, synced) {
-        derivedStateOf { if (synced) waitWindowFor(lyrics.lines, clock.floatValue) else null }
-    }
-    val waitingForLyrics by remember(lyrics, synced) {
+    // ★ Instrumental breaks are rows of their own, so the list is addressed by row
+    //   index; a line still knows its own index for the alpha/blur staging.
+    val rowPlan = remember(lyrics) { buildRowPlan(lyrics.lines) }
+    val activeRowIndex by remember(lyrics) {
         derivedStateOf {
-            val w = waitWindow ?: return@derivedStateOf false
-            val t = clock.floatValue
-            t >= w.startMs && t < w.endMs
+            if (!synced) -1
+            else {
+                val i = activeLine(lyrics.lines, clock.floatValue.toLong())
+                if (i < 0) -1 else rowPlan.rowOfLine[i]
+            }
         }
-    }
-    // 0..1 across the whole instrumental window — read in the draw phase only.
-    val instrumentalProgress: () -> Float = {
-        val w = waitWindow
-        if (w == null) 1f else ((clock.floatValue - w.startMs) / w.durationMs).coerceIn(0f, 1f)
     }
 
     // ★ Mochy blur: 3 stages — null (0px), 5px, 12px — DECAL tile mode
@@ -648,13 +670,13 @@ fun LyricsView(
         // ★ Mochy auto-scroll: 950ms tween, CubicBezier(0.42, 0, 0.16, 1) — eases in
         //    Keyed on activeIndex + followPaused only (NOT lyrics — upgrading lyrics
         //    would cancel the scroll mid-animation and cause a snap).
-        LaunchedEffect(activeIndex, followPaused) {
-            if (!synced || followPaused || activeIndex < 0) return@LaunchedEffect
-            var info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
+        LaunchedEffect(activeRowIndex, followPaused) {
+            if (!synced || followPaused || activeRowIndex < 0) return@LaunchedEffect
+            var info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeRowIndex }
             if (info == null) {
                 // ★ Use animateScrollToItem (animated) instead of scrollToItem (instant snap)
-                listState.animateScrollToItem(activeIndex, 0)
-                info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeIndex }
+                listState.animateScrollToItem(activeRowIndex, 0)
+                info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == activeRowIndex }
             }
             if (info != null) {
                 val target = info.offset - focusPx
@@ -674,36 +696,34 @@ fun LyricsView(
                 end = style.horizontalPadding,
             ),
         ) {
-            itemsIndexed(lyrics.lines, key = { i, _ -> i }) { i, line ->
-                val active = i == activeIndex || (line.isBackground && i - 1 == activeIndex)
-                LyricLineItem(
-                    line = line,
-                    synced = synced,
-                    isActive = active,
-                    distance = if (activeIndex < 0) i + 1 else abs(i - activeIndex),
-                    clock = clock,
-                    measurer = measurer,
-                    style = style,
-                    blurEffects = blurEffects,
-                    onClick = if (synced) ({ onSeek(line.startMs) }) else null,
-                )
-            }
-        }
+            items(count = rowPlan.rows.size, key = { idx -> rowPlan.rows[idx].key }) { rowIndex ->
+                when (val row = rowPlan.rows[rowIndex]) {
+                    // ★ Instrumental break — a normal row of the lyric column.
+                    is LyricRow.Break -> InstrumentalBreakRow(
+                        startMs = row.startMs,
+                        endMs = row.endMs,
+                        clock = clock,
+                        style = style,
+                    )
 
-        // ★ Instrumental / intro: three dots at the left edge, loading one by one
-        //   across the gap and gone the moment the next line is sung.
-        AnimatedVisibility(
-            visible = waitingForLyrics,
-            enter = fadeIn(tween(280)),
-            exit = fadeOut(tween(280)),
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = style.horizontalPadding),
-        ) {
-            TypingDots(
-                color = style.sungColor,
-                progress = instrumentalProgress,
-            )
+                    is LyricRow.Text -> {
+                        val i = row.lineIndex
+                        val line = lyrics.lines[i]
+                        val active = i == activeIndex || (line.isBackground && i - 1 == activeIndex)
+                        LyricLineItem(
+                            line = line,
+                            synced = synced,
+                            isActive = active,
+                            distance = if (activeIndex < 0) i + 1 else abs(i - activeIndex),
+                            clock = clock,
+                            measurer = measurer,
+                            style = style,
+                            blurEffects = blurEffects,
+                            onClick = if (synced) ({ onSeek(line.startMs) }) else null,
+                        )
+                    }
+                }
+            }
         }
 
         // ★ Immersive fade: top 10% and bottom 38% dissolve into the page background.
@@ -729,9 +749,43 @@ fun LyricsView(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Instrumental break row — the lyric line that isn't there.
+//
+//  It is a full row of the lyric list: same width, same 36dp column inset, same line
+//  height and the same vertical gap as a lyric line, so the dots sit exactly on the
+//  lyric grid at the left edge of the column and scroll away with the text.
+//  Alpha and progress are read from the clock in the draw/layer phase only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun InstrumentalBreakRow(
+    startMs: Long,
+    endMs: Long,
+    clock: State<Float>,
+    style: LyricsStyle,
+) {
+    val density = LocalDensity.current
+    // One lyric line tall, so the break keeps the rhythm of the column.
+    val height = with(density) { style.lineHeight.toDp() } + style.lineGap * 2
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .graphicsLayer { alpha = breakAlpha(clock.value, startMs, endMs) },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        TypingDots(
+            color = style.sungColor,
+            progress = { breakProgress(clock.value, startMs, endMs) },
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Typing dots — the "instrumental / waiting for lyrics" indicator.
 //
-//  The window is split into three equal thirds. Dot i loads during the first 40% of
+//  The break is split into three equal thirds. Dot i loads during the first 40% of
 //  its third (quick pop, scale + glow grow in), then holds; the dot whose third is
 //  running right now keeps the typing bounce, so the movement travels left to right
 //  with the music instead of looping blindly.
