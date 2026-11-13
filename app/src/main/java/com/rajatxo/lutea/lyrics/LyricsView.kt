@@ -1,23 +1,36 @@
 package com.rajatxo.lutea.lyrics
 
 import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -81,11 +94,11 @@ import kotlin.math.roundToInt
 //    • default:     alpha 0.38, scale 0.95
 //    • past:        alpha 0.24, scale 0.93
 //    • blur: 0px (active), 5px (adjacent), 12px (far) — DECAL tile mode
-//    • glow: very subtle — 3dp radius, only on the sung word, trailing the sweep
+//    • glow: subtle halo on held words only, as a separate unclipped two-pass pass
 //    • focus: active line at 5.5% from top (min 72dp)
 //    • auto-scroll: 950ms tween, CubicBezier(0.42, 0, 0.16, 1) — eases in, no kick
-//    • cascade: up to 9 rows below trail at 55ms × distance spring time constant
-//    • immersive fade: top 10% + bottom 38% dissolve via DstIn
+//    • alignment: main vocal left, secondary/background centred, duet partner right
+//    • immersive fade: top 10% + bottom 38% dissolve into the page colour
 //    • user-scroll pause: 3.5s
 //    • word rise: 3dp lift on the sung word, easing in/out
 // ─────────────────────────────────────────────────────────────────────────────
@@ -103,7 +116,7 @@ data class LyricsStyle(
     val glowRadius: Dp = 12.dp,         // glow radius for held notes (wider than before)
     val liftDistance: Dp = 1.5.dp,      // reduced from 3dp — smoother, less jumpy
     val heldZoom: Float = 0.04f,       // reduced from 0.08 — subtle swell, not jumpy
-    val heldGlowAlpha: Float = 0.5f,   // glow intensity on held notes
+    val heldGlowAlpha: Float = 0.32f,  // glow intensity on held notes (was 0.5 — too hot on holds)
     val maxBlur: Dp = 12.dp,
     val focusFraction: Float = 0.055f,
     val minFocusDp: Dp = 72.dp,
@@ -284,7 +297,7 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 // Glow: attack 35%, release 30%
                 val glowAttack = smooth((wp / 0.35f).coerceIn(0f, 1f))
                 val glowRelease = smooth(((1f - wp) / 0.3f).coerceIn(0f, 1f))
-                val holdBoost = 1f + 0.6f * smooth(((secPerChar - 0.34f) / 0.5f).coerceIn(0f, 1f))
+                val holdBoost = 1f + 0.3f * smooth(((secPerChar - 0.34f) / 0.5f).coerceIn(0f, 1f))
                 val glow = hold * holdBoost * glowAttack * glowRelease * p.heldGlowAlpha
 
                 // Swell: attack 20%, release 12%
@@ -320,8 +333,8 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                     ).also { g.layout = it }
                     val ox = g.left - wl.getBoundingBox(0).left
                     val oy = baselineY - wl.getLineBaseline(0)
-                    val outerA = (glow * 1.8f).coerceAtMost(0.9f)
-                    val radius = p.glowRadiusPx * (0.7f + 1.6f * glow.coerceAtMost(1f))
+                    val outerA = (glow * 1.35f).coerceAtMost(0.62f)
+                    val radius = p.glowRadiusPx * (0.6f + 1.2f * glow.coerceAtMost(1f))
                     canvas2.save()
                     canvas2.translate(0f, -lift)
                     if (scale != 1f) {
@@ -384,8 +397,13 @@ private fun LyricLineItem(
             fontWeight = if (line.isBackground) FontWeight.SemiBold else style.fontWeight,
             fontSize = style.fontSize * sizeScale,
             lineHeight = style.lineHeight * sizeScale,
-            // ★ Center by default (Mochy CENTER alignment), End for duets
-            textAlign = if (line.alignEnd) TextAlign.End else TextAlign.Center,
+            // ★ Per-singer alignment: main vocal left, secondary/background centred,
+            //   duet partner (TTML agent change) right.
+            textAlign = when {
+                line.alignEnd -> TextAlign.End
+                line.isBackground -> TextAlign.Center
+                else -> TextAlign.Start
+            },
             color = Color.White,
         )
     }
@@ -406,10 +424,16 @@ private fun LyricLineItem(
         }
     }
 
-    // ★ Mochy transitions: 600ms tween for alpha/scale, 350ms for blur
+    // ★ Mochy transitions: 600ms tween for alpha/scale, 350ms for blur.
+    //   Secondary/background vocals get a light spring instead, so the centred
+    //   line pops in with a soft overshoot when its turn comes.
     val focusV by animateFloatAsState(
         targetValue = if (isActive && synced) 1f else 0f,
-        animationSpec = tween(600),
+        animationSpec = if (line.isBackground) {
+            spring<Float>(dampingRatio = 0.55f, stiffness = 380f)
+        } else {
+            tween(600)
+        },
         label = "lyricFocus",
     )
     // ★ Mochy resting alpha: ACTIVE 1.0, UPCOMING 0.5, DEFAULT 0.38, PAST 0.24
@@ -460,8 +484,15 @@ private fun LyricLineItem(
                     inactiveScale + (1.06f - inactiveScale) * focusV
                 } else 1f
                 scaleX = s; scaleY = s
-                // ★ Center transform origin for center-aligned text (Mochy CENTER)
-                transformOrigin = TransformOrigin(if (line.alignEnd) 1f else 0.5f, 0.5f)
+                // ★ Scale from the edge the line is aligned to
+                transformOrigin = TransformOrigin(
+                    when {
+                        line.alignEnd -> 1f
+                        line.isBackground -> 0.5f
+                        else -> 0f
+                    },
+                    0.5f,
+                )
                 alpha = alphaV
                 val step = blurV.roundToInt().coerceIn(0, blurEffects.size - 1)
                 renderEffect = blurEffects.getOrNull(step)
@@ -547,6 +578,26 @@ fun LyricsView(
         derivedStateOf { if (synced) activeLine(lyrics.lines, clock.floatValue.toLong()) else -1 }
     }
 
+    // ★ Instrumental: nothing is being sung right now — either before the first line,
+    //   or inside a real gap between two lines (a line whose words ended well before the
+    //   next one starts). The typing dots stand in for the lyrics there.
+    val waitingForLyrics by remember(lyrics, synced) {
+        derivedStateOf {
+            if (!synced) return@derivedStateOf false
+            val lines = lyrics.lines
+            if (lines.isEmpty()) return@derivedStateOf false
+            val t = clock.floatValue
+            val i = activeLine(lines, t.toLong())
+            if (i < 0) {
+                t < (lines.first().startMs - 900L).toFloat()
+            } else {
+                val gapStart = lines[i].endMs
+                val gapEnd = lines.getOrNull(i + 1)?.startMs ?: return@derivedStateOf false
+                gapEnd - gapStart > 3200L && t > gapStart + 1000f && t < gapEnd - 1000f
+            }
+        }
+    }
+
     // ★ Mochy blur: 3 stages — null (0px), 5px, 12px — DECAL tile mode
     val blurEffects = remember(style.maxBlur, density) {
         val maxPx = with(density) { style.maxBlur.toPx() }
@@ -615,6 +666,16 @@ fun LyricsView(
             }
         }
 
+        // ★ Instrumental / intro: typing dots while no lyric line is being sung.
+        AnimatedVisibility(
+            visible = waitingForLyrics,
+            enter = fadeIn(tween(280)),
+            exit = fadeOut(tween(280)),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            TypingDots(color = style.unsungColor)
+        }
+
         // ★ Immersive fade: top 10% and bottom 38% dissolve into the page background.
         //   Painted as a plain overlay in the screen's own colour instead of a DstIn
         //   pass, so the list no longer renders into an offscreen layer every frame —
@@ -634,5 +695,50 @@ fun LyricsView(
                     )
                 }
         )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Typing dots — the "instrumental / waiting for lyrics" indicator.
+//  Three dots, 1s loop, 160ms stagger: opacity 0.5 → 1 and a half-dot lift.
+//  The loop phase is read inside graphicsLayer, so it redraws without recomposing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TypingDots(
+    color: Color,
+    modifier: Modifier = Modifier,
+    dotSize: Dp = 9.dp,
+    gap: Dp = 7.dp,
+) {
+    val transition = rememberInfiniteTransition(label = "typing")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "typingPhase",
+    )
+    Row(
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(gap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(3) { i ->
+            Box(
+                Modifier
+                    .size(dotSize)
+                    .graphicsLayer {
+                        val p = (phase + i * 0.16f) % 1f
+                        // 0 → 1 → 0 over one loop, so the dot rises to half its size and back
+                        val lift = if (p <= 0.5f) p * 2f else (1f - p) * 2f
+                        translationY = -lift * size.height * 0.5f
+                        alpha = 0.5f + 0.5f * lift
+                    }
+                    .background(color, CircleShape)
+            )
+        }
     }
 }
