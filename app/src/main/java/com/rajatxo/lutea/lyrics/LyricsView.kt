@@ -151,6 +151,29 @@ private fun activeLine(lines: List<LyricLine>, t: Long): Int {
     return ans
 }
 
+/**
+ * A stretch of the song where nothing is being sung: the intro, or a gap between two
+ * lines. [startMs]..[endMs] is mapped onto the three typing dots, one dot per third,
+ * so they finish exactly when the vocals come back.
+ */
+private data class WaitWindow(val startMs: Float, val endMs: Float) {
+    val durationMs: Float get() = (endMs - startMs).coerceAtLeast(1f)
+}
+
+private fun waitWindowFor(lines: List<LyricLine>, t: Float): WaitWindow? {
+    if (lines.isEmpty()) return null
+    val i = activeLine(lines, t.toLong())
+    if (i < 0) {
+        // Intro — nothing sung yet. Only show the dots for a real intro.
+        val firstStart = lines.first().startMs.toFloat()
+        return if (firstStart >= 1500f) WaitWindow(0f, firstStart) else null
+    }
+    val next = lines.getOrNull(i + 1) ?: return null
+    val start = lines[i].endMs.toFloat()      // last word of the current line
+    val end = next.startMs.toFloat()          // first word of the next one
+    return if (end - start >= 3200f) WaitWindow(start, end) else null
+}
+
 private class DrawParams(
     val sung: Color,
     val unsung: Color,
@@ -579,24 +602,24 @@ fun LyricsView(
         derivedStateOf { if (synced) activeLine(lyrics.lines, clock.floatValue.toLong()) else -1 }
     }
 
-    // ★ Instrumental: nothing is being sung right now — either before the first line,
-    //   or inside a real gap between two lines (a line whose words ended well before the
-    //   next one starts). The typing dots stand in for the lyrics there.
+    // ★ Instrumental: the intro, or a gap between two lines. The typing dots fill one
+    //   dot per third of that window, so the last dot completes just as the next line
+    //   is sung. Both states only flip when a boundary is crossed, so reading them in
+    //   composition never causes per-frame recomposition.
+    val waitWindow by remember(lyrics, synced) {
+        derivedStateOf { if (synced) waitWindowFor(lyrics.lines, clock.floatValue) else null }
+    }
     val waitingForLyrics by remember(lyrics, synced) {
         derivedStateOf {
-            if (!synced) return@derivedStateOf false
-            val lines = lyrics.lines
-            if (lines.isEmpty()) return@derivedStateOf false
+            val w = waitWindow ?: return@derivedStateOf false
             val t = clock.floatValue
-            val i = activeLine(lines, t.toLong())
-            if (i < 0) {
-                t < (lines.first().startMs - 900L).toFloat()
-            } else {
-                val gapStart = lines[i].endMs
-                val gapEnd = lines.getOrNull(i + 1)?.startMs ?: return@derivedStateOf false
-                gapEnd - gapStart > 3200L && t > gapStart + 1000f && t < gapEnd - 1000f
-            }
+            t >= w.startMs && t < w.endMs
         }
+    }
+    // 0..1 across the whole instrumental window — read in the draw phase only.
+    val instrumentalProgress: () -> Float = {
+        val w = waitWindow
+        if (w == null) 1f else ((clock.floatValue - w.startMs) / w.durationMs).coerceIn(0f, 1f)
     }
 
     // ★ Mochy blur: 3 stages — null (0px), 5px, 12px — DECAL tile mode
@@ -667,14 +690,20 @@ fun LyricsView(
             }
         }
 
-        // ★ Instrumental / intro: typing dots while no lyric line is being sung.
+        // ★ Instrumental / intro: three dots at the left edge, loading one by one
+        //   across the gap and gone the moment the next line is sung.
         AnimatedVisibility(
             visible = waitingForLyrics,
             enter = fadeIn(tween(280)),
             exit = fadeOut(tween(280)),
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = style.horizontalPadding),
         ) {
-            TypingDots(color = style.unsungColor)
+            TypingDots(
+                color = style.sungColor,
+                progress = instrumentalProgress,
+            )
         }
 
         // ★ Immersive fade: top 10% and bottom 38% dissolve into the page background.
@@ -701,16 +730,22 @@ fun LyricsView(
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Typing dots — the "instrumental / waiting for lyrics" indicator.
-//  Three dots, 1s loop, 160ms stagger: opacity 0.5 → 1 and a half-dot lift.
-//  The loop phase is read inside graphicsLayer, so it redraws without recomposing.
+//
+//  The window is split into three equal thirds. Dot i loads during the first 40% of
+//  its third (quick pop, scale + glow grow in), then holds; the dot whose third is
+//  running right now keeps the typing bounce, so the movement travels left to right
+//  with the music instead of looping blindly.
+//
+//  Everything is read in the draw phase (progress + phase), so nothing recomposes.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun TypingDots(
     color: Color,
+    progress: () -> Float,
     modifier: Modifier = Modifier,
-    dotSize: Dp = 9.dp,
-    gap: Dp = 7.dp,
+    dotSize: Dp = 10.dp,
+    gap: Dp = 9.dp,
 ) {
     val transition = rememberInfiniteTransition(label = "typing")
     val phase by transition.animateFloat(
@@ -732,11 +767,40 @@ private fun TypingDots(
                 Modifier
                     .size(dotSize)
                     .graphicsLayer {
-                        val p = (phase + i * 0.16f) % 1f
-                        // 0 → 1 → 0 over one loop, so the dot rises to half its size and back
-                        val lift = if (p <= 0.5f) p * 2f else (1f - p) * 2f
-                        translationY = -lift * size.height * 0.5f
-                        alpha = 0.5f + 0.5f * lift
+                        // pos: 0..3 — one unit of the window per dot
+                        val pos = progress().coerceIn(0f, 1f) * 3f
+                        // Load over the first 40% of this dot's third, then hold lit
+                        val seg = ((pos - i) / 0.4f).coerceIn(0f, 1f)
+                        // Only the dot that owns the current third keeps moving
+                        val current = if (pos >= i && pos < i + 1f) 1f else 0f
+                        val ph = (phase + i * 0.16f) % 1f
+                        val lift = if (ph <= 0.5f) ph * 2f else (1f - ph) * 2f
+                        translationY = -lift * size.height * 0.5f * current
+                        val s = 0.7f + 0.3f * seg
+                        scaleX = s
+                        scaleY = s
+                        alpha = 0.15f + 0.85f * seg
+                    }
+                    .drawBehind {
+                        // Glow: grows with the dot's load, so each one "ignites" in turn
+                        val pos = progress().coerceIn(0f, 1f) * 3f
+                        val seg = ((pos - i) / 0.4f).coerceIn(0f, 1f)
+                        if (seg > 0.01f) {
+                            val r = size.minDimension * (1.0f + 1.2f * seg)
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        color.copy(alpha = 0.55f * seg),
+                                        color.copy(alpha = 0.16f * seg),
+                                        Color.Transparent,
+                                    ),
+                                    center = center,
+                                    radius = r,
+                                ),
+                                radius = r,
+                                center = center,
+                            )
+                        }
                     }
                     .background(color, CircleShape)
             )
