@@ -35,14 +35,11 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TileMode
@@ -69,7 +66,6 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
-import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -112,15 +108,13 @@ data class LyricsStyle(
     val minFocusDp: Dp = 72.dp,
     val lineGap: Dp = 12.dp,
     val horizontalPadding: Dp = 36.dp,
+    val fadeColor: Color = Color(0xFF0A0A0A),   // page background, for the top/bottom fade
 )
 
 private fun smooth(x: Float): Float { val c = x.coerceIn(0f, 1f); return c * c * (3f - 2f * c) }
 private fun easeOutCubic(x: Float): Float { val i = 1f - x; return 1f - i * i * i }
 
 private val RecenterEasing = CubicBezierEasing(0.42f, 0f, 0.16f, 1f)  // Mochy Style 1
-
-private const val STAGGER_LAG_PER_ROW_MS = 55f   // Mochy StaggerLagPerRowMs
-private const val STAGGER_MAX_ROWS = 9            // Mochy StaggerMaxRows
 
 /** 0..1 "this word is being pulled up" envelope, purely a function of time (seek-safe). */
 private fun wordEnvelope(startMs: Long, endMs: Long, t: Long): Float {
@@ -327,50 +321,6 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Cascade / stagger — rows below the active line trail the scroll.
-//  Each row has a critically-damped spring with time constant = 55ms × distance.
-//  Updated every frame via withFrameNanos; read in graphicsLayer (no recomposition).
-// ─────────────────────────────────────────────────────────────────────────────
-
-private class StaggerState {
-    val offsets = mutableStateMapOf<Int, Float>()
-    private val velocities = mutableMapOf<Int, Float>()
-    private var anchorRow = -1
-
-    fun setAnchor(row: Int) { anchorRow = row }
-
-    fun holdBack(rows: Iterable<Int>, scrollPx: Float) {
-        for (row in rows) {
-            if (row > anchorRow && row <= anchorRow + STAGGER_MAX_ROWS) {
-                offsets[row] = (offsets[row] ?: 0f) + scrollPx
-            }
-        }
-    }
-
-    fun update(dt: Float) {
-        if (offsets.isEmpty()) return
-        val keys = offsets.keys.toList()
-        for (row in keys) {
-            val k = (row - anchorRow).coerceIn(1, STAGGER_MAX_ROWS)
-            val omega = 1000f / (STAGGER_LAG_PER_ROW_MS * k)
-            val offset = offsets[row] ?: 0f
-            val v = velocities[row] ?: 0f
-            val e = exp(-omega * dt)
-            val tmp = (v + omega * offset) * dt
-            val nextOffset = (offset + tmp) * e
-            val nextV = (v - omega * tmp) * e
-            if (abs(nextOffset) < 0.3f && abs(nextV) < 4f) {
-                offsets.remove(row); velocities.remove(row)
-            } else {
-                offsets[row] = nextOffset; velocities[row] = nextV
-            }
-        }
-    }
-
-    val isMoving get() = offsets.isNotEmpty()
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 //  Per-line item
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -384,7 +334,6 @@ private fun LyricLineItem(
     measurer: TextMeasurer,
     style: LyricsStyle,
     blurEffects: Array<RenderEffect?>,
-    staggerOffset: () -> Float,
     onClick: (() -> Unit)?,
 ) {
     val density = LocalDensity.current
@@ -476,8 +425,6 @@ private fun LyricLineItem(
                 alpha = alphaV
                 val step = blurV.roundToInt().coerceIn(0, blurEffects.size - 1)
                 renderEffect = blurEffects.getOrNull(step)
-                // ★ Cascade: rows below the active line get a translationY offset
-                translationY = staggerOffset()
             }
             .layout { measurable, constraints ->
                 val w = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
@@ -564,23 +511,6 @@ fun LyricsView(
         }
     }
 
-    // ★ Cascade state
-    val stagger = remember { StaggerState() }
-    var lastFrameNanos by remember { mutableLongStateOf(0L) }
-
-    // Update stagger springs every frame
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            withFrameNanos { now ->
-                if (lastFrameNanos > 0 && stagger.isMoving) {
-                    val dt = ((now - lastFrameNanos) / 1e9f).coerceIn(0f, 0.064f)
-                    stagger.update(dt)
-                }
-                lastFrameNanos = now
-            }
-        }
-    }
-
     // pause auto-follow while the user drags; resume 3.5s after they let go (Mochy)
     val dragged by listState.interactionSource.collectIsDraggedAsState()
     var followPaused by remember { mutableStateOf(false) }
@@ -608,9 +538,6 @@ fun LyricsView(
             if (info != null) {
                 val target = info.offset - focusPx
                 if (abs(target) > 0.5f) {
-                    stagger.setAnchor(activeIndex)
-                    val visibleRows = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                    stagger.holdBack(visibleRows, -target)
                     listState.animateScrollBy(target, tween(950, easing = RecenterEasing))
                 }
             }
@@ -618,22 +545,7 @@ fun LyricsView(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    // ★ Mochy immersive fade: top 10% + bottom 38% dissolve via DstIn
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.10f to Color.Black,
-                            0.62f to Color.Black,
-                            1f to Color.Transparent,
-                        ),
-                        blendMode = BlendMode.DstIn,
-                    )
-                },
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 top = with(density) { focusPx.toDp() },
                 bottom = with(density) { (viewportPx * 0.55f).toDp() },  // Mochy: 55% bottom padding
@@ -652,10 +564,29 @@ fun LyricsView(
                     measurer = measurer,
                     style = style,
                     blurEffects = blurEffects,
-                    staggerOffset = { stagger.offsets[i] ?: 0f },
                     onClick = if (synced) ({ onSeek(line.startMs) }) else null,
                 )
             }
         }
+
+        // ★ Immersive fade: top 10% and bottom 38% dissolve into the page background.
+        //   Painted as a plain overlay in the screen's own colour instead of a DstIn
+        //   pass, so the list no longer renders into an offscreen layer every frame —
+        //   that layer (plus the per-line blur) was the cost that made auto-scroll
+        //   stutter. Visually identical over the solid background.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to style.fadeColor,
+                            0.10f to Color.Transparent,
+                            0.62f to Color.Transparent,
+                            1f to style.fadeColor,
+                        )
+                    )
+                }
+        )
     }
 }
