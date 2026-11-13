@@ -266,9 +266,6 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
             }
             canvas.restore()
             val canvas2 = drawContext.canvas
-            // Glow may spill a little sideways; kept inside the gap between words so neighbours
-            // are never redrawn.
-            val reachX = min(p.glowRadiusPx, p.softPx * 0.28f)
             for (gi in lifted) {
                 val g = groups[gi]
                 val dur = max(g.endMs - g.startMs, 1L).toFloat()
@@ -287,7 +284,8 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 // Glow: attack 35%, release 30%
                 val glowAttack = smooth((wp / 0.35f).coerceIn(0f, 1f))
                 val glowRelease = smooth(((1f - wp) / 0.3f).coerceIn(0f, 1f))
-                val glow = hold * glowAttack * glowRelease * p.heldGlowAlpha
+                val holdBoost = 1f + 0.6f * smooth(((secPerChar - 0.34f) / 0.5f).coerceIn(0f, 1f))
+                val glow = hold * holdBoost * glowAttack * glowRelease * p.heldGlowAlpha
 
                 // Swell: attack 20%, release 12%
                 val swellAttack = smooth((wp / 0.2f).coerceIn(0f, 1f))
@@ -298,12 +296,6 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 val mode = modeOf(k)
                 val baselineY = l.getLineBaseline(k)          // swell grows upward from the baseline
                 val centerX = (g.left + g.right) / 2f
-                val shadow = Shadow(
-                    color = p.glow.copy(alpha = glow),
-                    offset = Offset.Zero,
-                    blurRadius = p.glowRadiusPx * (0.5f + 1.5f * glow),
-                )
-
                 // ★ The word is NOT re-laid-out any more. We draw the very same line layout,
                 //   clipped to this word's box and moved. Same glyphs, same baseline, same
                 //   kerning — a single-word layout trims its line height differently from a
@@ -318,17 +310,49 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 drawText(l, color = p.unsung)
                 canvas2.restore()
 
-                // 2) sung fill (+ glow when held)
-                if (mode != 0) {
-                    val wide = if (glow > 0.01f) reachX else 0f
+                // 2) glow — a soft halo shaped like the letters themselves, never clipped to a box.
+                //    A one-word layout is used ONLY for this halo, and it is aligned to the real
+                //    line layout (same left edge, same baseline) and given the same lift/swell, so
+                //    its glyphs sit exactly under the real ones and only the blur shows.
+                if (mode != 0 && glow > 0.01f && tLine[g.lastToken] == k) {
+                    val wl = g.layout ?: p.measurer.measure(
+                        text = g.text, style = textStyle, overflow = TextOverflow.Visible,
+                    ).also { g.layout = it }
+                    val ox = g.left - wl.getBoundingBox(0).left
+                    val oy = baselineY - wl.getLineBaseline(0)
+                    val outerA = (glow * 1.8f).coerceAtMost(0.9f)
+                    val radius = p.glowRadiusPx * (0.7f + 1.6f * glow.coerceAtMost(1f))
                     canvas2.save()
                     canvas2.translate(0f, -lift)
                     if (scale != 1f) {
                         canvas2.translate(centerX, baselineY); canvas2.scale(scale, scale); canvas2.translate(-centerX, -baselineY)
                     }
-                    canvas2.clipRect(g.left - 2f - wide, g.top - 1f, g.right + 2f + wide, g.bottom + 1f)
-                    if (mode == 2) drawText(l, color = p.sung, alpha = fillAlpha, shadow = shadow)
-                    else drawText(l, brush = brushFor(frontOf(k), p), alpha = fillAlpha, shadow = shadow)
+                    // wide soft bloom, then a tighter brighter core
+                    for (pass in 0..1) {
+                        val shadow = Shadow(
+                            color = p.glow.copy(alpha = if (pass == 0) outerA else outerA * 0.7f),
+                            offset = Offset.Zero,
+                            blurRadius = if (pass == 0) radius * 1.6f else radius * 0.55f,
+                        )
+                        if (mode == 2) {
+                            drawText(wl, color = p.sung, topLeft = Offset(ox, oy), alpha = fillAlpha, shadow = shadow)
+                        } else {
+                            drawText(wl, brush = brushFor(frontOf(k) - ox, p), topLeft = Offset(ox, oy), alpha = fillAlpha, shadow = shadow)
+                        }
+                    }
+                    canvas2.restore()
+                }
+
+                // 3) sung fill of the word (exact line-layout glyphs, narrow clip — no glow here)
+                if (mode != 0) {
+                    canvas2.save()
+                    canvas2.translate(0f, -lift)
+                    if (scale != 1f) {
+                        canvas2.translate(centerX, baselineY); canvas2.scale(scale, scale); canvas2.translate(-centerX, -baselineY)
+                    }
+                    canvas2.clipRect(g.left - 2f, g.top - 1f, g.right + 2f, g.bottom + 1f)
+                    if (mode == 2) drawText(l, color = p.sung, alpha = fillAlpha)
+                    else drawText(l, brush = brushFor(frontOf(k), p), alpha = fillAlpha)
                     canvas2.restore()
                 }
             }
