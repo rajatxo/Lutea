@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,6 +61,7 @@ import com.rajatxo.lutea.ui.player.PlayerNavigation
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.components.ClothPullRefresh
 import com.rajatxo.lutea.ui.components.EffectVisual
 import com.rajatxo.lutea.ui.foundation.LuteaScaffold
 import com.rajatxo.lutea.ui.icons.LuteaIcons
@@ -423,102 +425,119 @@ private fun SearchContent() {
 
 // ── Quick Picks content — scans device music + lists songs with album art ──
 // Scrollable so album covers pass behind the nav → the frosted blur reads.
+// Pull down at the top: the sheet stretches and a vinyl hand grips it, then the
+// device library is rescanned.
 @Composable
 private fun QuickPicksContent(onSettingsClick: () -> Unit = {}) {
     val context = LocalContext.current
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var scanning by remember { mutableStateOf(true) }
+    val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
         songs = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
         scanning = false
     }
 
-    if (scanning) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF1C1C1E)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "Scanning music...",
-                color = Color(0xFF8E8E93),
-                fontSize = 14.sp,
-            )
-        }
-        return
-    }
-
-    if (songs.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF1C1C1E)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "No music found",
-                color = Color(0xFF8E8E93),
-                fontSize = 14.sp,
-            )
-        }
-        return
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF1C1C1E))
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(top = 120.dp, bottom = 120.dp),
+    ClothPullRefresh(
+        canPull = {
+            listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset == 0
+        },
+        onRefresh = {
+            songs = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+            scanning = false
+        },
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Quick Picks",
-                        color = Color.White,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = CalSansFamily,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "${songs.size} songs on your device",
-                        color = Color(0xFF8E8E93),
-                        fontSize = 13.sp,
-                    )
-                }
+        when {
+            scanning -> {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .clickable { onSettingsClick() },
+                        .fillMaxSize()
+                        .background(Color(0xFF1C1C1E)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = LuteaIcons.Cog,
-                        contentDescription = "Settings",
-                        tint = Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.size(20.dp),
+                    Text(
+                        text = "Scanning music...",
+                        color = Color(0xFF8E8E93),
+                        fontSize = 14.sp,
                     )
                 }
             }
-            Spacer(Modifier.height(20.dp))
-        }
-        items(songs) { song ->
-            SongItem(
-                song = song,
-                onClick = {
-                    PlaybackConnection.playSong(song, songs)
-                },
-            )
+
+            songs.isEmpty() -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1C1C1E)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "No music found",
+                        color = Color(0xFF8E8E93),
+                        fontSize = 14.sp,
+                    )
+                }
+            }
+
+            else -> {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1C1C1E))
+                        .padding(horizontal = 20.dp),
+                    contentPadding = PaddingValues(top = 120.dp, bottom = 120.dp),
+                ) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Quick Picks",
+                                    color = Color.White,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = CalSansFamily,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "${songs.size} songs on your device",
+                                    color = Color(0xFF8E8E93),
+                                    fontSize = 13.sp,
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.08f))
+                                    .clickable { onSettingsClick() },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = LuteaIcons.Cog,
+                                    contentDescription = "Settings",
+                                    tint = Color.White.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(20.dp))
+                    }
+                    items(songs) { song ->
+                        SongItem(
+                            song = song,
+                            onClick = {
+                                PlaybackConnection.playSong(song, songs)
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 }
