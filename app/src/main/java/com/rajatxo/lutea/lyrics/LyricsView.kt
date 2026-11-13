@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -222,11 +223,11 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
             Brush.horizontalGradient(0f to clear, 1f to p.sung, startX = front - p.softPx * 0.85f, endX = front + p.softPx * 0.15f)
     }
 
-    fun draw(scope: DrawScope, t: Long, fillAlpha: Float, p: DrawParams) {
+    fun draw(scope: DrawScope, t: Float, fillAlpha: Float, p: DrawParams) {
         val l = layout ?: return
         with(scope) {
             if (!p.synced) { drawText(l, color = p.sung.copy(alpha = 0.92f)); return }
-            if (t < 0L || fillAlpha <= 0.002f) { drawText(l, color = p.unsung); return }
+            if (t < 0f || fillAlpha <= 0.002f) { drawText(l, color = p.unsung); return }
 
             val lc = l.lineCount
             val hasTok = BooleanArray(lc); val anyFilled = BooleanArray(lc); val allFilled = BooleanArray(lc) { true }
@@ -249,7 +250,7 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
                 val dur = max(g.endMs - g.startMs, 1L).toFloat()
                 val wp = ((t - g.startMs).toFloat() / dur).coerceIn(0f, 1f)
                 val fallTime = (t - g.endMs).toFloat()
-                if (wp > 0f || (fallTime > 0f && fallTime < 420f)) lifted.add(gi)
+                if (t >= g.startMs && fallTime < 420f) lifted.add(gi)
             }
 
             val canvas = drawContext.canvas
@@ -265,58 +266,73 @@ private class LineGeometry(val line: LyricLine, val textStyle: TextStyle) {
             }
             canvas.restore()
             val canvas2 = drawContext.canvas
+            // Glow may spill a little sideways; kept inside the gap between words so neighbours
+            // are never redrawn.
+            val reachX = min(p.glowRadiusPx, p.softPx * 0.28f)
             for (gi in lifted) {
                 val g = groups[gi]
-                val wl = g.layout ?: p.measurer.measure(text = g.text, style = textStyle, overflow = TextOverflow.Visible).also { g.layout = it }
                 val dur = max(g.endMs - g.startMs, 1L).toFloat()
-                val wp = ((t - g.startMs).toFloat() / dur).coerceIn(0f, 1f)
+                val wp = ((t - g.startMs) / dur).coerceIn(0f, 1f)
 
                 // Sweep-based rise: fully risen at 85% of the word, falls over 420ms after
                 val riseProgress = (wp / 0.85f).coerceIn(0f, 1f)
-                val fallProgress = if (t > g.endMs) smooth(((t - g.endMs).toFloat() / 420f).coerceIn(0f, 1f)) else 0f
+                val fallProgress = if (t > g.endMs) smooth(((t - g.endMs) / 420f).coerceIn(0f, 1f)) else 0f
                 val rise = smooth(riseProgress) * (1f - fallProgress)
                 val lift = p.liftPx * rise * (dur / 600f).coerceIn(0.4f, 0.8f)
-                val origin = Offset(g.left, g.top - lift)
 
                 // Held-note detection: secPerChar > 0.1s = some hold, > 0.34s = full hold
                 val secPerChar = (dur / 1000f) / g.letterCount
                 val hold = smooth(((secPerChar - 0.1f) / (0.34f - 0.1f)).coerceIn(0f, 1f))
 
-                // Glow: attack 35%, release 30% -- grows on held notes, lingers after
+                // Glow: attack 35%, release 30%
                 val glowAttack = smooth((wp / 0.35f).coerceIn(0f, 1f))
                 val glowRelease = smooth(((1f - wp) / 0.3f).coerceIn(0f, 1f))
                 val glow = hold * glowAttack * glowRelease * p.heldGlowAlpha
 
-                // Swell: attack 20%, release 12% -- word grows on held notes
+                // Swell: attack 20%, release 12%
                 val swellAttack = smooth((wp / 0.2f).coerceIn(0f, 1f))
                 val swellRelease = smooth(((1f - wp) / 0.12f).coerceIn(0f, 1f))
-                val swell = hold * swellAttack * swellRelease * p.heldZoom
-                val scale = 1f + swell
+                val scale = 1f + hold * swellAttack * swellRelease * p.heldZoom
 
-                // Draw unsung base
-                drawText(wl, color = p.unsung, topLeft = origin)
-
-                // Draw sung highlight with glow + swell
+                val k = g.visualLine
+                val mode = modeOf(k)
+                val baselineY = l.getLineBaseline(k)          // swell grows upward from the baseline
+                val centerX = (g.left + g.right) / 2f
                 val shadow = Shadow(
                     color = p.glow.copy(alpha = glow),
                     offset = Offset.Zero,
                     blurRadius = p.glowRadiusPx * (0.5f + 1.5f * glow),
                 )
+
+                // ★ The word is NOT re-laid-out any more. We draw the very same line layout,
+                //   clipped to this word's box and moved. Same glyphs, same baseline, same
+                //   kerning — a single-word layout trims its line height differently from a
+                //   word sitting on the 2nd/3rd row, which made those words jump up and down.
+                // 1) unsung base of the word
                 canvas2.save()
+                canvas2.translate(0f, -lift)
                 if (scale != 1f) {
-                    val baselineY = origin.y + (g.bottom - g.top)
-                    val centerX = origin.x + (g.right - g.left) / 2f
-                    canvas2.translate(centerX, baselineY)
-                    canvas2.scale(scale, scale)
-                    canvas2.translate(-centerX, -baselineY)
+                    canvas2.translate(centerX, baselineY); canvas2.scale(scale, scale); canvas2.translate(-centerX, -baselineY)
                 }
-                val k = g.visualLine
-                when (modeOf(k)) {
-                    2 -> drawText(wl, color = p.sung, topLeft = origin, alpha = fillAlpha, shadow = shadow)
-                    1 -> drawText(wl, brush = brushFor(frontOf(k) - g.left, p), topLeft = origin, alpha = fillAlpha, shadow = shadow)
-                }
+                canvas2.clipRect(g.left - 2f, g.top - 1f, g.right + 2f, g.bottom + 1f)
+                drawText(l, color = p.unsung)
                 canvas2.restore()
-            }        }
+
+                // 2) sung fill (+ glow when held)
+                if (mode != 0) {
+                    val wide = if (glow > 0.01f) reachX else 0f
+                    canvas2.save()
+                    canvas2.translate(0f, -lift)
+                    if (scale != 1f) {
+                        canvas2.translate(centerX, baselineY); canvas2.scale(scale, scale); canvas2.translate(-centerX, -baselineY)
+                    }
+                    canvas2.clipRect(g.left - 2f - wide, g.top - 1f, g.right + 2f + wide, g.bottom + 1f)
+                    if (mode == 2) drawText(l, color = p.sung, alpha = fillAlpha, shadow = shadow)
+                    else drawText(l, brush = brushFor(frontOf(k), p), alpha = fillAlpha, shadow = shadow)
+                    canvas2.restore()
+                }
+            }
+        }
     }
 }
 
@@ -330,7 +346,7 @@ private fun LyricLineItem(
     synced: Boolean,
     isActive: Boolean,
     distance: Int,
-    clock: State<Long>,
+    clock: State<Float>,
     measurer: TextMeasurer,
     style: LyricsStyle,
     blurEffects: Array<RenderEffect?>,
@@ -435,8 +451,10 @@ private fun LyricLineItem(
             }
             .drawBehind {
                 // ★ Only draw the fill on the ACTIVE line (not during the focus-out transition)
-                val tNow = if (synced && isActive && focusV > 0.002f) clock.value else -1L
-                geo.draw(this, tNow, focusV, params)
+                val tNow = if (synced && isActive && focusV > 0.002f) clock.value else -1f
+                // fill reaches full strength in ~200ms (focusV itself takes 600ms), so the first
+                // words of a line are lit the moment they are sung
+                geo.draw(this, tNow, smooth(focusV * 3f), params)
             }
     )
 }
@@ -472,33 +490,37 @@ fun LyricsView(
     //    This is the key fix — reading positionMs() every frame returned the same value
     //    between polls (200ms), causing the word fill to stall then jump. Now the clock
     //    advances smoothly every frame and syncs periodically.
-    val clock = remember { mutableLongStateOf(0L) }
+    val clock = remember { mutableFloatStateOf(0f) }      // ms, float: no per-frame rounding loss
     val latestPosition by rememberUpdatedState(positionMs)
     LaunchedEffect(isPlaying, offsetMs) {
+        clock.floatValue = (latestPosition() + offsetMs).toFloat()   // correct from the very first frame
         var lastNanos = 0L
-        var lastSyncWallMs = 0L
+        var lastRaw = latestPosition()
         while (isActive) {
             withFrameNanos { now ->
-                if (isPlaying && lastNanos > 0) {
-                    val dtMs = (now - lastNanos) / 1_000_000
-                    clock.longValue += dtMs
-                }
+                // ★ Old code did integer (now - last) / 1_000_000: at 60Hz that throws away ~0.67ms
+                //   every frame (≈4% slow), and only re-synced when 200ms off — so lyrics ran late.
+                val dtMs = if (lastNanos > 0L) ((now - lastNanos) / 1_000_000f).coerceIn(0f, 100f) else 0f
                 lastNanos = now
-            }
-            // Sync with actual playback position every ~500ms (corrects drift from seeking, pauses, etc.)
-            val wallMs = System.currentTimeMillis()
-            if (wallMs - lastSyncWallMs > 500) {
-                lastSyncWallMs = wallMs
-                val actual = latestPosition() + offsetMs
-                if (abs(actual - clock.longValue) > 200) {
-                    clock.longValue = actual
+                val raw = latestPosition()
+                if (isPlaying) {
+                    clock.floatValue += dtMs
+                    // A changed value is a FRESH sample from the player (a repeated value is just
+                    // stale). Pull the clock toward it gently; snap only on a real jump (seek).
+                    if (raw != lastRaw) {
+                        val err = (raw + offsetMs) - clock.floatValue
+                        clock.floatValue += if (abs(err) > 250f) err else err * 0.2f
+                    }
+                } else {
+                    clock.floatValue = (raw + offsetMs).toFloat()
                 }
+                lastRaw = raw
             }
         }
     }
 
     val activeIndex by remember(lyrics) {
-        derivedStateOf { if (synced) activeLine(lyrics.lines, clock.longValue) else -1 }
+        derivedStateOf { if (synced) activeLine(lyrics.lines, clock.floatValue.toLong()) else -1 }
     }
 
     // ★ Mochy blur: 3 stages — null (0px), 5px, 12px — DECAL tile mode
