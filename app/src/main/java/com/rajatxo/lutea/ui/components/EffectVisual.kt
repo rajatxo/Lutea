@@ -2324,8 +2324,8 @@ private const val GLASS_PLATES = 20
 private const val GLASS_EDGE_PTS = 28
 private const val GLASS_CAM_DIST = 4.6f
 
-/** Real GPU blur on the interior (far plates, core, halo): 6 dp. */
-private const val GLASS_BLUR_DP = 6f
+/** Real GPU blur across the whole shell (every plate edge, core, halo): 8 dp. */
+private const val GLASS_BLUR_DP = 8f
 /** Draw pass: 0 = interior (blurred), 1 = front shell (crisp). */
 private const val GLASS_PASS_BACK = 0
 private const val GLASS_PASS_FRONT = 1
@@ -2710,15 +2710,17 @@ private fun DrawScope.drawGlassShell(
         }
     }
 
-    // ── 4. plates on the near side (crisp, above the blurred interior) ──
-    if (pass == GLASS_PASS_FRONT) {
+    // ── 4. plates on the near side — also inside the blur pass, so every
+    //    plate's outline dissolves into the background instead of ending in
+    //    a visible edge ──
+    if (pass == GLASS_PASS_BACK) {
         for (q in 0 until cnt) {
             val i = ord[q]
             if (f.pz[i] >= 0f) drawGlassPlate(f, i, c0, rad, tt, g, pal)
         }
     }
 
-    // ── 5. a last hint of the core on top of the glass ──
+    // ── 5. the only crisp thing left: a pin-point core highlight on top ──
     if (pass == GLASS_PASS_FRONT && core > 0.05f) {
         val r = rad * (0.014f + 0.020f * core)
         drawCircle(
