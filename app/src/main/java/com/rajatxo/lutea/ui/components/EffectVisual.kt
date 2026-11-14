@@ -2821,15 +2821,19 @@ private fun orbDotColor(nx: Float, ny: Float, wave: Float): Color {
         t < 0.60f -> jmix(OrbCream, OrbAmber, (t - 0.05f) / 0.55f)
         else -> jmix(OrbAmber, OrbAmberLow, (t - 0.60f) / 0.40f)
     }
-    // orange below a wavy boundary (feathered)
+    // orange below a wavy boundary (feathered) — the boundary swells and tilts
+    // with the wave, so the orange region visibly breathes across the sphere
     val yb = 0.02f + 0.30f * nx +
-        0.05f * sin(3.3f * nx + wave) +
-        0.03f * sin(7.1f * nx - 2f * wave + 1f)
+        0.14f * sin(3.3f * nx + 1.7f * ny + wave) +
+        0.07f * sin(7.1f * nx - 2f * wave + 1f)
     val below = ((ny - yb) / 0.24f + 0.5f).coerceIn(0f, 1f)
     c = jmix(c, OrbOrange, 0.75f * below)
-    // hot coral-red blob on the left
-    val rdx = nx + 0.78f
-    val rdy = ny - (0.12f + 0.04f * sin(wave))
+    // hot coral-red blob: circles the sphere once per 7 s cycle, exactly in
+    // sync with the glow ball's wave clock
+    val bx = 0.72f * cos(wave + 3.4f) - 0.10f
+    val by = 0.72f * sin(wave + 3.4f) + 0.05f
+    val rdx = nx - bx
+    val rdy = ny - by
     val rk = (1f - sqrt(rdx * rdx + rdy * rdy) / 0.8f).coerceIn(0f, 1f)
     c = jmix(c, OrbRed, 0.92f * rk)
     // soft peach light rising from the bottom
@@ -2959,8 +2963,8 @@ private fun SphereComposition(
                     // its own tap layer handles the taps instead.
                     val w = size.width.toFloat()
                     val dx = offset.x - w / 2f
-                    val dy = offset.y - (w / 2f - w * 0.015f)
-                    val sphereR = w * 0.2106f
+                    val dy = offset.y - (w / 2f - w * 0.012f)
+                    val sphereR = w * 0.2317f
                     if (dx * dx + dy * dy <= sphereR * sphereR) {
                         // Toggles on touch, not on release — holding makes no
                         // difference, it only lets you watch the colour fade.
@@ -2972,6 +2976,14 @@ private fun SphereComposition(
         },
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+        // Whole-composition transform: everything (sphere, rings, dotted circle,
+        // arrows, tags, numbers, labels) draws compK× bigger around the centre,
+        // nudged up by compLift. The tap layers below mirror this transform
+        // exactly, so taps keep landing on the drawn numbers.
+        val compK = 1.10f
+        val compLift = size.width * 0.012f
+        scale(scaleX = compK, scaleY = compK, pivot = Offset(size.width / 2f, size.width / 2f)) {
+        translate(left = 0f, top = -compLift) {
         // Universal Layout Law #7: sizes are fractions of screen dimensions.
         // User said "make the whole composition smaller" — so we widen the edge
         // gap from 1.11% (4dp) to 8% of screen width. Everything (rings, arrows,
@@ -3014,9 +3026,9 @@ private fun SphereComposition(
         // Vertical center sits at half of width so rings are perfectly circular.
         // Composition is top-anchored in its container, so rings render near the top.
         val cy = size.width / 2f
-        // Sphere centre: same x as everything else, nudged up a little so the
-        // bigger sphere keeps its breathing room at the bottom.
-        val sphereCy = cy - size.width * 0.015f
+        // Sphere centre: concentric with the rings — the whole-composition
+        // transform handles the size and the upward nudge.
+        val sphereCy = cy
 
         val thinStroke = size.width * 0.0028f
         val thickStroke = size.width * 0.0080f
@@ -3358,6 +3370,8 @@ private fun SphereComposition(
             }
         }
         }
+        }
+        }
 
         // Tap overlay for clicking on numbers
         if (expandProgress > 0.5f) {
@@ -3380,12 +3394,16 @@ private fun SphereComposition(
                             val cx = w / 2f
                             val cy = w / 2f
                             val labelR = dottedR + numberDistance
-                            val tapR = w * 0.04f
+                            val tapR = w * 0.044f
                             for (k in 0 until 25) {
                                 val num = k + 1
                                 val angleRad = Math.PI.toFloat() + (k.toFloat() * Math.PI.toFloat() / 24f)
-                                val lx = cx + labelR * cos(angleRad)
-                                val ly = cy + labelR * sin(angleRad)
+                                val bx = cx + labelR * cos(angleRad)
+                                val by = cy + labelR * sin(angleRad)
+                                // Mirror the canvas transform (scale 1.10 about
+                                // the centre, lifted 0.012w).
+                                val lx = cx + (bx - cx) * 1.10f
+                                val ly = cy + (by - cy) * 1.10f - w * 0.012f
                                 if ((offset.x - lx) * (offset.x - lx) + (offset.y - ly) * (offset.y - ly) < tapR * tapR) {
                                     onNumberClick(num, true)
                                     return@detectTapGestures
@@ -3394,8 +3412,12 @@ private fun SphereComposition(
                             for (k in 0 until 23) {
                                 val num = k + 2
                                 val angleRad = Math.PI.toFloat() - ((k + 1).toFloat() * Math.PI.toFloat() / 24f)
-                                val lx = cx + labelR * cos(angleRad)
-                                val ly = cy + labelR * sin(angleRad)
+                                val bx = cx + labelR * cos(angleRad)
+                                val by = cy + labelR * sin(angleRad)
+                                // Mirror the canvas transform (scale 1.10 about
+                                // the centre, lifted 0.012w).
+                                val lx = cx + (bx - cx) * 1.10f
+                                val ly = cy + (by - cy) * 1.10f - w * 0.012f
                                 if ((offset.x - lx) * (offset.x - lx) + (offset.y - ly) * (offset.y - ly) < tapR * tapR) {
                                     onNumberClick(num, false)
                                     return@detectTapGestures
