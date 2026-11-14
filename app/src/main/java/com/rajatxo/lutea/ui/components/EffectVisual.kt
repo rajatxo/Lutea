@@ -3009,14 +3009,14 @@ private fun SphereComposition(
         // Sphere sits inside the arrows. Slightly bigger than before, but the
         // rings, arrows, tags, numbers and labels keep their exact positions.
         val sphereR = arrowBaseR - size.width * 0.012f
-        // Sphere centre: same x as everything else, nudged up a little so the
-        // bigger sphere keeps its breathing room at the bottom.
-        val sphereCy = cy - size.width * 0.015f
 
         val cx = size.width / 2f
         // Vertical center sits at half of width so rings are perfectly circular.
         // Composition is top-anchored in its container, so rings render near the top.
         val cy = size.width / 2f
+        // Sphere centre: same x as everything else, nudged up a little so the
+        // bigger sphere keeps its breathing room at the bottom.
+        val sphereCy = cy - size.width * 0.015f
 
         val thinStroke = size.width * 0.0028f
         val thickStroke = size.width * 0.0080f
