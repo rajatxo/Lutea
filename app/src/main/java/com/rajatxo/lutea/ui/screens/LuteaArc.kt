@@ -93,6 +93,7 @@ import com.rajatxo.lutea.data.prefs.PlaylistStyle
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
+import com.rajatxo.lutea.ui.components.LightRaysBackground
 import com.rajatxo.lutea.ui.components.Lutea3DThumb
 import com.rajatxo.lutea.data.prefs.UserNameManager
 import com.rajatxo.lutea.ui.foundation.LocalSearchOpen
@@ -388,6 +389,11 @@ fun LuteaArc(
                 )
             ),
     ) {
+        // ── Light-rays backdrop — Wheel Advanced page only ──
+        if (playlistStyle == PlaylistStyle.WHEEL_ADVANCED) {
+            LightRaysBackground(modifier = Modifier.fillMaxSize())
+        }
+
         // ──────────────────────────────────────────────────────────────
         // Wheel Canvas — full-screen drag handlers + drawing
         // ★ Advanced mode: NO drag, NO tap, NO haptics — wheel is static.
