@@ -3055,6 +3055,24 @@ private fun SphereComposition(
         }
     }
 
+    // Gold arrows sweep to the selected number when the user picks one.
+    val orbitArrow by androidx.compose.animation.animateFloatAsState(
+        targetValue = selectedOrbit.toFloat(),
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = 420,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+        ),
+        label = "orbitArrow",
+    )
+    val ambienceArrow by androidx.compose.animation.animateFloatAsState(
+        targetValue = selectedAmbience.toFloat(),
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = 420,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+        ),
+        label = "ambienceArrow",
+    )
+
     // OLD look: 8 tag icons at compass positions + LEFT/RIGHT/UP/DOWN text labels.
     // Shown when expandProgress = 0 (default). Cross-fades to the new 1-25/2-24
     // structure as expandProgress → 1.
@@ -3194,51 +3212,53 @@ private fun SphereComposition(
         }
 
         // ── Four arrows ──
-        // When 8D is on (arrowsHighlighted=true), TOP and BOTTOM arrows turn gold.
-        // LEFT and RIGHT stay white (cream) regardless of state.
+        // The two gold arrows (orbit = upper half, ambience = lower half) point
+        // at the SELECTED number, not at 13. The two white arrows always sit on
+        // the bisectors of the two gaps between the golds: that keeps them
+        // exactly 180° apart and makes the gold → white gap identical on both
+        // sides of every gold arrow, so the cross stays balanced even when the
+        // two golds are not opposite each other.
         val goldColor = Color(0xFFD4A03A)
         val whiteArrowColor = Cream.copy(alpha = 0.95f)
         val topBottomColor = if (arrowsHighlighted) goldColor else whiteArrowColor
-        // Top — gold when highlighted
-        drawPath(
-            path = Path().apply {
-                moveTo(cx, cy - arrowBaseR - arrowH)
-                lineTo(cx - arrowW / 2, cy - arrowBaseR)
-                lineTo(cx + arrowW / 2, cy - arrowBaseR)
-                close()
-            },
-            color = topBottomColor,
-        )
-        // Bottom — gold when highlighted
-        drawPath(
-            path = Path().apply {
-                moveTo(cx, cy + arrowBaseR + arrowH)
-                lineTo(cx - arrowW / 2, cy + arrowBaseR)
-                lineTo(cx + arrowW / 2, cy + arrowBaseR)
-                close()
-            },
-            color = topBottomColor,
-        )
-        // Left — always white
-        drawPath(
-            path = Path().apply {
-                moveTo(cx - arrowBaseR - arrowH, cy)
-                lineTo(cx - arrowBaseR, cy - arrowW / 2)
-                lineTo(cx - arrowBaseR, cy + arrowW / 2)
-                close()
-            },
-            color = whiteArrowColor,
-        )
-        // Right — always white
-        drawPath(
-            path = Path().apply {
-                moveTo(cx + arrowBaseR + arrowH, cy)
-                lineTo(cx + arrowBaseR, cy - arrowW / 2)
-                lineTo(cx + arrowBaseR, cy + arrowW / 2)
-                close()
-            },
-            color = whiteArrowColor,
-        )
+
+        // Number n on the upper arc lives at π + (n−1)·π/24; on the lower arc at
+        // π − (n−1)·π/24. Blended by expandProgress so the collapsed (tag) look
+        // keeps the classic compass cross.
+        val expandK = expandProgress.coerceIn(0f, 1f)
+        val orbitN = 13f + (orbitArrow - 13f) * expandK
+        val ambienceN = 13f + (ambienceArrow - 13f) * expandK
+        val orbitAngle = Math.PI.toFloat() * 1.5f + (orbitN - 13f) * (Math.PI.toFloat() / 24f)
+        val ambienceAngle = Math.PI.toFloat() * 0.5f - (ambienceN - 13f) * (Math.PI.toFloat() / 24f)
+
+        // Bisector of the two golds (in the short direction), and its opposite.
+        var gap = ambienceAngle - orbitAngle
+        while (gap > Math.PI.toFloat()) gap -= 2f * Math.PI.toFloat()
+        while (gap < -Math.PI.toFloat()) gap += 2f * Math.PI.toFloat()
+        val whiteAngleA = orbitAngle + gap / 2f
+        val whiteAngleB = whiteAngleA + Math.PI.toFloat()
+
+        fun outwardArrow(angle: Float, color: Color) {
+            val ca = cos(angle)
+            val sa = sin(angle)
+            val nx = -sa
+            val ny = ca
+            val bx = cx + ca * arrowBaseR
+            val by = cy + sa * arrowBaseR
+            drawPath(
+                path = Path().apply {
+                    moveTo(cx + ca * (arrowBaseR + arrowH), cy + sa * (arrowBaseR + arrowH))
+                    lineTo(bx + nx * (arrowW / 2f), by + ny * (arrowW / 2f))
+                    lineTo(bx - nx * (arrowW / 2f), by - ny * (arrowW / 2f))
+                    close()
+                },
+                color = color,
+            )
+        }
+        outwardArrow(orbitAngle, topBottomColor)
+        outwardArrow(ambienceAngle, topBottomColor)
+        outwardArrow(whiteAngleA, whiteArrowColor)
+        outwardArrow(whiteAngleB, whiteArrowColor)
 
         // ── Tags + labels: cross-fade between OLD look (8 tags + LEFT/RIGHT/UP/DOWN)
         // and NEW look (80 small tags + 1-25 top + 2-24 bottom) based on expandProgress.
