@@ -382,7 +382,14 @@ fun EffectVisual(
                         }
                     }
                 },
-        )
+        ) {
+            // ── The same light rays as the Wheel Advanced page ──
+            // Poured from behind the title at the top of the plate, so the rays
+            // start inside the card that sits behind "8D : Spatial Audio" and
+            // wash across the whole sphere backdrop. The sphere composition is
+            // a later sibling, so it still draws on top of the light.
+            LightRaysBackground(modifier = Modifier.fillMaxSize())
+        }
 
         // ── Head image — above the plate, so expanding the plate never hides it ──
         Box(
@@ -550,22 +557,15 @@ fun EffectVisual(
                                 indication = null,
                             ) { topMenuOpen = !topMenuOpen },
                     ) {
-                        // Active indicator for 8D: the four dots fill green while the
-                        // sphere is ON, and stay plain white while it is OFF (no red).
-                        val menuActiveGreen = Color(0xFF3DDC84)
+                        // Plain 4-dot menu, identical in both 8D states. No colour
+                        // fill when 8D is on — the icon stays a simple outline.
                         listOf(9.dp to 9.dp, 24.dp to 9.dp, 9.dp to 24.dp, 24.dp to 24.dp)
                             .forEach { (dx, dy) ->
                                 Box(
                                     modifier = Modifier
                                         .offset(dx, dy)
                                         .size(8.dp)
-                                        .then(
-                                            if (eightDOn) {
-                                                Modifier.background(menuActiveGreen, CircleShape)
-                                            } else {
-                                                Modifier.border(1.5.dp, Color.White, CircleShape)
-                                            }
-                                        ),
+                                        .border(1.5.dp, Color.White, CircleShape),
                                 )
                             }
                     }
