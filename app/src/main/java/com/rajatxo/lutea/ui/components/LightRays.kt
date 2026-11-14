@@ -1,5 +1,6 @@
 package com.rajatxo.lutea.ui.components
 
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +17,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import kotlinx.coroutines.delay
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -26,20 +29,184 @@ import kotlin.math.sqrt
 import kotlin.math.tan
 
 /**
- * Light rays background.
+ * Light rays background — the react-bits "LightRays" effect.
  *
- * A native Compose port of the react-bits "LightRays" backdrop (top-centre
- * origin, additive white rays, slowly shimmering) — no WebGL, no React, so it
- * runs on every Android version the app supports.
+ * On Android 13+ (API 33) this runs the *original fragment shader* from the
+ * react-bits component, translated 1:1 to AGSL and evaluated on the GPU through
+ * `RuntimeShader`, so the result is the exact same effect (same rays, same
+ * bands, same haze, same intro reveal).
  *
- * Ray outlines never change, so they are built once per size and cached;
- * only the per-ray brightness is recomputed on each (throttled) tick.
+ * On older versions there is no runtime-shader support, so a lightweight
+ * Canvas approximation is used instead.
  */
 @Composable
 fun LightRaysBackground(
     modifier: Modifier = Modifier,
     color: Color = Color.White,
     intensity: Float = 1f,
+) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        LightRaysShaderBackground(modifier = modifier, color = color, intensity = intensity)
+    } else {
+        LightRaysCanvasBackground(modifier = modifier, color = color, intensity = intensity)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API 33+  —  faithful AGSL port of the react-bits shader
+// ─────────────────────────────────────────────────────────────────────────────
+
+@androidx.annotation.RequiresApi(Build.VERSION_CODES.TIRAMISU)
+@Composable
+private fun LightRaysShaderBackground(
+    modifier: Modifier,
+    color: Color,
+    intensity: Float,
+) {
+    val time = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        val start = System.nanoTime()
+        while (true) {
+            time.floatValue = (System.nanoTime() - start) / 1_000_000_000f
+            // 30 fps: the shader animates slowly, and this halves the GPU cost.
+            delay(33L)
+        }
+    }
+
+    val paint = remember { android.graphics.Paint().apply { isAntiAlias = false } }
+    val shader = remember {
+        android.graphics.RuntimeShader(LIGHT_RAYS_AGSL).also { paint.shader = it }
+    }
+
+    Canvas(modifier = modifier.fillMaxSize()) {
+        if (size.width <= 0f || size.height <= 0f) return@Canvas
+        val t = time.floatValue
+
+        // Intro reveal: 0 → 1 over 1.8 s, exactly like the component.
+        val opening = (t / 1.8f).coerceIn(0f, 1f)
+        val eased = 1f - (1f - opening) * (1f - opening) * (1f - opening)
+        val reveal = smoother(opening / 0.5f)
+
+        val w = size.width
+        val h = size.height
+        shader.setFloatUniform("uSize", w, h)
+        shader.setFloatUniform("uTime", t)
+        // Default origin: "top-center" → anchor (0.5, -0.2)
+        shader.setFloatUniform("uSource", w * 0.5f, -0.2f * h)
+        shader.setFloatUniform("uAim", 0f, 1f)
+        shader.setFloatUniform("uReach", maxOf(w, h))
+        shader.setFloatUniform(
+            "uColor",
+            (color.red * intensity).coerceIn(0f, 1f),
+            (color.green * intensity).coerceIn(0f, 1f),
+            (color.blue * intensity).coerceIn(0f, 1f),
+        )
+        shader.setFloatUniform("uIntro", eased * 2.6f, reveal)
+
+        drawIntoCanvas { canvas ->
+            canvas.nativeCanvas.drawRect(0f, 0f, w, h, paint)
+        }
+    }
+}
+
+private fun smoother(t: Float): Float {
+    val x = t.coerceIn(0f, 1f)
+    return x * x * x * (x * (x * 6f - 15f) + 10f)
+}
+
+/**
+ * The react-bits fragment shader (Backgrounds/LightRays), translated to AGSL.
+ *
+ * Differences from the WebGL source, none of which change the look:
+ *  • `fwidth` is unavailable, so the band width term is dropped — with the
+ *    default sharpness (0.35) it was always the constant 0.353 anyway.
+ *  • cursor shadow, click pulses and grain are removed (they need a pointer,
+ *    which a phone background does not have).
+ *  • props are baked in at their documented defaults.
+ */
+private const val LIGHT_RAYS_AGSL = """
+uniform float2 uSize;
+uniform float uTime;
+uniform float2 uSource;
+uniform float2 uAim;
+uniform float uReach;
+uniform float3 uColor;
+uniform float2 uIntro;
+
+float hash21(float2 p) {
+  p = fract(p * float2(123.34, 456.21));
+  p += dot(p, p + float2(45.32));
+  return fract(p.x * p.y);
+}
+
+float valueNoise(float2 p) {
+  float2 i = floor(p);
+  float2 f = p - i;
+  float2 w = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  return mix(
+    mix(hash21(i), hash21(i + float2(1.0, 0.0)), w.x),
+    mix(hash21(i + float2(0.0, 1.0)), hash21(i + float2(1.0, 1.0)), w.x),
+    w.y
+  );
+}
+
+float rayShape(float strength) {
+  float edge = 0.353;
+  return smoothstep(0.62 - edge, 0.62 + edge, strength);
+}
+
+half4 main(float2 fragCoord) {
+  float2 delta = fragCoord - uSource;
+  float dist = length(delta);
+  float2 dir = delta / max(dist, 0.0001);
+  float cosAngle = dot(dir, uAim);
+  float depth = dist / uReach;
+
+  float src = exp(-depth * depth * 9.0) * 0.9 + exp(-depth * 3.2) * 0.25;
+  float glow = 0.6 * src * smoothstep(-0.2, 0.6, cosAngle);
+  float spread = pow(max(cosAngle, 0.0), 2.0);
+  float lenFall = clamp(1.0 - dist / (uReach * 3.0), 0.0, 1.0);
+  float fadeFall = clamp(1.0 - dist / (uReach * 1.0), 0.5, 1.0);
+  float envelope = spread * lenFall * fadeFall;
+  float reveal = uIntro.y * (1.0 - smoothstep(uIntro.x - 0.35, uIntro.x, depth));
+
+  float phaseA = cosAngle * 36.2214 + uTime * 1.5;
+  float phaseB = -cosAngle * 21.11349 + uTime * 1.5;
+  float phaseC = cosAngle * 22.3991 + uTime * 1.1;
+  float phaseD = -cosAngle * 18.0234 + uTime * 1.1;
+  float strengthA = clamp(0.75 + 0.15 * sin(phaseA) + 0.2 * cos(phaseB), 0.0, 1.0);
+  float strengthB = clamp(0.75 + 0.15 * sin(phaseC) + 0.2 * cos(phaseD), 0.0, 1.0);
+  float light = envelope * (0.5 * rayShape(strengthA) + 0.4 * rayShape(strengthB));
+
+  float around = atan(uAim.x * dir.y - uAim.y * dir.x, cosAngle);
+  float2 drift = float2(around * 2.2 + uTime * 0.035, depth * 2.6 - uTime * 0.11);
+  float fog = 0.65 * valueNoise(drift * float2(3.0, 1.0))
+            + 0.35 * valueNoise(drift * float2(7.0, 2.3) + float2(4.1));
+  light *= mix(1.0, 0.25 + 1.2 * fog, 0.25);
+
+  light = (light + glow) * reveal;
+
+  float near = clamp(1.2 - dist / uSize.y, 0.0, 1.0);
+  float3 tint = float3(0.1, 0.3, 0.5) + near * float3(0.8, 0.6, 0.5);
+  float3 hue = tint * uColor;
+
+  float level = light < 0.75 ? light : 0.75 + 0.25 * (1.0 - exp(-(light - 0.75) / 0.25));
+  float top = max(hue.r, max(hue.g, hue.b));
+  hue = mix(hue, float3(top, top, top), smoothstep(0.8, 1.0, level) * 0.45);
+  float3 shown = clamp(hue * level, 0.0, 1.0) * level;
+  return half4(clamp(shown, 0.0, level), level);
+}
+"""
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API 29–32  —  Canvas approximation (no runtime shaders available)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun LightRaysCanvasBackground(
+    modifier: Modifier,
+    color: Color,
+    intensity: Float,
 ) {
     // 25 fps is plenty for a slow shimmer and keeps the GPU cheap.
     val time = remember { mutableFloatStateOf(0f) }
@@ -64,8 +231,7 @@ fun LightRaysBackground(
                     onDrawBehind { drawRays(rays, time.floatValue, color, intensity) }
                 },
         )
-        // Distance fade: the rays dissolve toward the bottom of the page, so
-        // they never fight with the wheel labels down there.
+        // Distance fade: the rays dissolve toward the bottom of the page.
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(
                 brush = Brush.verticalGradient(
@@ -94,17 +260,13 @@ private fun frac(v: Float): Float = v - floor(v)
 private fun buildRays(w: Float, h: Float): List<RayShape> {
     if (w <= 0f || h <= 0f) return emptyList()
 
-    // Source sits above the page, like the web default ("top-center").
     val srcX = w * 0.5f
-    val srcY = -h * 0.18f
+    val srcY = -h * 0.2f
 
-    // Angular window that covers the whole page as seen from the source.
     var minA = Float.MAX_VALUE
     var maxA = -Float.MAX_VALUE
-    val xs = floatArrayOf(0f, w)
-    val ys = floatArrayOf(0f, h)
-    for (cx in xs) {
-        for (cy in ys) {
+    for (cx in floatArrayOf(0f, w)) {
+        for (cy in floatArrayOf(0f, h)) {
             val a = atan2(cy - srcY, cx - srcX)
             if (a < minA) minA = a
             if (a > maxA) maxA = a
@@ -121,7 +283,6 @@ private fun buildRays(w: Float, h: Float): List<RayShape> {
         val ang = minA + (maxA - minA) * u
         val dx = cos(ang)
         val dy = sin(ang)
-        // Deterministic per-ray jitter.
         val h1 = frac(sin(i * 12.9898f) * 43758.5453f)
         val h2 = frac(sin(i * 78.233f) * 12345.678f)
         val h3 = frac(sin(i * 37.719f) * 5283.153f)
@@ -157,9 +318,8 @@ private fun DrawScope.drawRays(
     intensity: Float,
 ) {
     if (rays.isEmpty()) return
-    val src = Offset(size.width * 0.5f, -size.height * 0.18f)
+    val src = Offset(size.width * 0.5f, -size.height * 0.2f)
 
-    // Soft glow where all the rays converge.
     val glowR = size.width * 0.62f
     drawCircle(
         brush = Brush.radialGradient(
