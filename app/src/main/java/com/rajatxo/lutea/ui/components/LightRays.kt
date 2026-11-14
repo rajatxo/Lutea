@@ -120,10 +120,9 @@ private fun LightRaysShaderBackground(
         val h = size.height
         shader.setFloatUniform("uSize", w, h)
         shader.setFloatUniform("uTime", t * LIGHT_RAYS_SPEED)
-        // Origin: left edge, exactly at the arc's centre (pivot 0, 0.5h), so
-        // the light looks like it pours out of the wheel arc itself.
-        shader.setFloatUniform("uSource", 0f, h * 0.5f)
-        shader.setFloatUniform("uAim", 1f, 0f)
+        // Origin: top-centre, above the page (the component's default).
+        shader.setFloatUniform("uSource", w * 0.5f, -0.2f * h)
+        shader.setFloatUniform("uAim", 0f, 1f)
         shader.setFloatUniform("uReach", maxOf(w, h))
         shader.setFloatUniform(
             "uColor",
@@ -299,8 +298,8 @@ private fun frac(v: Float): Float = v - floor(v)
 private fun buildRays(w: Float, h: Float): List<RayShape> {
     if (w <= 0f || h <= 0f) return emptyList()
 
-    val srcX = 0f
-    val srcY = h * 0.5f
+    val srcX = w * 0.5f
+    val srcY = -h * 0.2f
 
     var minA = Float.MAX_VALUE
     var maxA = -Float.MAX_VALUE
@@ -357,7 +356,7 @@ private fun DrawScope.drawRays(
     intensity: Float,
 ) {
     if (rays.isEmpty()) return
-    val src = Offset(0f, size.height * 0.5f)
+    val src = Offset(size.width * 0.5f, -size.height * 0.2f)
 
     val glowR = size.width * 0.62f
     drawCircle(
