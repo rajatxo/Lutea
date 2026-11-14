@@ -52,6 +52,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
@@ -84,6 +85,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.acos
 import kotlin.math.exp
 import kotlin.math.roundToInt
 import com.rajatxo.lutea.R
@@ -2290,53 +2292,193 @@ private fun DrawScope.drawGlowOrb(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Glass shell — translucent lenses that gather into a bubble
+// Glass orb — iridescent glass petals that assemble, ignite and burst
 //
-// Seven soft lenses drift near the middle of the sphere, then swell, slide outward
-// and close into a segmented glass shell. A bright core light sits inside it and
-// glows through the overlapping lenses. Every cycle the lenses relax back toward
-// the middle, so the loop breathes instead of spinning forever.
+// Twenty curved glass plates (the vertices of a dodecahedron) appear as small
+// shards, grow and lock into a tumbling spherical shell. The tumble decelerates
+// until a five-petal "flower" faces the viewer, a white-violet core ignites in
+// the middle and keeps growing, and at ~7.4 s the shell bursts: plates drift
+// apart, shrink and fade, the core flares and then dies, and the loop restarts
+// from an empty screen.
 //
-// Everything is a periodic function of `flow`, so the 15 s loop is seamless.
-// Palette follows the reference frames: deep cobalt bodies, cyan rims,
-// violet cores, pink iridescent streaks, white-hot centre.
+// Plain Canvas maths (3D rotation + light perspective + layered gradients),
+// no GL. One cycle = GLASS_CYCLE_S seconds; `t` is the position inside it.
 // ─────────────────────────────────────────────────────────────────────────────
 
-private class GlassField {
-    val n = 7
-    val ang = FloatArray(n)
-    val seed = FloatArray(n)
-    val wMul = FloatArray(n)
-    val hMul = FloatArray(n)
-    val tilt = FloatArray(n)
-    val alpha = FloatArray(n)
-    val path = Path()
+private const val GLASS_CYCLE_S = 8.6f
+private const val GLASS_PLATES = 20
+private const val GLASS_EDGE_PTS = 28
+private const val GLASS_CAM_DIST = 4.6f
 
-    init {
-        val rnd = Random(29)
-        for (i in 0 until n) {
-            ang[i] = TWO_PI_F * i / n + (rnd.nextFloat() - 0.5f) * 0.26f
-            seed[i] = rnd.nextFloat() * TWO_PI_F
-            wMul[i] = 0.88f + rnd.nextFloat() * 0.30f
-            hMul[i] = 0.82f + rnd.nextFloat() * 0.46f
-            tilt[i] = (rnd.nextFloat() - 0.5f) * 0.22f
-            alpha[i] = 0.78f + rnd.nextFloat() * 0.22f
+private val GlassDeep = Color(0xFF1E3BB8)       // cobalt body
+private val GlassBlue = Color(0xFF3D6BF2)       // electric blue
+private val GlassCyan = Color(0xFF6FD1FF)       // rim light
+private val GlassViolet = Color(0xFF8A5CF0)     // inner patches
+private val GlassPink = Color(0xFFE86FB1)       // iridescent streaks
+private val GlassPale = Color(0xFFCFE6FF)       // crisp edge + specular
+private val GlassLavender = Color(0xFFB9A6FF)   // core halo
+private val GlassHot = Color(0xFFFFFFFF)        // core
+
+private fun Color.ga(a: Float): Color = copy(alpha = a.coerceIn(0f, 1f))
+
+private fun glassClamp01(x: Float): Float = x.coerceIn(0f, 1f)
+
+private fun glassSmooth(a: Float, b: Float, x: Float): Float {
+    val u = glassClamp01((x - a) / (b - a))
+    return u * u * (3f - 2f * u)
+}
+
+private fun glassEaseOut(x: Float): Float {
+    val u = 1f - glassClamp01(x)
+    return 1f - u * u * u
+}
+
+private fun glassEaseIn(x: Float): Float {
+    val u = glassClamp01(x)
+    return u * u * u
+}
+
+/** Rodrigues rotation matrix (row-major 3x3) about the unit axis (ax, ay, az). */
+private fun glassRotation(out: FloatArray, ax: Float, ay: Float, az: Float, angle: Float) {
+    val c = cos(angle)
+    val s = sin(angle)
+    val k = 1f - c
+    out[0] = c + ax * ax * k
+    out[1] = ax * ay * k - az * s
+    out[2] = ax * az * k + ay * s
+    out[3] = ay * ax * k + az * s
+    out[4] = c + ay * ay * k
+    out[5] = ay * az * k - ax * s
+    out[6] = az * ax * k - ay * s
+    out[7] = az * ay * k + ax * s
+    out[8] = c + az * az * k
+}
+
+/** out = a * b (row-major 3x3). `out` must not alias `a` or `b`. */
+private fun glassMul(out: FloatArray, a: FloatArray, b: FloatArray) {
+    for (r in 0 until 3) {
+        for (c in 0 until 3) {
+            out[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]
         }
     }
 }
 
-/** A rounded segment: two cubic arcs with blunt, curved ends. */
-private fun buildLens(path: Path, w: Float, h: Float) {
-    path.reset()
-    path.moveTo(-w, 0f)
-    path.cubicTo(-w * 0.68f, -h * 1.10f, w * 0.68f, -h * 1.10f, w, 0f)
-    path.cubicTo(w * 0.68f, h * 1.10f, -w * 0.68f, h * 1.10f, -w, 0f)
-    path.close()
+private class GlassField {
+    val n = GLASS_PLATES
+    val np = GLASS_EDGE_PTS
+
+    // Static plate data (built once).
+    val dx = FloatArray(n)                 // unit direction of each plate on the sphere
+    val dy = FloatArray(n)
+    val dz = FloatArray(n)
+    val wv = FloatArray(n * np * 3)        // outline offsets in the tangent plane (unit scale)
+    val drx = FloatArray(n)                // tangential drift direction while assembling
+    val dry = FloatArray(n)
+    val drz = FloatArray(n)
+    val startOff = FloatArray(n)           // how far off the surface a plate starts
+    val delayIn = FloatArray(n)            // assembly stagger
+    val delayOut = FloatArray(n)           // burst stagger
+    val burstX = FloatArray(n)             // screen drift on burst
+    val burstY = FloatArray(n)
+    val seed = FloatArray(n)
+
+    // Pose that puts a pentagon face (5 plates around an opening) toward the viewer.
+    val rt = FloatArray(9)
+
+    // Per-frame scratch (no allocation while drawing).
+    val rs = FloatArray(9)
+    val mat = FloatArray(9)
+    val sx = FloatArray(n * np)
+    val sy = FloatArray(n * np)
+    val pcx = FloatArray(n)
+    val pcy = FloatArray(n)
+    val prad = FloatArray(n)
+    val pz = FloatArray(n)
+    val pnx = FloatArray(n)
+    val pny = FloatArray(n)
+    val pnz = FloatArray(n)
+    val pvis = FloatArray(n)
+    val order = IntArray(n)
+    val path = Path()
+
+    init {
+        val phi = (1f + sqrt(5f)) / 2f
+        val ip = 1f / phi
+        val raw = ArrayList<FloatArray>()
+        for (a in intArrayOf(-1, 1)) for (b in intArrayOf(-1, 1)) for (c in intArrayOf(-1, 1)) {
+            raw.add(floatArrayOf(a.toFloat(), b.toFloat(), c.toFloat()))
+        }
+        for (a in floatArrayOf(-1f, 1f)) for (b in floatArrayOf(-1f, 1f)) {
+            raw.add(floatArrayOf(0f, a * ip, b * phi))
+            raw.add(floatArrayOf(a * ip, b * phi, 0f))
+            raw.add(floatArrayOf(a * phi, 0f, b * ip))
+        }
+
+        val rnd = Random(29)
+        val alpha0 = 0.33f                         // angular radius of a plate (rad)
+        for (i in 0 until n) {
+            val v = raw[i]
+            val len = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+            dx[i] = v[0] / len; dy[i] = v[1] / len; dz[i] = v[2] / len
+
+            // tangent basis (t1, t2) ⟂ d
+            val hx = if (abs(dy[i]) < 0.9f) 0f else 1f
+            val hy = if (abs(dy[i]) < 0.9f) 1f else 0f
+            var t1x = hy * dz[i]
+            var t1y = -hx * dz[i]
+            var t1z = hx * dy[i] - hy * dx[i]
+            val l1 = sqrt(t1x * t1x + t1y * t1y + t1z * t1z)
+            t1x /= l1; t1y /= l1; t1z /= l1
+            val t2x = dy[i] * t1z - dz[i] * t1y
+            val t2y = dz[i] * t1x - dx[i] * t1z
+            val t2z = dx[i] * t1y - dy[i] * t1x
+
+            // random roll so the petals don't all point the same way
+            val roll = rnd.nextFloat() * TWO_PI_F
+            val cr = cos(roll); val sr = sin(roll)
+            val a1x = t1x * cr + t2x * sr; val a1y = t1y * cr + t2y * sr; val a1z = t1z * cr + t2z * sr
+            val a2x = -t1x * sr + t2x * cr; val a2y = -t1y * sr + t2y * cr; val a2z = -t1z * sr + t2z * cr
+
+            val size = 0.92f + rnd.nextFloat() * 0.16f
+            val ex = 1.10f + rnd.nextFloat() * 0.18f     // long axis
+            val ey = 0.84f + rnd.nextFloat() * 0.14f     // short axis
+            val sa = rnd.nextFloat() * TWO_PI_F
+            val sb = rnd.nextFloat() * TWO_PI_F
+            for (k in 0 until np) {
+                val ph = TWO_PI_F * k / np
+                // slightly organic outline instead of a perfect ellipse
+                val r = 1f + 0.10f * sin(ph + sa) + 0.06f * sin(2f * ph + sb)
+                val ox = alpha0 * size * ex * cos(ph) * r
+                val oy = alpha0 * size * ey * sin(ph) * r
+                val o = (i * np + k) * 3
+                wv[o] = a1x * ox + a2x * oy
+                wv[o + 1] = a1y * ox + a2y * oy
+                wv[o + 2] = a1z * ox + a2z * oy
+            }
+
+            val dd = rnd.nextFloat() * TWO_PI_F
+            drx[i] = t1x * cos(dd) + t2x * sin(dd)
+            dry[i] = t1y * cos(dd) + t2y * sin(dd)
+            drz[i] = t1z * cos(dd) + t2z * sin(dd)
+
+            startOff[i] = 0.12f + rnd.nextFloat() * 0.40f
+            delayIn[i] = 0.25f + 1.10f * rnd.nextFloat()
+            delayOut[i] = 7.35f + 0.35f * rnd.nextFloat()
+            burstX[i] = rnd.nextFloat() * 2f - 1f
+            burstY[i] = 0.45f + rnd.nextFloat() * 0.55f
+            seed[i] = rnd.nextFloat() * TWO_PI_F
+        }
+
+        // Rotate the pentagon-face axis (1, 0, φ) onto +Z (toward the viewer):
+        // axis = a × z = (0, -1, 0) after normalising, angle = acos(a·z).
+        val azz = phi / sqrt(1f + phi * phi)
+        glassRotation(rt, 0f, -1f, 0f, acos(azz))
+    }
 }
 
 /**
  * @param rad  radius of the assembled shell in px
- * @param flow looping phase 0..2π (15 s)
+ * @param t    seconds inside the 8.6 s cycle
  * @param glow 0..0.55 tap burst
  */
 private fun DrawScope.drawGlassShell(
@@ -2344,169 +2486,302 @@ private fun DrawScope.drawGlassShell(
     baseX: Float,
     baseY: Float,
     rad: Float,
-    flow: Float,
+    t: Float,
     glow: Float,
 ) {
-    val deep = Color(0xFF1E3BB8)      // cobalt body
-    val blue = Color(0xFF3D6BF2)      // mid blue
-    val cyan = Color(0xFF6FD1FF)      // rims / edge light
-    val violet = Color(0xFF8A5CF0)    // core patches
-    val pink = Color(0xFFE86FB1)      // iridescent streak
-    val pale = Color(0xFFCFE6FF)      // inner highlight line
-    val hot = Color(0xFFFFFFFF)       // centre point
-
-    // Assembly 0 (loose lenses) → 1 (closed shell), smooth at both ends.
-    val raw = 0.5f + 0.5f * sin(flow)
-    val a = raw * raw * (3f - 2f * raw)
+    val tt = t.coerceIn(0f, GLASS_CYCLE_S)
     val c0 = Offset(baseX, baseY)
     val g = 1f + glow * 1.4f
+    val d = GLASS_CAM_DIST
+    val kScale = rad * 0.977f
 
-    // ── 1. deep glow behind the shell ──
-    val bloomR = rad * 1.24f
-    drawCircle(
-        brush = Brush.radialGradient(
-            0f to blue.copy(alpha = (0.13f * g).coerceAtMost(0.9f)),
-            0.45f to violet.copy(alpha = (0.10f * g).coerceAtMost(0.9f)),
-            0.80f to deep.copy(alpha = (0.07f * g).coerceAtMost(0.9f)),
-            1f to deep.copy(alpha = 0f),
-            center = c0,
-            radius = bloomR,
-        ),
-        radius = bloomR,
-        center = c0,
-    )
+    // ── orientation: fast tumble that decelerates onto the "flower" pose ──
+    val settle = 1f - glassEaseOut(tt / 5.5f)
+    val theta = 5.2f * settle + 0.06f * (tt - 5.5f).coerceAtLeast(0f) + 0.5f * glassSmooth(7.4f, 8.4f, tt)
+    glassRotation(f.rs, 0.3651f, 0.9129f, 0.1826f, theta)
+    glassMul(f.mat, f.rs, f.rt)
+    val m = f.mat
 
-    // ── 2. core light, seen through the glass ──
-    val corePulse = 0.5f + 0.5f * sin(3f * flow)
-    val coreR = rad * (0.22f + 0.05f * corePulse) * (1f + glow * 0.7f)
-    drawCircle(
-        brush = Brush.radialGradient(
-            0f to hot.copy(alpha = (0.50f * a * g).coerceIn(0f, 1f)),
-            0.30f to violet.copy(alpha = (0.34f * a * g).coerceIn(0f, 1f)),
-            0.62f to deep.copy(alpha = (0.16f * a * g).coerceIn(0f, 1f)),
-            1f to deep.copy(alpha = 0f),
-            center = c0,
-            radius = coreR,
-        ),
-        radius = coreR,
-        center = c0,
-    )
-
-    // ── 3. lenses ──
-    val d0 = rad * 0.48f
-    val w0 = rad * 0.34f
-    val h0 = rad * 0.155f
+    // ── plate poses → screen-space outlines ──
+    var sumVis = 0f
     for (i in 0 until f.n) {
-        val sw = sin(flow + f.seed[i])
-        val wob = sin(2f * flow + f.seed[i] * 1.7f)
-        val angle = f.ang[i] + flow + 0.05f * wob
-        val d = (d0 - rad * 0.09f * a) * (1f + 0.03f * sw)
-        val w = w0 * f.wMul[i] * (0.45f + 0.55f * a)
-        val h = h0 * f.hMul[i] * (0.45f + 0.55f * a)
-        val px = baseX + d * cos(angle)
-        val py = baseY + d * sin(angle)
-        val petalDeg = angle * RAD_TO_DEG + 90f + f.tilt[i] * RAD_TO_DEG + 4f * sw
-        val pa = f.alpha[i] * (0.40f + 0.60f * a)
+        val a = glassEaseOut((tt - f.delayIn[i]) / 1.6f)
+        val b = glassEaseIn((tt - f.delayOut[i]) / 0.7f)
+        val vis = a * (1f - b)
+        f.pvis[i] = vis
+        sumVis += vis
+        if (vis < 0.004f) continue
 
-        buildLens(f.path, w, h)
-        translate(left = px, top = py) {
-            rotate(degrees = petalDeg, pivot = Offset.Zero) {
-                // body: cobalt → blue → violet, running along the segment
-                drawPath(
-                    path = f.path,
-                    brush = Brush.linearGradient(
-                        0f to deep.copy(alpha = 0.46f * pa),
-                        0.48f to blue.copy(alpha = 0.40f * pa),
-                        1f to violet.copy(alpha = 0.44f * pa),
-                        start = Offset(-w * 0.30f, -h),
-                        end = Offset(w * 0.30f, h),
-                    ),
-                )
-                // iridescence: cyan sheen on the upper lip, pink on the lower lip
-                drawPath(
-                    path = f.path,
-                    brush = Brush.verticalGradient(
-                        0f to cyan.copy(alpha = 0.16f * pa),
-                        0.45f to Color.Transparent,
-                        0.72f to pink.copy(alpha = 0.20f * pa),
-                        1f to pink.copy(alpha = 0.08f * pa),
-                        startY = -h * 1.1f,
-                        endY = h * 1.1f,
-                    ),
-                )
-                // bright cyan rim
-                drawPath(
-                    path = f.path,
-                    color = cyan.copy(alpha = 0.40f * pa),
-                    style = Stroke(width = (rad * 0.0038f).coerceAtLeast(0.7f)),
-                )
-                // inner highlight line
-                scale(scaleX = 0.80f, scaleY = 0.74f, pivot = Offset.Zero) {
-                    drawPath(
-                        path = f.path,
-                        color = pale.copy(alpha = 0.20f * pa),
-                        style = Stroke(width = (rad * 0.0022f).coerceAtLeast(0.5f)),
-                    )
-                }
-                // specular highlight near the outer tip
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0f to hot.copy(alpha = 0.60f * pa),
-                        0.40f to pale.copy(alpha = 0.22f * pa),
-                        1f to pale.copy(alpha = 0f),
-                        center = Offset(w * 0.42f, -h * 0.30f),
-                        radius = w * 0.40f,
-                    ),
-                    radius = w * 0.40f,
-                    center = Offset(w * 0.42f, -h * 0.30f),
-                )
-                // pink glow on the opposite edge
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0f to pink.copy(alpha = 0.26f * pa),
-                        1f to pink.copy(alpha = 0f),
-                        center = Offset(-w * 0.45f, h * 0.15f),
-                        radius = w * 0.52f,
-                    ),
-                    radius = w * 0.52f,
-                    center = Offset(-w * 0.45f, h * 0.15f),
-                )
-            }
+        val extra = (1f - a) * f.startOff[i] + b * 1.1f
+        val scl = (0.12f + 0.88f * a) * (1f - 0.65f * b)
+        val drift = (1f - a) * 0.28f
+        val ox = f.drx[i] * drift
+        val oy = f.dry[i] * drift
+        val oz = f.drz[i] * drift
+        val gx = b * rad * 0.20f * f.burstX[i]       // burst: slides outward and sinks
+        val gy = b * rad * 0.50f * f.burstY[i]
+
+        val ddx = f.dx[i]; val ddy = f.dy[i]; val ddz = f.dz[i]
+        val rz = m[6] * (ddx * (1f + extra) + ox) + m[7] * (ddy * (1f + extra) + oy) + m[8] * (ddz * (1f + extra) + oz)
+        f.pz[i] = rz
+        f.pnx[i] = m[0] * ddx + m[1] * ddy + m[2] * ddz
+        f.pny[i] = m[3] * ddx + m[4] * ddy + m[5] * ddz
+        f.pnz[i] = m[6] * ddx + m[7] * ddy + m[8] * ddz
+
+        var sumX = 0f
+        var sumY = 0f
+        val base = i * f.np
+        for (k in 0 until f.np) {
+            val o = (base + k) * 3
+            var ux = ddx + f.wv[o] * scl
+            var uy = ddy + f.wv[o + 1] * scl
+            var uz = ddz + f.wv[o + 2] * scl
+            val il = (1f + extra) / sqrt(ux * ux + uy * uy + uz * uz)
+            ux = ux * il + ox; uy = uy * il + oy; uz = uz * il + oz
+            val rx = m[0] * ux + m[1] * uy + m[2] * uz
+            val ry = m[3] * ux + m[4] * uy + m[5] * uz
+            val rzz = m[6] * ux + m[7] * uy + m[8] * uz
+            val ps = d / (d - rzz)
+            val px = baseX + rx * ps * kScale + gx
+            val py = baseY - ry * ps * kScale + gy
+            f.sx[base + k] = px
+            f.sy[base + k] = py
+            sumX += px
+            sumY += py
+        }
+        val cx = sumX / f.np
+        val cy = sumY / f.np
+        var rmax = 1f
+        for (k in 0 until f.np) {
+            val ex = f.sx[base + k] - cx
+            val ey = f.sy[base + k] - cy
+            val dd = sqrt(ex * ex + ey * ey)
+            if (dd > rmax) rmax = dd
+        }
+        f.pcx[i] = cx
+        f.pcy[i] = cy
+        f.prad[i] = rmax
+    }
+    val asm = sumVis / f.n
+
+    // ── 1. soft blue halo around the silhouette + faint body haze ──
+    if (asm > 0.003f) {
+        val haloR = rad * 1.32f
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to GlassBlue.ga(0f),
+                0.55f to GlassBlue.ga(0.05f * asm * g),
+                0.74f to GlassBlue.ga(0.20f * asm * g),
+                0.86f to GlassDeep.ga(0.10f * asm * g),
+                1f to GlassDeep.ga(0f),
+                center = c0,
+                radius = haloR,
+            ),
+            radius = haloR,
+            center = c0,
+        )
+        val bodyR = rad * 0.97f
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to GlassDeep.ga(0.02f * asm),
+                0.75f to GlassDeep.ga(0.08f * asm * g),
+                1f to GlassBlue.ga(0.20f * asm * g),
+                center = c0,
+                radius = bodyR,
+            ),
+            radius = bodyR,
+            center = c0,
+        )
+    }
+
+    // ── depth order (far → near) ──
+    val ord = f.order
+    var cnt = 0
+    for (i in 0 until f.n) {
+        if (f.pvis[i] >= 0.004f) { ord[cnt] = i; cnt++ }
+    }
+    for (a in 1 until cnt) {
+        val key = ord[a]
+        val kz = f.pz[key]
+        var j = a - 1
+        while (j >= 0 && f.pz[ord[j]] > kz) { ord[j + 1] = ord[j]; j-- }
+        ord[j + 1] = key
+    }
+
+    // ── 2. plates on the far side ──
+    for (q in 0 until cnt) {
+        val i = ord[q]
+        if (f.pz[i] < 0f) drawGlassPlate(f, i, true, c0, rad, tt, g)
+    }
+
+    // ── 3. core, seen through the front glass ──
+    var core = 0.35f * glassSmooth(2.0f, 3.2f, tt) +
+        0.45f * glassSmooth(3.5f, 6.5f, tt) +
+        0.90f * glassSmooth(7.2f, 7.9f, tt)
+    core *= 1f - glassSmooth(8.15f, 8.55f, tt)
+    val pulseWin = glassSmooth(4.0f, 4.6f, tt) * (1f - glassSmooth(7.0f, 7.4f, tt))
+    core *= 1f + 0.06f * sin(tt * 5f) * pulseWin
+    if (core > 0.004f) {
+        val kg = core * g
+        // vertical streak while the core first ignites (~3.6 s)
+        val sd = (tt - 3.6f) / 0.25f
+        val streak = 1f + 1.5f * exp(-sd * sd)
+        val haloR = rad * (0.10f + 0.40f * core) * (1f + glow * 0.5f)
+        scale(scaleX = 1f, scaleY = streak, pivot = c0) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0f to GlassHot.ga(0.60f * kg),
+                    0.18f to GlassLavender.ga(0.46f * kg),
+                    0.50f to GlassViolet.ga(0.20f * kg),
+                    1f to GlassDeep.ga(0f),
+                    center = c0,
+                    radius = haloR,
+                ),
+                radius = haloR,
+                center = c0,
+                blendMode = BlendMode.Plus,
+            )
+            val discR = rad * (0.016f + 0.034f * core) * (1f + glow * 0.7f)
+            drawCircle(
+                color = GlassHot.ga(1.1f * core),
+                radius = discR,
+                center = c0,
+            )
         }
     }
 
-    // ── 4. outer shell rim ──
-    if (a > 0.05f) {
-        drawCircle(
-            color = cyan.copy(alpha = 0.20f * a),
-            radius = rad * 0.88f,
-            center = c0,
-            style = Stroke(width = (rad * 0.0032f).coerceAtLeast(0.6f)),
-        )
+    // ── 4. plates on the near side ──
+    for (q in 0 until cnt) {
+        val i = ord[q]
+        if (f.pz[i] >= 0f) drawGlassPlate(f, i, false, c0, rad, tt, g)
     }
 
-    // ── 5. hot core point, on top of the glass ──
-    if (a > 0.25f) {
-        val hotR = rad * 0.042f * (1f + 0.15f * corePulse)
+    // ── 5. a last hint of the core on top of the glass ──
+    if (core > 0.05f) {
+        val r = rad * (0.014f + 0.020f * core)
         drawCircle(
             brush = Brush.radialGradient(
-                0f to hot.copy(alpha = 0.95f * a),
-                0.22f to violet.copy(alpha = 0.55f * a),
-                0.55f to blue.copy(alpha = 0.22f * a),
-                1f to blue.copy(alpha = 0f),
+                0f to GlassHot.ga(0.85f * core),
+                0.5f to GlassLavender.ga(0.35f * core),
+                1f to GlassLavender.ga(0f),
                 center = c0,
-                radius = hotR * 3.6f,
+                radius = r * 3f,
             ),
-            radius = hotR * 3.6f,
+            radius = r * 3f,
             center = c0,
-        )
-        drawCircle(
-            color = hot.copy(alpha = 0.90f * a),
-            radius = hotR,
-            center = c0,
+            blendMode = BlendMode.Plus,
         )
     }
 }
+
+/** One glass petal: edge-lit body, iridescent patches, glowing rim. */
+private fun DrawScope.drawGlassPlate(
+    f: GlassField,
+    i: Int,
+    back: Boolean,
+    c0: Offset,
+    rad: Float,
+    tt: Float,
+    g: Float,
+) {
+    val np = f.np
+    val base = i * np
+
+    // closed smooth outline (Catmull-Rom → cubic Béziers)
+    val p = f.path
+    p.reset()
+    p.moveTo(f.sx[base], f.sy[base])
+    for (k in 0 until np) {
+        val k0 = base + (k + np - 1) % np
+        val k1 = base + k
+        val k2 = base + (k + 1) % np
+        val k3 = base + (k + 2) % np
+        p.cubicTo(
+            f.sx[k1] + (f.sx[k2] - f.sx[k0]) / 6f, f.sy[k1] + (f.sy[k2] - f.sy[k0]) / 6f,
+            f.sx[k2] - (f.sx[k3] - f.sx[k1]) / 6f, f.sy[k2] - (f.sy[k3] - f.sy[k1]) / 6f,
+            f.sx[k2], f.sy[k2],
+        )
+    }
+    p.close()
+
+    val v = f.pvis[i] * (if (back) 0.55f else 1f)
+    val cx = f.pcx[i]
+    val cy = f.pcy[i]
+    val r = f.prad[i].coerceAtLeast(1f)
+    val nx = f.pnx[i]
+    val ny = f.pny[i]
+    val nz = f.pnz[i]
+    val fr = 1f - abs(nz)                       // 0 face-on … 1 edge-on
+
+    // direction from this plate toward the sphere centre (where the pink pools)
+    val tx = c0.x - cx
+    val ty = c0.y - cy
+    val tl = sqrt(tx * tx + ty * ty) + 0.001f
+    val ux = tx / tl
+    val uy = ty / tl
+
+    // 1. body: clear in the middle, lit toward the edge
+    drawPath(
+        path = p,
+        brush = Brush.radialGradient(
+            0f to GlassDeep.ga(0.10f * v),
+            0.55f to GlassBlue.ga(0.24f * v),
+            0.86f to GlassBlue.ga(0.40f * v),
+            1f to GlassCyan.ga(0.50f * v),
+            center = Offset(cx, cy),
+            radius = r,
+        ),
+    )
+
+    // 2. iridescent pink / violet patch on the inner side
+    val shimmer = 0.78f + 0.22f * sin(tt * 1.1f + f.seed[i])
+    val pinkK = glassClamp01(0.30f + 0.70f * (nx * 0.55f - ny * 0.50f + nz * 0.67f)) * shimmer * v
+    drawPath(
+        path = p,
+        brush = Brush.radialGradient(
+            0f to GlassPink.ga(0.40f * pinkK),
+            0.55f to GlassViolet.ga(0.22f * pinkK),
+            1f to GlassViolet.ga(0f),
+            center = Offset(cx + ux * r * 0.40f, cy + uy * r * 0.40f),
+            radius = r * 0.95f,
+        ),
+    )
+
+    // 3. soft specular sheen from the upper left
+    val sheen = glassClamp01(0.25f + 0.75f * (-nx * 0.50f + ny * 0.55f + nz * 0.67f)) * v
+    drawPath(
+        path = p,
+        brush = Brush.radialGradient(
+            0f to GlassPale.ga(0.32f * sheen),
+            0.5f to GlassCyan.ga(0.12f * sheen),
+            1f to GlassCyan.ga(0f),
+            center = Offset(cx - r * 0.28f, cy - r * 0.32f),
+            radius = r * 0.60f,
+        ),
+    )
+
+    // 4. glowing rim — stronger toward the silhouette (fresnel)
+    if (!back) {
+        drawPath(
+            path = p,
+            color = GlassCyan.ga((0.10f + 0.20f * fr) * v * g),
+            style = Stroke(width = rad * 0.020f),
+            blendMode = BlendMode.Plus,
+        )
+    }
+    drawPath(
+        path = p,
+        color = GlassCyan.ga((0.22f + 0.28f * fr) * v * g),
+        style = Stroke(width = rad * 0.007f),
+        blendMode = BlendMode.Plus,
+    )
+    drawPath(
+        path = p,
+        color = GlassPale.ga((0.30f + 0.30f * fr) * v),
+        style = Stroke(width = (rad * 0.0026f).coerceAtLeast(0.7f)),
+    )
+}
+
 
 private data class Direction(
     val angleDeg: Float,
@@ -2577,6 +2852,17 @@ private fun SphereComposition(
             repeatMode = RepeatMode.Restart,
         ),
         label = "flow",
+    )
+
+    // Glass orb clock: seconds inside its 8.6 s assemble → ignite → burst cycle.
+    val glassAnim = infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = GLASS_CYCLE_S,
+        animationSpec = infiniteRepeatable(
+            animation = tween((GLASS_CYCLE_S * 1000f).toInt(), easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "glassT",
     )
 
     // OLD look: 8 tag icons at compass positions + LEFT/RIGHT/UP/DOWN text labels.
@@ -2921,14 +3207,14 @@ private fun SphereComposition(
             )
         } else if (sphereStyle == SphereStyle.GLASS) {
             // ── Glass Bubble ──
-            // Warm palette of the 8D glow ball: cream → amber → deep orange.
-            // The lenses gather and relax, and a hot point glows inside.
+            // Iridescent glass petals assemble into a tumbling shell, a white-violet
+            // core ignites inside, then the shell bursts and the loop restarts.
             drawGlassShell(
                 f = glass,
                 baseX = cx,
                 baseY = cy,
                 rad = sphereR * 0.93f,
-                flow = flowAnim.value,
+                t = glassAnim.value,
                 glow = glow,
             )
         } else {
