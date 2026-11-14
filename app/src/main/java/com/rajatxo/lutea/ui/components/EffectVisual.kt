@@ -2741,7 +2741,7 @@ private fun DrawScope.drawGlassPlate(
     rad: Float,
     tt: Float,
     g: Float,
-    pal: pal.palette,
+    pal: GlassPalette,
 ) {
     val np = f.np
     val base = i * np
