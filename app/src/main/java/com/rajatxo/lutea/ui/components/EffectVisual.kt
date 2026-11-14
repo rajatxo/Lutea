@@ -566,20 +566,7 @@ fun EffectVisual(
                 ) {
                     Text(
                         text = titleText,
-                        // "8D" holds X, then blends across the colon into Y for
-                        // "Spatial Audio".
-                        style = TextStyle(
-                            brush = Brush.horizontalGradient(
-                                colorStops = arrayOf(
-                                    0f to LumenPalette.Mint,
-                                    0.18f to LumenPalette.Mint,
-                                    0.45f to LumenPalette.Ice,
-                                    1f to LumenPalette.Ice,
-                                ),
-                                startX = 0f,
-                                endX = titleWidthPx * (titleSp / 37f),
-                            ),
-                        ),
+                        color = Color.White,
                         fontFamily = CalSansFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = titleSp.sp,
@@ -3248,14 +3235,23 @@ private fun SphereComposition(
         val thickStroke = size.width * 0.0080f
 
         // ── Dotted circle (80 dots) ──
+        // Only the colour is new: each dot takes its tone from one X -> Y -> X
+        // sweep around the ring, so the dotted circle itself is the gradient.
+        // Alpha stays at the old 0.55.
         val dotCount = 80
         val dotR = size.width * 0.0035f
         for (i in 0 until dotCount) {
             val a = (2.0 * Math.PI * i / dotCount).toFloat()
             val dx = cx + dottedR * cos(a)
             val dy = cy + dottedR * sin(a)
+            val k = i.toFloat() / dotCount
+            val wave = if (k <= 0.5f) k * 2f else (1f - k) * 2f
             drawCircle(
-                color = LumenPalette.Ice.copy(alpha = 0.95f),
+                color = androidx.compose.ui.graphics.lerp(
+                    LumenPalette.Mint,
+                    LumenPalette.Ice,
+                    wave,
+                ).copy(alpha = 0.55f),
                 radius = dotR,
                 center = Offset(dx, dy),
             )
@@ -3263,7 +3259,7 @@ private fun SphereComposition(
 
         // ── Thin full circle ──
         drawCircle(
-            color = LumenPalette.Ice.copy(alpha = 0.55f),
+            color = Cream.copy(alpha = 0.30f),
             radius = ringR,
             center = Offset(cx, cy),
             style = Stroke(width = thinStroke),
@@ -3275,16 +3271,10 @@ private fun SphereComposition(
         val arcCenterCompass = floatArrayOf(0f, 90f, 180f, 270f)
         val arcSize = Size(ringR * 2, ringR * 2)
         val arcTopLeft = Offset(cx - ringR, cy - ringR)
-        // The four cut arcs share one X -> Y -> X sweep, so the ring reads as a
-        // single gradient rather than four solid pieces.
-        val arcBrush = Brush.sweepGradient(
-            colors = listOf(LumenPalette.Mint, LumenPalette.Ice, LumenPalette.Mint),
-            center = Offset(cx, cy),
-        )
         for (compass in arcCenterCompass) {
             val canvasAngle = (360f - compass - halfSweep).mod(360f)
             drawArc(
-                brush = arcBrush,
+                color = Cream.copy(alpha = 0.90f),
                 startAngle = canvasAngle,
                 sweepAngle = arcSweepDeg,
                 useCenter = false,
@@ -3301,8 +3291,8 @@ private fun SphereComposition(
         // exactly 180° apart and makes the gold → white gap identical on both
         // sides of every gold arrow, so the cross stays balanced even when the
         // two golds are not opposite each other.
-        val goldColor = LumenPalette.Mint
-        val whiteArrowColor = LumenPalette.Mint.copy(alpha = 0.95f)
+        val goldColor = Color(0xFFD4A03A)
+        val whiteArrowColor = Cream.copy(alpha = 0.95f)
         val topBottomColor = if (arrowsHighlighted) goldColor else whiteArrowColor
 
         // Number n on the upper arc lives at π + (n−1)·π/24; on the lower arc at
