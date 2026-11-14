@@ -348,28 +348,15 @@ fun EffectVisual(
                     )
                 )
                 .drawWithCache {
-                    // Same grey → black fall as the card behind the head, so the
-                    // plate reads as the top half of one continuous surface.
-                    val grey = Color(0xFF1A1A1A)
-                    val darkerGrey = Color(0xFF0F0F0F)
-                    val black = Color(0xFF000000)
-                    val brush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0.0f to grey,
-                            0.25f to grey,
-                            0.35f to darkerGrey,
-                            1.0f to black,
-                        )
-                    )
                     onDrawBehind {
-                        drawRect(brush)
+                        drawRect(Color.Black)
                         // Dot grid — but it never enters the circle that runs
                         // through the eight compass labels: dots fade out over a
                         // 5.5% band just outside that circle, so the area the
                         // rings/sphere occupy stays clean.
                         val dotSpacing = size.minDimension * 0.04f
                         val dotRadius = size.minDimension * 0.004f
-                        val dotAlpha = 0.06f
+                        val dotAlpha = 0.08f
                         val circleX = size.width * 0.5f
                         val circleY = size.width * 0.5f - 1.10f * COMP_LIFT_FRAC * size.width
                         val circleR = size.width * 0.4112f
@@ -2364,7 +2351,7 @@ private fun DrawScope.drawGlowOrb(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Assembly + deceleration ends here; after this the shell just keeps turning. */
-private const val GLASS_SETTLE_S = 3.0f
+private const val GLASS_SETTLE_S = 2.5f
 /** Constant tumble speed once the shell has assembled (rad/s, ≈17°/s). */
 private const val GLASS_SPIN_RAD_S = 0.30f
 private const val GLASS_PLATES = 20
@@ -2573,7 +2560,7 @@ private class GlassField {
             drz[i] = t1z * cos(dd) + t2z * sin(dd)
 
             startOff[i] = 0.12f + rnd.nextFloat() * 0.40f
-            delayIn[i] = 0.12f + 0.55f * rnd.nextFloat()
+            delayIn[i] = 0.10f + 0.42f * rnd.nextFloat()
             delayOut[i] = 7.35f + 0.35f * rnd.nextFloat()
             burstX[i] = rnd.nextFloat() * 2f - 1f
             burstY[i] = 0.45f + rnd.nextFloat() * 0.55f
@@ -2623,7 +2610,7 @@ private fun DrawScope.drawGlassShell(
     //    from small shards and lock; nothing ever bursts or re-joins) ──
     var sumVis = 0f
     for (i in 0 until f.n) {
-        val a = glassEaseOut((tt - f.delayIn[i]) / 0.95f)
+        val a = glassEaseOut((tt - f.delayIn[i]) / 0.75f)
         val vis = a
         f.pvis[i] = vis
         sumVis += vis
@@ -2732,14 +2719,14 @@ private fun DrawScope.drawGlassShell(
     }
 
     // ── 3. core, seen through the front glass ──
-    var core = 0.30f * glassSmooth(0.9f, 1.6f, tt) +
-        0.50f * glassSmooth(1.6f, 3.0f, tt)
+    var core = 0.30f * glassSmooth(0.7f, 1.3f, tt) +
+        0.50f * glassSmooth(1.3f, 2.5f, tt)
     // gentle breathing once lit — the bubble stays alive without looping
-    core *= 1f + 0.05f * sin(tt * 2.2f) * glassSmooth(1.6f, 2.2f, tt)
+    core *= 1f + 0.05f * sin(tt * 2.2f) * glassSmooth(1.3f, 1.8f, tt)
     if (pass == GLASS_PASS_BACK && core > 0.004f) {
         val kg = core * g
         // vertical streak while the core first ignites (~3.6 s)
-        val sd = (tt - 1.7f) / 0.16f
+        val sd = (tt - 1.4f) / 0.14f
         val streak = 1f + 1.5f * exp(-sd * sd)
         // Wide halo first: the ball now throws light well past its own disc.
         val outR = rad * (0.55f + 0.55f * core) * (1f + glow * 0.6f)
