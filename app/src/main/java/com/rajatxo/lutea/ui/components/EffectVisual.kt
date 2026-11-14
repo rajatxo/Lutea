@@ -152,6 +152,17 @@ fun EffectVisual(
         ),
         label = "eightDTint",
     ).value
+    // Dot-sphere colour mix: 0 = pure white dots (8D off), 1 = the glow-ball
+    // palette (8D on). Same 900 ms fade as the state tint, so both cross-fade
+    // together on tap.
+    val sphereMix = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (eightDOn) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(
+            900,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+        ),
+        label = "sphereMix",
+    ).value
 
     // Sphere rotation + Ball rotation toggles (persisted)
     val context = LocalContext.current
@@ -397,6 +408,7 @@ fun EffectVisual(
                 glow = glowLevel,
                 spinDeg = spinDeg,
                 tint = stateTint,
+                sphereMix = sphereMix,
                 sphereStyle = sphereStyle,
                 onQuickTap = {
                     tapTick++
@@ -2124,17 +2136,6 @@ private fun SpatialOrbBall(
         trace?.let { buildOrbit(it, headSizePx, headSizePx, ballR * ORB_GAP_R) }
     }
 
-    // Slow wave inside the orb (read in the draw lambda, so it only redraws).
-    val infinite = rememberInfiniteTransition(label = "orb")
-    val waveAnim = infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(7000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "orbWave",
-    )
     val orbClip = remember { Path() }
     val bandPath = remember { Path() }
 
@@ -2149,7 +2150,12 @@ private fun SpatialOrbBall(
         val ballX = lut[2 * i0] + (lut[2 * i0 + 2] - lut[2 * i0]) * fr
         val ballY = lut[2 * i0 + 1] + (lut[2 * i0 + 3] - lut[2 * i0 + 1]) * fr
 
-        drawGlowOrb(ballX, ballY, ballR, waveAnim.value, orbClip, bandPath)
+        // Wave phase from the wall clock, same 7 s period and same formula as
+        // the dot sphere — so the orb's wavy boundary and the sphere's colour
+        // movement are phase-locked.
+        val wave = ((android.os.SystemClock.elapsedRealtime() % 7000L) / 7000f) *
+            (2f * Math.PI).toFloat()
+        drawGlowOrb(ballX, ballY, ballR, wave, orbClip, bandPath)
     }
 }
 
@@ -2871,6 +2877,7 @@ private fun SphereComposition(
     glow: Float = 0f,
     spinDeg: Float = 0f,
     tint: Color = Color.White,
+    sphereMix: Float = 0f,
     sphereStyle: SphereStyle = SphereStyle.METAMORPHIC,
     onQuickTap: () -> Unit = {},
 ) {
@@ -2952,8 +2959,8 @@ private fun SphereComposition(
                     // its own tap layer handles the taps instead.
                     val w = size.width.toFloat()
                     val dx = offset.x - w / 2f
-                    val dy = offset.y - w / 2f
-                    val sphereR = w * 0.2026f
+                    val dy = offset.y - (w / 2f - w * 0.015f)
+                    val sphereR = w * 0.2106f
                     if (dx * dx + dy * dy <= sphereR * sphereR) {
                         // Toggles on touch, not on release — holding makes no
                         // difference, it only lets you watch the colour fade.
@@ -2999,8 +3006,12 @@ private fun SphereComposition(
         val arrowBaseR = ringR - size.width * 0.045f
         val arrowH = size.width * 0.024f
         val arrowW = size.width * 0.030f
-        // Sphere sits inside the arrows with normal breathing room.
-        val sphereR = arrowBaseR - size.width * 0.020f
+        // Sphere sits inside the arrows. Slightly bigger than before, but the
+        // rings, arrows, tags, numbers and labels keep their exact positions.
+        val sphereR = arrowBaseR - size.width * 0.012f
+        // Sphere centre: same x as everything else, nudged up a little so the
+        // bigger sphere keeps its breathing room at the bottom.
+        val sphereCy = cy - size.width * 0.015f
 
         val cx = size.width / 2f
         // Vertical center sits at half of width so rings are perfectly circular.
@@ -3258,7 +3269,7 @@ private fun SphereComposition(
             drawJellyfish(
                 f = jelly,
                 baseX = cx,
-                baseY = cy,
+                baseY = sphereCy,
                 rad = sphereR * 0.93f,
                 flow = flowAnim.value,
                 breath = sin(pulseAnim.value),
@@ -3272,7 +3283,7 @@ private fun SphereComposition(
             drawGlassShell(
                 f = glass,
                 baseX = cx,
-                baseY = cy,
+                baseY = sphereCy,
                 rad = sphereR * 0.93f,
                 t = glassAnim.value,
                 glow = glow,
@@ -3293,21 +3304,31 @@ private fun SphereComposition(
             }
             projected.sortBy { it.z }
             val pulseAmp = 0.10f + 0.35f * glow
-            val orbWave = flowAnim.value * 2f     // 7.5 s, seamless inside the 15 s loop
-            // warm red-orange haze, like the one around the glow ball
-            val hazeR = sphereR * 1.55f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    0f to OrbHaze.copy(alpha = (0.16f * (1f + glow * 1.4f)).coerceAtMost(0.5f)),
-                    0.55f to OrbHaze.copy(alpha = (0.09f * (1f + glow * 1.4f)).coerceAtMost(0.4f)),
-                    0.80f to OrbHaze.copy(alpha = 0.03f),
-                    1f to OrbHaze.copy(alpha = 0f),
-                    center = Offset(cx, cy),
+            // Wave phase read from the wall clock on the same 7 s period the
+            // orbiting glow ball uses, so the colour movement here is phase-locked
+            // to the orb's wavy boundary and drifting red blob — no drift, no
+            // arbitrary offset, even though the two start at different times.
+            val orbWave = ((android.os.SystemClock.elapsedRealtime() % 7000L) / 7000f) *
+                (2f * Math.PI).toFloat()
+            // Glow halo, like the one around the orbiting glow ball — only while
+            // 8D is active, fading in together with the colours. Tap bursts make
+            // it flare briefly.
+            if (sphereMix > 0.01f) {
+                val hazeR = sphereR * 1.55f
+                val hazeG = 1f + glow * 1.4f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0f to OrbHaze.copy(alpha = (0.16f * sphereMix * hazeG).coerceAtMost(0.5f)),
+                        0.55f to OrbHaze.copy(alpha = (0.09f * sphereMix * hazeG).coerceAtMost(0.4f)),
+                        0.80f to OrbHaze.copy(alpha = 0.03f * sphereMix),
+                        1f to OrbHaze.copy(alpha = 0f),
+                        center = Offset(cx, sphereCy),
+                        radius = hazeR,
+                    ),
                     radius = hazeR,
-                ),
-                radius = hazeR,
-                center = Offset(cx, cy),
-            )
+                    center = Offset(cx, sphereCy),
+                )
+            }
             for (v in projected) {
                 val depth = (v.z + 1f) * 0.5f
                 val wave = sin(pulseAnim.value + depth * 3f)
@@ -3316,7 +3337,9 @@ private fun SphereComposition(
                 val px = cx + v.x * sphereR
                 val py = cy - v.y * sphereR
                 val alpha = (0.18f + depth * 0.82f).coerceAtMost(1f)
-                val dotColor = orbDotColor(v.x, -v.y, orbWave)
+                // Pure white when 8D is off; the glow-ball palette fades in
+                // with the 900 ms mix when it turns on.
+                val dotColor = jmix(Color.White, orbDotColor(v.x, -v.y, orbWave), sphereMix)
                 // Burst halo on tap, in the dot's own colour.
                 if (glow > 0.01f) {
                     drawCircle(
