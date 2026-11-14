@@ -95,6 +95,7 @@ import com.rajatxo.lutea.R
 import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
 import com.rajatxo.lutea.ui.screens.blendStops
+import com.rajatxo.lutea.ui.theme.LumenPalette
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -399,18 +400,20 @@ fun EffectVisual(
             // wash across the whole sphere backdrop. The sphere composition is
             // a later sibling, so it still draws on top of the light.
             // ── The light rays ──
-            // Same effect as the Wheel Advanced page, but tuned for this card:
-            // the source sits 30% of the plate above the frame (close enough to
-            // read, far enough not to look parked on the edge), the rays run
-            // 1.5x longer, the bands are softer and the light is brighter.
+            // Same shader as the Wheel Advanced page, but tuned for this card:
+            // Ice (#9EF9FF) light, a source 30% of the plate above the frame, and
+            // very wide band edges (0.75) so the rays melt into the black instead
+            // of reading as separate beams. The haze mix is high for the same
+            // reason: the whole card should read as one soft gradient.
             LightRaysBackground(
                 modifier = Modifier.fillMaxSize(),
+                color = LumenPalette.Ice,
                 sourceY = -0.30f,
                 reach = 1.5f,
-                brightness = 0.52f,
-                edge = 0.44f,
-                spread = 1.9f,
-                fogMix = 0.30f,
+                brightness = 0.58f,
+                edge = 0.75f,
+                spread = 1.7f,
+                fogMix = 0.45f,
             )
         }
 

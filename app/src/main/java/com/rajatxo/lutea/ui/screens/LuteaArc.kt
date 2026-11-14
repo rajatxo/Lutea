@@ -90,6 +90,7 @@ import androidx.compose.ui.unit.sp
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.model.Playlist
 import com.rajatxo.lutea.data.prefs.PlaylistStyle
+import com.rajatxo.lutea.ui.theme.LumenPalette
 import com.rajatxo.lutea.data.store.PlaylistStore
 import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
@@ -810,7 +811,9 @@ fun LuteaArc(
                 //    Active   = UPPERCASE (large, accent colour)
                 //    Inactive = lowercase (smaller, white/faded)
                 val displayText = if (isActive) playlist.name.uppercase() else playlist.name.lowercase()
-                val textColor = if (isActive) accentColor else Color.White
+                // Lumen palette: the selected name is Mint, every other name is
+                // Ice, and the two neighbours blend between the pair.
+                val textColor = if (isActive) LumenPalette.Mint else LumenPalette.Ice
                 var baseFontSp = lerp(activeFontSp, inactiveFontSp, (1f - scale).coerceIn(0f, 1f))
                 val fontFamily = BillieEilishFamily
                 val fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
@@ -853,13 +856,13 @@ fun LuteaArc(
                 val textBrush: Brush? = if (isAdjacent) {
                     if (fractionalOffset < 0) {
                         Brush.verticalGradient(
-                            colors = listOf(Color.White, accentColor),
+                            colors = listOf(LumenPalette.Ice, LumenPalette.Mint),
                             startY = 0f,
                             endY = textH
                         )
                     } else {
                         Brush.verticalGradient(
-                            colors = listOf(accentColor, Color.White),
+                            colors = listOf(LumenPalette.Mint, LumenPalette.Ice),
                             startY = 0f,
                             endY = textH
                         )
@@ -1135,7 +1138,7 @@ fun LuteaArc(
                         val textLayoutResult = textMeasurer.measure(
                             text = AnnotatedString(displayText),
                             style = TextStyle(
-                                color = Color.White,
+                                color = if (isActive) LumenPalette.Mint else LumenPalette.Ice,
                                 fontSize = actualFontSize.sp,
                                 fontFamily = BillieEilishFamily,
                                 fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
@@ -1153,7 +1156,7 @@ fun LuteaArc(
                         val finalLayout = textMeasurer.measure(
                             text = AnnotatedString(displayText),
                             style = TextStyle(
-                                color = Color.White,
+                                color = if (isActive) LumenPalette.Mint else LumenPalette.Ice,
                                 fontSize = actualFontSize.sp,
                                 fontFamily = BillieEilishFamily,
                                 fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
@@ -1179,13 +1182,46 @@ fun LuteaArc(
                                 this.compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
                             }
 
-                        if (isClickable) {
-                            Text(
-                                text = displayText,
-                                color = if (isActive) Color.White else Color.White.copy(alpha = alpha),
+                        // Lumen palette + the blend between the two names that sit
+                        // directly above and below the selected one: each of those
+                        // gradients from Ice into Mint as it approaches the main
+                        // name, mirrored on the other side.
+                        val labelBrush: Brush? = if (absOffset >= 0.5f && absOffset < 1.5f) {
+                            if (fractionalOffset < 0f) {
+                                Brush.verticalGradient(
+                                    colors = listOf(LumenPalette.Ice, LumenPalette.Mint),
+                                    startY = 0f,
+                                    endY = textH,
+                                )
+                            } else {
+                                Brush.verticalGradient(
+                                    colors = listOf(LumenPalette.Mint, LumenPalette.Ice),
+                                    startY = 0f,
+                                    endY = textH,
+                                )
+                            }
+                        } else null
+                        val labelStyle = if (labelBrush != null) {
+                            TextStyle(
+                                brush = labelBrush,
+                                fontSize = actualFontSize.sp,
+                                fontFamily = BillieEilishFamily,
+                                fontWeight = FontWeight.Normal,
+                            )
+                        } else {
+                            TextStyle(
+                                color = if (isActive) LumenPalette.Mint
+                                else LumenPalette.Ice.copy(alpha = alpha),
                                 fontSize = actualFontSize.sp,
                                 fontFamily = BillieEilishFamily,
                                 fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        }
+
+                        if (isClickable) {
+                            Text(
+                                text = displayText,
+                                style = labelStyle,
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
                                 modifier = modifier.clickable(
@@ -1196,10 +1232,7 @@ fun LuteaArc(
                         } else {
                             Text(
                                 text = displayText,
-                                color = Color.White.copy(alpha = alpha),
-                                fontSize = actualFontSize.sp,
-                                fontFamily = BillieEilishFamily,
-                                fontWeight = FontWeight.Normal,
+                                style = labelStyle,
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Visible,
                                 modifier = modifier
