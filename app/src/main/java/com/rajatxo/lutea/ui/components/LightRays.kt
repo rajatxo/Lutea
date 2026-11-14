@@ -30,16 +30,16 @@ import kotlin.math.tan
 
 /** Shimmer speed multiplier (the component's `raysSpeed`). */
 private const val LIGHT_RAYS_SPEED = 0.45f
-/** Overall brightness (the component's `opacity`). */
-private const val LIGHT_RAYS_BRIGHTNESS = 0.42f
-/**
- * Where the light sits, as a fraction of the height ABOVE the top edge.
- * -0.55 puts the source well outside the frame, so the rays fade in from the
- * edge instead of reading as a lamp parked on it.
- */
-private const val LIGHT_RAYS_SOURCE_Y = -0.55f
-/** Ray length, multiplied by the larger side. Longer = lazier, softer falloff. */
-private const val LIGHT_RAYS_REACH = 1.6f
+
+// The values below are the component's original look and stay the defaults, so
+// a caller that passes nothing gets exactly the old rays. The Effect page asks
+// for a softer, brighter, slightly closer source by overriding them.
+private const val RAYS_SOURCE_Y_DEFAULT = -0.2f
+private const val RAYS_REACH_DEFAULT = 1f
+private const val RAYS_BRIGHTNESS_DEFAULT = 0.42f
+private const val RAYS_EDGE_DEFAULT = 0.353f
+private const val RAYS_SPREAD_DEFAULT = 2f
+private const val RAYS_FOG_DEFAULT = 0.25f
 
 /**
  * Light rays background — the react-bits "LightRays" effect.
@@ -57,6 +57,18 @@ fun LightRaysBackground(
     modifier: Modifier = Modifier,
     color: Color = Color.White,
     intensity: Float = 1f,
+    /** Source height as a fraction of the frame, above the top edge (negative). */
+    sourceY: Float = RAYS_SOURCE_Y_DEFAULT,
+    /** Ray length, multiplied by the larger side. */
+    reach: Float = RAYS_REACH_DEFAULT,
+    /** Overall light level. */
+    brightness: Float = RAYS_BRIGHTNESS_DEFAULT,
+    /** Half width of the soft band on each ray edge. Bigger = softer. */
+    edge: Float = RAYS_EDGE_DEFAULT,
+    /** Fan falloff around the aim direction. Bigger = narrower fan. */
+    spread: Float = RAYS_SPREAD_DEFAULT,
+    /** How much drifting haze is mixed into the rays. */
+    fogMix: Float = RAYS_FOG_DEFAULT,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -64,12 +76,21 @@ fun LightRaysBackground(
                 modifier = Modifier.fillMaxSize(),
                 color = color,
                 intensity = intensity,
+                sourceY = sourceY,
+                reach = reach,
+                brightness = brightness,
+                edge = edge,
+                spread = spread,
+                fogMix = fogMix,
             )
         } else {
             LightRaysCanvasBackground(
                 modifier = Modifier.fillMaxSize(),
                 color = color,
                 intensity = intensity,
+                sourceY = sourceY,
+                reach = reach,
+                brightness = brightness,
             )
         }
         // Black fade: knocks the whole backdrop back a stop so the rays read as
@@ -99,6 +120,12 @@ private fun LightRaysShaderBackground(
     modifier: Modifier,
     color: Color,
     intensity: Float,
+    sourceY: Float,
+    reach: Float,
+    brightness: Float,
+    edge: Float,
+    spread: Float,
+    fogMix: Float,
 ) {
     val time = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
@@ -129,9 +156,9 @@ private fun LightRaysShaderBackground(
         shader.setFloatUniform("uSize", w, h)
         shader.setFloatUniform("uTime", t * LIGHT_RAYS_SPEED)
         // Origin: top-centre, above the page (the component's default).
-        shader.setFloatUniform("uSource", w * 0.5f, LIGHT_RAYS_SOURCE_Y * h)
+        shader.setFloatUniform("uSource", w * 0.5f, sourceY * h)
         shader.setFloatUniform("uAim", 0f, 1f)
-        shader.setFloatUniform("uReach", maxOf(w, h) * LIGHT_RAYS_REACH)
+        shader.setFloatUniform("uReach", maxOf(w, h) * reach)
         shader.setFloatUniform(
             "uColor",
             (color.red * intensity).coerceIn(0f, 1f),
@@ -139,7 +166,10 @@ private fun LightRaysShaderBackground(
             (color.blue * intensity).coerceIn(0f, 1f),
         )
         shader.setFloatUniform("uIntro", eased * 2.6f, reveal)
-        shader.setFloatUniform("uOpacity", LIGHT_RAYS_BRIGHTNESS)
+        shader.setFloatUniform("uOpacity", brightness)
+        shader.setFloatUniform("uEdge", edge)
+        shader.setFloatUniform("uSpread", spread)
+        shader.setFloatUniform("uFogMix", fogMix)
 
         drawIntoCanvas { canvas ->
             canvas.nativeCanvas.drawRect(0f, 0f, w, h, paint)
@@ -156,11 +186,12 @@ private fun smoother(t: Float): Float {
  * The react-bits fragment shader (Backgrounds/LightRays), translated to AGSL.
  *
  * Differences from the WebGL source, none of which change the look:
- *  • `fwidth` is unavailable, so the band width term is dropped — with the
- *    default sharpness (0.35) it was always the constant 0.353 anyway.
+ *  • `fwidth` is unavailable, so the band width is a uniform (`uEdge`) instead
+ *    of a per pixel derivative. Its default reproduces the original 0.353.
  *  • cursor shadow, click pulses and grain are removed (they need a pointer,
  *    which a phone background does not have).
- *  • props are baked in at their documented defaults.
+ *  • `edges`, `spread` and the haze mix are uniforms so each page can ask for
+ *    a harder or softer version of the same effect.
  */
 private const val LIGHT_RAYS_AGSL = """
 uniform float2 uSize;
@@ -171,6 +202,9 @@ uniform float uReach;
 uniform float3 uColor;
 uniform float2 uIntro;
 uniform float uOpacity;
+uniform float uEdge;
+uniform float uSpread;
+uniform float uFogMix;
 
 float hash21(float2 p) {
   p = fract(p * float2(123.34, 456.21));
@@ -190,7 +224,7 @@ float valueNoise(float2 p) {
 }
 
 float rayShape(float strength) {
-  float edge = 0.46;
+  float edge = uEdge;
   return smoothstep(0.62 - edge, 0.62 + edge, strength);
 }
 
@@ -203,7 +237,7 @@ half4 main(float2 fragCoord) {
 
   float src = exp(-depth * depth * 9.0) * 0.9 + exp(-depth * 3.2) * 0.25;
   float glow = 0.6 * src * smoothstep(-0.2, 0.6, cosAngle);
-  float spread = pow(max(cosAngle, 0.0), 1.9);
+  float spread = pow(max(cosAngle, 0.0), uSpread);
   float lenFall = clamp(1.0 - dist / (uReach * 3.0), 0.0, 1.0);
   float fadeFall = clamp(1.0 - dist / (uReach * 1.0), 0.5, 1.0);
   float envelope = spread * lenFall * fadeFall;
@@ -221,7 +255,7 @@ half4 main(float2 fragCoord) {
   float2 drift = float2(around * 2.2 + uTime * 0.035, depth * 2.6 - uTime * 0.11);
   float fog = 0.65 * valueNoise(drift * float2(3.0, 1.0))
             + 0.35 * valueNoise(drift * float2(7.0, 2.3) + float2(4.1));
-  light *= mix(1.0, 0.25 + 1.2 * fog, 0.32);
+  light *= mix(1.0, 0.25 + 1.2 * fog, uFogMix);
 
   light = (light + glow) * reveal;
 
@@ -246,6 +280,9 @@ private fun LightRaysCanvasBackground(
     modifier: Modifier,
     color: Color,
     intensity: Float,
+    sourceY: Float,
+    reach: Float,
+    brightness: Float,
 ) {
     // 25 fps is plenty for a slow shimmer and keeps the GPU cheap.
     val time = remember { mutableFloatStateOf(0f) }
@@ -266,13 +303,14 @@ private fun LightRaysCanvasBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithCache {
-                    val rays = buildRays(size.width, size.height)
+                    val rays = buildRays(size.width, size.height, sourceY, reach)
                     onDrawBehind {
                         drawRays(
                             rays = rays,
                             t = time.floatValue * LIGHT_RAYS_SPEED,
                             color = color,
-                            intensity = intensity * LIGHT_RAYS_BRIGHTNESS,
+                            intensity = intensity * brightness,
+                            sourceY = sourceY,
                         )
                     }
                 },
@@ -303,11 +341,11 @@ private class RayShape(
 
 private fun frac(v: Float): Float = v - floor(v)
 
-private fun buildRays(w: Float, h: Float): List<RayShape> {
+private fun buildRays(w: Float, h: Float, sourceY: Float, reachScale: Float): List<RayShape> {
     if (w <= 0f || h <= 0f) return emptyList()
 
     val srcX = w * 0.5f
-    val srcY = LIGHT_RAYS_SOURCE_Y * h
+    val srcY = sourceY * h
 
     var minA = Float.MAX_VALUE
     var maxA = -Float.MAX_VALUE
@@ -322,7 +360,7 @@ private fun buildRays(w: Float, h: Float): List<RayShape> {
     maxA += 0.05f
 
     val count = 46
-    val reach = sqrt(w * w + h * h) * 1.55f
+    val reach = sqrt(w * w + h * h) * 1.12f * reachScale
     val out = ArrayList<RayShape>(count)
     for (i in 0 until count) {
         val u = (i + 0.5f) / count
@@ -362,9 +400,10 @@ private fun DrawScope.drawRays(
     t: Float,
     color: Color,
     intensity: Float,
+    sourceY: Float,
 ) {
     if (rays.isEmpty()) return
-    val src = Offset(size.width * 0.5f, LIGHT_RAYS_SOURCE_Y * size.height)
+    val src = Offset(size.width * 0.5f, sourceY * size.height)
 
     val glowR = size.width * 0.62f
     drawCircle(

@@ -398,7 +398,20 @@ fun EffectVisual(
             // start inside the card that sits behind "8D : Spatial Audio" and
             // wash across the whole sphere backdrop. The sphere composition is
             // a later sibling, so it still draws on top of the light.
-            LightRaysBackground(modifier = Modifier.fillMaxSize())
+            // ── The light rays ──
+            // Same effect as the Wheel Advanced page, but tuned for this card:
+            // the source sits 30% of the plate above the frame (close enough to
+            // read, far enough not to look parked on the edge), the rays run
+            // 1.5x longer, the bands are softer and the light is brighter.
+            LightRaysBackground(
+                modifier = Modifier.fillMaxSize(),
+                sourceY = -0.30f,
+                reach = 1.5f,
+                brightness = 0.52f,
+                edge = 0.44f,
+                spread = 1.9f,
+                fogMix = 0.30f,
+            )
         }
 
         // ── Head image — above the plate, so expanding the plate never hides it ──
