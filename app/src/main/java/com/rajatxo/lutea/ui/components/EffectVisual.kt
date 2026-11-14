@@ -566,7 +566,20 @@ fun EffectVisual(
                 ) {
                     Text(
                         text = titleText,
-                        color = Color.White,
+                        // "8D" holds X, then blends across the colon into Y for
+                        // "Spatial Audio".
+                        style = TextStyle(
+                            brush = Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0f to LumenPalette.Mint,
+                                    0.18f to LumenPalette.Mint,
+                                    0.45f to LumenPalette.Ice,
+                                    1f to LumenPalette.Ice,
+                                ),
+                                startX = 0f,
+                                endX = titleWidthPx * (titleSp / 37f),
+                            ),
+                        ),
                         fontFamily = CalSansFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = titleSp.sp,
@@ -795,7 +808,8 @@ private fun EffectSidePanel(
         modifier = modifier
             .size(width, height)
             .clip(shape)
-            .background(Color.White.copy(alpha = 0.85f))
+            // Y panel, with the black capsule and black chevrons on top.
+            .background(LumenPalette.Ice)
             .pointerInput(labels.size, safeIndex) {
                 detectVerticalDragGestures(
                     onDragStart = { dragSum = 0f },
@@ -3241,7 +3255,7 @@ private fun SphereComposition(
             val dx = cx + dottedR * cos(a)
             val dy = cy + dottedR * sin(a)
             drawCircle(
-                color = Cream.copy(alpha = 0.55f),
+                color = LumenPalette.Ice.copy(alpha = 0.95f),
                 radius = dotR,
                 center = Offset(dx, dy),
             )
@@ -3249,7 +3263,7 @@ private fun SphereComposition(
 
         // ── Thin full circle ──
         drawCircle(
-            color = Cream.copy(alpha = 0.30f),
+            color = LumenPalette.Ice.copy(alpha = 0.55f),
             radius = ringR,
             center = Offset(cx, cy),
             style = Stroke(width = thinStroke),
@@ -3261,10 +3275,16 @@ private fun SphereComposition(
         val arcCenterCompass = floatArrayOf(0f, 90f, 180f, 270f)
         val arcSize = Size(ringR * 2, ringR * 2)
         val arcTopLeft = Offset(cx - ringR, cy - ringR)
+        // The four cut arcs share one X -> Y -> X sweep, so the ring reads as a
+        // single gradient rather than four solid pieces.
+        val arcBrush = Brush.sweepGradient(
+            colors = listOf(LumenPalette.Mint, LumenPalette.Ice, LumenPalette.Mint),
+            center = Offset(cx, cy),
+        )
         for (compass in arcCenterCompass) {
             val canvasAngle = (360f - compass - halfSweep).mod(360f)
             drawArc(
-                color = Cream.copy(alpha = 0.90f),
+                brush = arcBrush,
                 startAngle = canvasAngle,
                 sweepAngle = arcSweepDeg,
                 useCenter = false,
@@ -3281,8 +3301,8 @@ private fun SphereComposition(
         // exactly 180° apart and makes the gold → white gap identical on both
         // sides of every gold arrow, so the cross stays balanced even when the
         // two golds are not opposite each other.
-        val goldColor = Color(0xFFD4A03A)
-        val whiteArrowColor = Cream.copy(alpha = 0.95f)
+        val goldColor = LumenPalette.Mint
+        val whiteArrowColor = LumenPalette.Mint.copy(alpha = 0.95f)
         val topBottomColor = if (arrowsHighlighted) goldColor else whiteArrowColor
 
         // Number n on the upper arc lives at π + (n−1)·π/24; on the lower arc at

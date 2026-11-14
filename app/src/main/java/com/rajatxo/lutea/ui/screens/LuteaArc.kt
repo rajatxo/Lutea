@@ -1260,10 +1260,6 @@ fun LuteaArc(
         val words = remember(userName) {
             listOf("$userName,", " Search", " your", " playlist", " here")
         }
-        val wordColors = listOf(
-            Color.White, Color.White.copy(alpha = 0.5f), Color.White, Color.White, Color.White,
-        )
-
         val bigFontSize = titleFontSize.toFloat()
         val smallFontSize = (titleFontSize - 6).toFloat()
 
@@ -1331,9 +1327,27 @@ fun LuteaArc(
                 val px = lerp(posA[i].x, posB[i].x, searchProgress)
                 val py = lerp(posA[i].y, posB[i].y, searchProgress)
                 val wordAlpha = if (i == 0 || i == 4) fadeProgress else 1f
+                // Lumen header palette: the user name is Y with a hint of X at its
+                // right edge (90% Y / 10% X), "Search" is solid X, and "your
+                // playlist here" is solid Y.
+                val wordStyle = when (i) {
+                    0 -> TextStyle(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                LumenPalette.Ice,
+                                androidx.compose.ui.graphics.lerp(LumenPalette.Ice, LumenPalette.Mint, 0.10f),
+                            ),
+                            startX = 0f,
+                            endX = measuredBig[0].size.width.toFloat() *
+                                (currentFontSize / bigFontSize).coerceAtLeast(0.01f),
+                        ),
+                    )
+                    1 -> TextStyle(color = LumenPalette.Mint)
+                    else -> TextStyle(color = LumenPalette.Ice)
+                }
                 Text(
                     text = word,
-                    color = wordColors[i],
+                    style = wordStyle,
                     fontSize = currentFontSize.sp,
                     fontFamily = CalSansFamily,
                     fontWeight = FontWeight.Bold,
