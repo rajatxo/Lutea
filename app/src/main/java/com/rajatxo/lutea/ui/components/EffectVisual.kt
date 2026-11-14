@@ -3056,7 +3056,7 @@ private fun SphereComposition(
     }
 
     // Gold arrows sweep to the selected number when the user picks one.
-    val orbitArrow by androidx.compose.animation.animateFloatAsState(
+    val orbitArrow by androidx.compose.animation.core.animateFloatAsState(
         targetValue = selectedOrbit.toFloat(),
         animationSpec = androidx.compose.animation.core.tween(
             durationMillis = 420,
@@ -3064,7 +3064,7 @@ private fun SphereComposition(
         ),
         label = "orbitArrow",
     )
-    val ambienceArrow by androidx.compose.animation.animateFloatAsState(
+    val ambienceArrow by androidx.compose.animation.core.animateFloatAsState(
         targetValue = selectedAmbience.toFloat(),
         animationSpec = androidx.compose.animation.core.tween(
             durationMillis = 420,
