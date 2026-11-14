@@ -2324,22 +2324,23 @@ private const val GLASS_PLATES = 20
 private const val GLASS_EDGE_PTS = 28
 private const val GLASS_CAM_DIST = 4.6f
 
-/** Real GPU blur across the whole shell (every plate edge, core, halo): 8 dp. */
-private const val GLASS_BLUR_DP = 8f
+/** Real GPU blur across the whole shell (every plate edge, core, halo): 5 dp. */
+private const val GLASS_BLUR_DP = 5f
 /** Draw pass: 0 = interior (blurred), 1 = front shell (crisp). */
 private const val GLASS_PASS_BACK = 0
 private const val GLASS_PASS_FRONT = 1
 
-// 8D on → the glow ball's own palette, the lightest tones in the app
-// (cream → amber → peach), so the bubble glows warm instead of turning cobalt.
-private val GlassWarmDeep = Color(0xFFE08A2E)     // amber shadow
-private val GlassWarmBlue = Color(0xFFFFC868)     // amber
-private val GlassWarmCyan = Color(0xFFFFF7BA)     // cream light
-private val GlassWarmViolet = Color(0xFFFFD6A0)   // peach
-private val GlassWarmPink = Color(0xFFFFE3B0)     // warm highlight
-private val GlassWarmPale = Color(0xFFFFFCCD)     // gloss
-private val GlassWarmLavender = Color(0xFFFFEECD) // rim
-private val GlassHot = Color(0xFFFFFFFF)          // core
+// 8D on → ice-cyan plates (#9EF9FF) with a lime glow ball (#D4FF9C) burning
+// inside. The tints below are all pulled around #9EF9FF so every petal reads
+// as the same colour while keeping a little depth.
+private val GlassCyanDeep = Color(0xFF3FA9BD)     // cyan shadow
+private val GlassCyanBlue = Color(0xFF6FD9E8)     // cyan body
+private val GlassCyanMain = Color(0xFF9EF9FF)     // ★ requested plate colour
+private val GlassCyanViolet = Color(0xFFB6FBFF)   // pale cyan
+private val GlassCyanPink = Color(0xFFCBFCFF)     // paler cyan
+private val GlassCyanPale = Color(0xFFE4FFFF)     // cyan gloss
+private val GlassCyanLavender = Color(0xFFD5FDFF)// cyan rim
+private val GlassBall = Color(0xFFD4FF9C)         // ★ inner glow ball
 
 // 8D off → colourless crystal. Same alphas, just milled white glass.
 private val GlassWhiteDeep = Color(0xFF46525E)
@@ -2360,19 +2361,22 @@ private class GlassPalette(
     val pale: Color,
     val lavender: Color,
     val hot: Color,
+    /** The glowing ball inside the shell (lime when 8D is on). */
+    val ball: Color,
 )
 
 private fun glassPalette(mix: Float): GlassPalette {
     val m = mix.coerceIn(0f, 1f)
     return GlassPalette(
-        deep = jmix(GlassWhiteDeep, GlassWarmDeep, m),
-        blue = jmix(GlassWhiteBlue, GlassWarmBlue, m),
-        cyan = jmix(GlassWhiteCyan, GlassWarmCyan, m),
-        violet = jmix(GlassWhiteViolet, GlassWarmViolet, m),
-        pink = jmix(GlassWhitePink, GlassWarmPink, m),
-        pale = jmix(GlassWhitePale, GlassWarmPale, m),
-        lavender = jmix(GlassWhiteLavender, GlassWarmLavender, m),
-        hot = GlassHot,
+        deep = jmix(GlassWhiteDeep, GlassCyanDeep, m),
+        blue = jmix(GlassWhiteBlue, GlassCyanBlue, m),
+        cyan = jmix(GlassWhiteCyan, GlassCyanMain, m),
+        violet = jmix(GlassWhiteViolet, GlassCyanViolet, m),
+        pink = jmix(GlassWhitePink, GlassCyanPink, m),
+        pale = jmix(GlassWhitePale, GlassCyanPale, m),
+        lavender = jmix(GlassWhiteLavender, GlassCyanLavender, m),
+        hot = jmix(jmix(GlassWhitePale, GlassWhiteLavender, 0.35f), GlassBall, m),
+        ball = jmix(GlassWhitePale, GlassBall, m),
     )
 }
 
@@ -2549,6 +2553,7 @@ private fun DrawScope.drawGlassShell(
     pass: Int = GLASS_PASS_FRONT,
 ) {
     val tt = t.coerceAtLeast(0f)
+    val mixK = mix.coerceIn(0f, 1f)
     val pal = glassPalette(mix)
     val c0 = Offset(baseX, baseY)
     val g = 1f + glow * 1.4f
@@ -2686,14 +2691,30 @@ private fun DrawScope.drawGlassShell(
         // vertical streak while the core first ignites (~3.6 s)
         val sd = (tt - 3.6f) / 0.25f
         val streak = 1f + 1.5f * exp(-sd * sd)
-        val haloR = rad * (0.10f + 0.40f * core) * (1f + glow * 0.5f)
+        // Wide halo first: the ball now throws light well past its own disc.
+        val outR = rad * (0.55f + 0.55f * core) * (1f + glow * 0.6f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to pal.ball.ga(0.20f * kg * mixK),
+                0.45f to pal.ball.ga(0.10f * kg * mixK),
+                0.78f to pal.ball.ga(0.035f * kg * mixK),
+                1f to pal.ball.ga(0f),
+                center = c0,
+                radius = outR,
+            ),
+            radius = outR,
+            center = c0,
+            blendMode = BlendMode.Plus,
+        )
+        val haloR = rad * (0.16f + 0.62f * core) * (1f + glow * 0.6f)
         scale(scaleX = 1f, scaleY = streak, pivot = c0) {
             drawCircle(
                 brush = Brush.radialGradient(
-                    0f to pal.hot.ga(0.60f * kg),
-                    0.18f to pal.lavender.ga(0.46f * kg),
-                    0.50f to pal.violet.ga(0.20f * kg),
-                    1f to pal.deep.ga(0f),
+                    0f to pal.hot.ga(0.80f * kg),
+                    0.16f to pal.ball.ga(0.64f * kg),
+                    0.44f to pal.ball.ga(0.30f * kg),
+                    0.74f to pal.ball.ga(0.10f * kg),
+                    1f to pal.ball.ga(0f),
                     center = c0,
                     radius = haloR,
                 ),
@@ -2720,7 +2741,27 @@ private fun DrawScope.drawGlassShell(
         }
     }
 
-    // ── 5. the only crisp thing left: a pin-point core highlight on top ──
+    // ── 5. the glow ball's light pooling across every petal ──
+    //    A soft lime wash over the whole shell: since this layer is blurred,
+    //    it reads as the core's colour reflecting through all the glass.
+    if (pass == GLASS_PASS_BACK && mixK > 0.01f && core > 0.01f) {
+        val washR = rad * 1.18f
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to pal.ball.ga(0.22f * core * mixK * g),
+                0.45f to pal.ball.ga(0.13f * core * mixK * g),
+                0.78f to pal.ball.ga(0.05f * core * mixK * g),
+                1f to pal.ball.ga(0f),
+                center = c0,
+                radius = washR,
+            ),
+            radius = washR,
+            center = c0,
+            blendMode = BlendMode.Plus,
+        )
+    }
+
+    // ── 6. the only crisp thing left: a pin-point core highlight on top ──
     if (pass == GLASS_PASS_FRONT && core > 0.05f) {
         val r = rad * (0.014f + 0.020f * core)
         drawCircle(
