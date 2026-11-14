@@ -160,14 +160,13 @@ fun EffectVisual(
     var ballRotationOn by remember {
         mutableStateOf(prefs.getBoolean("ball_rotation", true))
     }
-    // Which sphere the Effect page draws. Metamorphic (the original white dot
-    // sphere) is the default; Ocean Jelly is the newer jellyfish. Persisted.
+    // Which sphere the Effect page draws. Glass bubble is the default.
     var sphereStyle by remember {
         mutableStateOf(
-            when (prefs.getString("sphere_style", "metamorphic")) {
+            when (prefs.getString("sphere_style", "glass")) {
                 "jelly" -> SphereStyle.JELLY
-                "glass" -> SphereStyle.GLASS
-                else -> SphereStyle.METAMORPHIC
+                "metamorphic" -> SphereStyle.METAMORPHIC
+                else -> SphereStyle.GLASS
             }
         )
     }
