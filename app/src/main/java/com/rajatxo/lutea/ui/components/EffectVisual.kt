@@ -336,11 +336,17 @@ fun EffectVisual(
         val plateBottomPx = barTopOnScreenPx - topInsetPx + plateExtraDrop
         val plateCorner = with(density) { (widthPx * 0.140f).toDp() }
         val plateHeight = with(density) { plateBottomPx.toDp() }
+        // The plate starts at the TOP OF THE SCREEN, not below the header inset.
+        // Otherwise the 80 dp strip that carries the title is plain black and the
+        // rays stop dead under it. Extending the card up means the light starts
+        // behind the title and runs unbroken into the sphere backdrop.
+        val plateTopExtendDp = with(density) { topInsetPx.toDp() }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .offset(y = -plateTopExtendDp)
                 .fillMaxWidth()
-                .height(plateHeight.coerceAtLeast(0.dp))
+                .height((plateHeight + plateTopExtendDp).coerceAtLeast(0.dp))
                 .clip(
                     RoundedCornerShape(
                         bottomStart = plateCorner,
@@ -358,7 +364,11 @@ fun EffectVisual(
                         val dotRadius = size.minDimension * 0.004f
                         val dotAlpha = 0.08f
                         val circleX = size.width * 0.5f
-                        val circleY = size.width * 0.5f - 1.10f * COMP_LIFT_FRAC * size.width
+                        // + topInsetPx: the plate now starts at the screen top, so
+                        // every point below it sits one header inset lower than
+                        // before. Without this the dot-free circle would ride up
+                        // with the card and clip the wrong area.
+                        val circleY = size.width * 0.5f - 1.10f * COMP_LIFT_FRAC * size.width + topInsetPx
                         val circleR = size.width * 0.4112f
                         val fadeBand = size.width * 0.055f
                         var yPos = dotSpacing
