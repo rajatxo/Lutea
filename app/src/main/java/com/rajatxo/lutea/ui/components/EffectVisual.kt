@@ -2324,18 +2324,22 @@ private const val GLASS_PLATES = 20
 private const val GLASS_EDGE_PTS = 28
 private const val GLASS_CAM_DIST = 4.6f
 
+/** Real GPU blur on the interior (far plates, core, halo): 6 dp. */
+private const val GLASS_BLUR_DP = 6f
 /** Draw pass: 0 = interior (blurred), 1 = front shell (crisp). */
 private const val GLASS_PASS_BACK = 0
 private const val GLASS_PASS_FRONT = 1
 
-private val GlassDeep = Color(0xFF1E3BB8)       // cobalt body
-private val GlassBlue = Color(0xFF3D6BF2)       // electric blue
-private val GlassCyan = Color(0xFF6FD1FF)       // rim light
-private val GlassViolet = Color(0xFF8A5CF0)     // inner patches
-private val GlassPink = Color(0xFFE86FB1)       // iridescent streaks
-private val GlassPale = Color(0xFFCFE6FF)       // crisp edge + specular
-private val GlassLavender = Color(0xFFB9A6FF)   // core halo
-private val GlassHot = Color(0xFFFFFFFF)        // core
+// 8D on → the glow ball's own palette, the lightest tones in the app
+// (cream → amber → peach), so the bubble glows warm instead of turning cobalt.
+private val GlassWarmDeep = Color(0xFFE08A2E)     // amber shadow
+private val GlassWarmBlue = Color(0xFFFFC868)     // amber
+private val GlassWarmCyan = Color(0xFFFFF7BA)     // cream light
+private val GlassWarmViolet = Color(0xFFFFD6A0)   // peach
+private val GlassWarmPink = Color(0xFFFFE3B0)     // warm highlight
+private val GlassWarmPale = Color(0xFFFFFCCD)     // gloss
+private val GlassWarmLavender = Color(0xFFFFEECD) // rim
+private val GlassHot = Color(0xFFFFFFFF)          // core
 
 // 8D off → colourless crystal. Same alphas, just milled white glass.
 private val GlassWhiteDeep = Color(0xFF46525E)
@@ -2361,13 +2365,13 @@ private class GlassPalette(
 private fun glassPalette(mix: Float): GlassPalette {
     val m = mix.coerceIn(0f, 1f)
     return GlassPalette(
-        deep = jmix(GlassWhiteDeep, GlassDeep, m),
-        blue = jmix(GlassWhiteBlue, GlassBlue, m),
-        cyan = jmix(GlassWhiteCyan, GlassCyan, m),
-        violet = jmix(GlassWhiteViolet, GlassViolet, m),
-        pink = jmix(GlassWhitePink, GlassPink, m),
-        pale = jmix(GlassWhitePale, GlassPale, m),
-        lavender = jmix(GlassWhiteLavender, GlassLavender, m),
+        deep = jmix(GlassWhiteDeep, GlassWarmDeep, m),
+        blue = jmix(GlassWhiteBlue, GlassWarmBlue, m),
+        cyan = jmix(GlassWhiteCyan, GlassWarmCyan, m),
+        violet = jmix(GlassWhiteViolet, GlassWarmViolet, m),
+        pink = jmix(GlassWhitePink, GlassWarmPink, m),
+        pale = jmix(GlassWhitePale, GlassWarmPale, m),
+        lavender = jmix(GlassWhiteLavender, GlassWarmLavender, m),
         hot = GlassHot,
     )
 }
@@ -2668,7 +2672,7 @@ private fun DrawScope.drawGlassShell(
     if (pass == GLASS_PASS_BACK) {
         for (q in 0 until cnt) {
             val i = ord[q]
-            if (f.pz[i] < 0f) drawGlassPlate(f, i, true, c0, rad, tt, g, pal)
+            if (f.pz[i] < 0f) drawGlassPlate(f, i, c0, rad, tt, g, pal)
         }
     }
 
@@ -2710,7 +2714,7 @@ private fun DrawScope.drawGlassShell(
     if (pass == GLASS_PASS_FRONT) {
         for (q in 0 until cnt) {
             val i = ord[q]
-            if (f.pz[i] >= 0f) drawGlassPlate(f, i, false, c0, rad, tt, g, pal)
+            if (f.pz[i] >= 0f) drawGlassPlate(f, i, c0, rad, tt, g, pal)
         }
     }
 
@@ -2736,7 +2740,6 @@ private fun DrawScope.drawGlassShell(
 private fun DrawScope.drawGlassPlate(
     f: GlassField,
     i: Int,
-    back: Boolean,
     c0: Offset,
     rad: Float,
     tt: Float,
@@ -2763,7 +2766,12 @@ private fun DrawScope.drawGlassPlate(
     }
     p.close()
 
-    val v = f.pvis[i] * (if (back) 0.55f else 1f)
+    // Near/far crossfade. A plate rotating from the back of the shell to the
+    // front now dissolves smoothly instead of snapping 0.55 → 1.0 (and suddenly
+    // growing a rim) the instant it crosses z = 0.
+    val depth01 = ((f.pz[i] / (rad * 0.34f)) + 1f) * 0.5f
+    val depthK = 0.50f + 0.50f * depth01.coerceIn(0f, 1f)
+    val v = f.pvis[i] * depthK
     val cx = f.pcx[i]
     val cy = f.pcy[i]
     val r = f.prad[i].coerceAtLeast(1f)
@@ -2819,26 +2827,18 @@ private fun DrawScope.drawGlassPlate(
         ),
     )
 
-    // 4. glowing rim — stronger toward the silhouette (fresnel)
-    if (!back) {
+    // 4. edge — no outline at all. The clearest (face-on) plates simply end in
+    //    their own gradient; only an edge-on plate gets a wide, low-alpha bloom
+    //    where light catches the glass, and the blur pass softens even that.
+    val edgeK = ((fr - 0.42f) / 0.58f).coerceIn(0f, 1f)
+    if (edgeK > 0.01f) {
         drawPath(
             path = p,
-            color = pal.cyan.ga((0.10f + 0.20f * fr) * v * g),
-            style = Stroke(width = rad * 0.020f),
+            color = pal.cyan.ga(0.13f * edgeK * v * g),
+            style = Stroke(width = rad * 0.026f),
             blendMode = BlendMode.Plus,
         )
     }
-    drawPath(
-        path = p,
-        color = pal.cyan.ga((0.22f + 0.28f * fr) * v * g),
-        style = Stroke(width = rad * 0.007f),
-        blendMode = BlendMode.Plus,
-    )
-    drawPath(
-        path = p,
-        color = pal.pale.ga((0.30f + 0.30f * fr) * v),
-        style = Stroke(width = (rad * 0.0026f).coerceAtLeast(0.7f)),
-    )
 }
 
 
@@ -3452,7 +3452,7 @@ private fun SphereComposition(
             val density = LocalDensity.current
             val glassBlur = remember(density) {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                    val px = with(density) { 6.dp.toPx() }
+                    val px = with(density) { GLASS_BLUR_DP.dp.toPx() }
                     BlurEffect(px, px, TileMode.Decal)
                 } else null
             }
