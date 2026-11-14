@@ -362,7 +362,7 @@ fun EffectVisual(
                         // rings/sphere occupy stays clean.
                         val dotSpacing = size.minDimension * 0.04f
                         val dotRadius = size.minDimension * 0.004f
-                        val dotAlpha = 0.08f
+                        val dotAlpha = 0.04f
                         val circleX = size.width * 0.5f
                         // + topInsetPx: the plate now starts at the screen top, so
                         // every point below it sits one header inset lower than

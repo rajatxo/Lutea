@@ -32,6 +32,14 @@ import kotlin.math.tan
 private const val LIGHT_RAYS_SPEED = 0.45f
 /** Overall brightness (the component's `opacity`). */
 private const val LIGHT_RAYS_BRIGHTNESS = 0.42f
+/**
+ * Where the light sits, as a fraction of the height ABOVE the top edge.
+ * -0.55 puts the source well outside the frame, so the rays fade in from the
+ * edge instead of reading as a lamp parked on it.
+ */
+private const val LIGHT_RAYS_SOURCE_Y = -0.55f
+/** Ray length, multiplied by the larger side. Longer = lazier, softer falloff. */
+private const val LIGHT_RAYS_REACH = 1.6f
 
 /**
  * Light rays background — the react-bits "LightRays" effect.
@@ -121,9 +129,9 @@ private fun LightRaysShaderBackground(
         shader.setFloatUniform("uSize", w, h)
         shader.setFloatUniform("uTime", t * LIGHT_RAYS_SPEED)
         // Origin: top-centre, above the page (the component's default).
-        shader.setFloatUniform("uSource", w * 0.5f, -0.2f * h)
+        shader.setFloatUniform("uSource", w * 0.5f, LIGHT_RAYS_SOURCE_Y * h)
         shader.setFloatUniform("uAim", 0f, 1f)
-        shader.setFloatUniform("uReach", maxOf(w, h))
+        shader.setFloatUniform("uReach", maxOf(w, h) * LIGHT_RAYS_REACH)
         shader.setFloatUniform(
             "uColor",
             (color.red * intensity).coerceIn(0f, 1f),
@@ -182,7 +190,7 @@ float valueNoise(float2 p) {
 }
 
 float rayShape(float strength) {
-  float edge = 0.353;
+  float edge = 0.46;
   return smoothstep(0.62 - edge, 0.62 + edge, strength);
 }
 
@@ -195,7 +203,7 @@ half4 main(float2 fragCoord) {
 
   float src = exp(-depth * depth * 9.0) * 0.9 + exp(-depth * 3.2) * 0.25;
   float glow = 0.6 * src * smoothstep(-0.2, 0.6, cosAngle);
-  float spread = pow(max(cosAngle, 0.0), 2.0);
+  float spread = pow(max(cosAngle, 0.0), 1.9);
   float lenFall = clamp(1.0 - dist / (uReach * 3.0), 0.0, 1.0);
   float fadeFall = clamp(1.0 - dist / (uReach * 1.0), 0.5, 1.0);
   float envelope = spread * lenFall * fadeFall;
@@ -213,7 +221,7 @@ half4 main(float2 fragCoord) {
   float2 drift = float2(around * 2.2 + uTime * 0.035, depth * 2.6 - uTime * 0.11);
   float fog = 0.65 * valueNoise(drift * float2(3.0, 1.0))
             + 0.35 * valueNoise(drift * float2(7.0, 2.3) + float2(4.1));
-  light *= mix(1.0, 0.25 + 1.2 * fog, 0.25);
+  light *= mix(1.0, 0.25 + 1.2 * fog, 0.32);
 
   light = (light + glow) * reveal;
 
@@ -299,7 +307,7 @@ private fun buildRays(w: Float, h: Float): List<RayShape> {
     if (w <= 0f || h <= 0f) return emptyList()
 
     val srcX = w * 0.5f
-    val srcY = -h * 0.2f
+    val srcY = LIGHT_RAYS_SOURCE_Y * h
 
     var minA = Float.MAX_VALUE
     var maxA = -Float.MAX_VALUE
@@ -314,7 +322,7 @@ private fun buildRays(w: Float, h: Float): List<RayShape> {
     maxA += 0.05f
 
     val count = 46
-    val reach = sqrt(w * w + h * h) * 1.12f
+    val reach = sqrt(w * w + h * h) * 1.55f
     val out = ArrayList<RayShape>(count)
     for (i in 0 until count) {
         val u = (i + 0.5f) / count
@@ -356,7 +364,7 @@ private fun DrawScope.drawRays(
     intensity: Float,
 ) {
     if (rays.isEmpty()) return
-    val src = Offset(size.width * 0.5f, -size.height * 0.2f)
+    val src = Offset(size.width * 0.5f, LIGHT_RAYS_SOURCE_Y * size.height)
 
     val glowR = size.width * 0.62f
     drawCircle(
