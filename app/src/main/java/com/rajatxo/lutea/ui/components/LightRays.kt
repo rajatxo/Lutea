@@ -28,6 +28,11 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
 
+/** Shimmer speed multiplier (the component's `raysSpeed`). */
+private const val LIGHT_RAYS_SPEED = 0.45f
+/** Overall brightness (the component's `opacity`). */
+private const val LIGHT_RAYS_BRIGHTNESS = 0.58f
+
 /**
  * Light rays background — the react-bits "LightRays" effect.
  *
@@ -90,7 +95,7 @@ private fun LightRaysShaderBackground(
         val w = size.width
         val h = size.height
         shader.setFloatUniform("uSize", w, h)
-        shader.setFloatUniform("uTime", t)
+        shader.setFloatUniform("uTime", t * LIGHT_RAYS_SPEED)
         // Default origin: "top-center" → anchor (0.5, -0.2)
         shader.setFloatUniform("uSource", w * 0.5f, -0.2f * h)
         shader.setFloatUniform("uAim", 0f, 1f)
@@ -102,6 +107,7 @@ private fun LightRaysShaderBackground(
             (color.blue * intensity).coerceIn(0f, 1f),
         )
         shader.setFloatUniform("uIntro", eased * 2.6f, reveal)
+        shader.setFloatUniform("uOpacity", LIGHT_RAYS_BRIGHTNESS)
 
         drawIntoCanvas { canvas ->
             canvas.nativeCanvas.drawRect(0f, 0f, w, h, paint)
@@ -132,6 +138,7 @@ uniform float2 uAim;
 uniform float uReach;
 uniform float3 uColor;
 uniform float2 uIntro;
+uniform float uOpacity;
 
 float hash21(float2 p) {
   p = fract(p * float2(123.34, 456.21));
@@ -194,7 +201,7 @@ half4 main(float2 fragCoord) {
   float top = max(hue.r, max(hue.g, hue.b));
   hue = mix(hue, float3(top, top, top), smoothstep(0.8, 1.0, level) * 0.45);
   float3 shown = clamp(hue * level, 0.0, 1.0) * level;
-  return half4(clamp(shown, 0.0, level), level);
+  return half4(clamp(shown, 0.0, level) * uOpacity, level * uOpacity);
 }
 """
 
@@ -228,7 +235,14 @@ private fun LightRaysCanvasBackground(
                 .fillMaxSize()
                 .drawWithCache {
                     val rays = buildRays(size.width, size.height)
-                    onDrawBehind { drawRays(rays, time.floatValue, color, intensity) }
+                    onDrawBehind {
+                        drawRays(
+                            rays = rays,
+                            t = time.floatValue * LIGHT_RAYS_SPEED,
+                            color = color,
+                            intensity = intensity * LIGHT_RAYS_BRIGHTNESS,
+                        )
+                    }
                 },
         )
         // Distance fade: the rays dissolve toward the bottom of the page.
