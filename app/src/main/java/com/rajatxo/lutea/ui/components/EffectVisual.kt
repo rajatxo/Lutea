@@ -335,25 +335,37 @@ fun EffectVisual(
         // Nudge past the line, so the plate tucks slightly into the canal.
         val plateExtraDrop = widthPx * 0.025f
         val plateBottomPx = barTopOnScreenPx - topInsetPx + plateExtraDrop
-        val plateCorner = with(density) { (widthPx * 0.140f).toDp() }
         val plateHeight = with(density) { plateBottomPx.toDp() }
         // The plate starts at the TOP OF THE SCREEN, not below the header inset.
         // Otherwise the 80 dp strip that carries the title is plain black and the
         // rays stop dead under it. Extending the card up means the light starts
         // behind the title and runs unbroken into the sphere backdrop.
         val plateTopExtendDp = with(density) { topInsetPx.toDp() }
+        val plateBottomExtendDp = with(density) { bottomInsetPx.toDp() }
+        // ★ The card now covers the whole screen, not just the sphere area.
+        //   The two side bars are cut out of it, each notch hugging the bar with
+        //   the same gap the old rounded corner used to leave.
+        val cardGapPx = widthPx * 0.028f
+        val panelTopInCardPx = topInsetPx + (heightPx * 0.62f - widthPx * 0.23f)
+        val cardShape = remember(widthPx, heightPx, topInsetPx, cardGapPx) {
+            EffectCardShape(
+                panelTopPx = panelTopInCardPx,
+                panelWidthPx = widthPx * 0.108f,
+                panelHeightPx = widthPx * 0.46f,
+                gapPx = cardGapPx,
+            )
+        }
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .offset(y = -plateTopExtendDp)
                 .fillMaxWidth()
-                .height((plateHeight + plateTopExtendDp).coerceAtLeast(0.dp))
-                .clip(
-                    RoundedCornerShape(
-                        bottomStart = plateCorner,
-                        bottomEnd = plateCorner,
-                    )
+                .height(
+                    with(density) {
+                        (heightPx + topInsetPx + bottomInsetPx).toDp()
+                    }
                 )
+                .clip(cardShape)
                 .drawWithCache {
                     onDrawBehind {
                         drawRect(Color.Black)
@@ -405,16 +417,26 @@ fun EffectVisual(
             // very wide band edges (0.75) so the rays melt into the black instead
             // of reading as separate beams. The haze mix is high for the same
             // reason: the whole card should read as one soft gradient.
-            LightRaysBackground(
-                modifier = Modifier.fillMaxSize(),
-                color = LumenPalette.Ice,
-                sourceY = -0.30f,
-                reach = 1.5f,
-                brightness = 0.58f,
-                edge = 0.75f,
-                spread = 1.7f,
-                fogMix = 0.45f,
-            )
+            // The rays keep exactly the box they had before the card grew, so
+            // the light itself is unchanged — it only gained black and dots
+            // underneath it.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height((plateHeight + plateTopExtendDp).coerceAtLeast(0.dp)),
+            ) {
+                LightRaysBackground(
+                    modifier = Modifier.fillMaxSize(),
+                    color = LumenPalette.Ice,
+                    sourceY = -0.30f,
+                    reach = 1.5f,
+                    brightness = 0.58f,
+                    edge = 0.75f,
+                    spread = 1.7f,
+                    fogMix = 0.45f,
+                )
+            }
         }
 
         // ── Head image — above the plate, so expanding the plate never hides it ──
@@ -728,6 +750,68 @@ private class SideAttachShape(
                 cubicTo(0f, h - f * 0.50f, w, h - f * 0.50f, w, h)
                 close()
             }
+        }
+        return Outline.Generic(path)
+    }
+}
+
+/**
+ * The full-screen card behind the Effect page.
+ *
+ * It fills the whole screen and has the two attached side bars cut out of it.
+ * Each notch is the bar's flared silhouette grown by [gapPx] on every side and
+ * open at the screen edge, so the bar reads as sitting on a card that stops a
+ * constant gap short of it — the shape you get by laying an enlarged bar on the
+ * card and deleting it.
+ */
+private class EffectCardShape(
+    private val panelTopPx: Float,
+    private val panelWidthPx: Float,
+    private val panelHeightPx: Float,
+    private val gapPx: Float,
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: androidx.compose.ui.unit.Density,
+    ): Outline {
+        val w = size.width
+        val h = size.height
+        // Same flare as SideAttachShape (27% of the bar height).
+        val f = panelHeightPx * 0.27f
+        val x1 = panelWidthPx
+        val y0 = panelTopPx
+        val y1 = panelTopPx + panelHeightPx
+        val g = gapPx
+
+        fun notch(isLeft: Boolean): Path {
+            fun mx(x: Float) = if (isLeft) x else w - x
+            return Path().apply {
+                moveTo(mx(0f), y0 - g)
+                cubicTo(
+                    mx(0f), y0 - g + f * 0.50f,
+                    mx(x1 + g), y0 + f * 0.50f,
+                    mx(x1 + g), y0 + f,
+                )
+                lineTo(mx(x1 + g), y1 - f)
+                cubicTo(
+                    mx(x1 + g), y1 - f * 0.50f,
+                    mx(0f), y1 + g - f * 0.50f,
+                    mx(0f), y1 + g,
+                )
+                close()
+            }
+        }
+
+        val path = Path().apply {
+            fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
+            moveTo(0f, 0f)
+            lineTo(w, 0f)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+            addPath(notch(true))
+            addPath(notch(false))
         }
         return Outline.Generic(path)
     }
