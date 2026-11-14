@@ -31,7 +31,7 @@ import kotlin.math.tan
 /** Shimmer speed multiplier (the component's `raysSpeed`). */
 private const val LIGHT_RAYS_SPEED = 0.45f
 /** Overall brightness (the component's `opacity`). */
-private const val LIGHT_RAYS_BRIGHTNESS = 0.58f
+private const val LIGHT_RAYS_BRIGHTNESS = 0.42f
 
 /**
  * Light rays background — the react-bits "LightRays" effect.
@@ -50,10 +50,34 @@ fun LightRaysBackground(
     color: Color = Color.White,
     intensity: Float = 1f,
 ) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        LightRaysShaderBackground(modifier = modifier, color = color, intensity = intensity)
-    } else {
-        LightRaysCanvasBackground(modifier = modifier, color = color, intensity = intensity)
+    Box(modifier = modifier.fillMaxSize()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            LightRaysShaderBackground(
+                modifier = Modifier.fillMaxSize(),
+                color = color,
+                intensity = intensity,
+            )
+        } else {
+            LightRaysCanvasBackground(
+                modifier = Modifier.fillMaxSize(),
+                color = color,
+                intensity = intensity,
+            )
+        }
+        // Black fade: knocks the whole backdrop back a stop so the rays read as
+        // dim light instead of a bright wash.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithCache {
+                    val brush = Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.28f),
+                        0.55f to Color.Black.copy(alpha = 0.16f),
+                        1f to Color.Black.copy(alpha = 0.06f),
+                    )
+                    onDrawBehind { drawRect(brush) }
+                },
+        )
     }
 }
 
@@ -96,9 +120,10 @@ private fun LightRaysShaderBackground(
         val h = size.height
         shader.setFloatUniform("uSize", w, h)
         shader.setFloatUniform("uTime", t * LIGHT_RAYS_SPEED)
-        // Default origin: "top-center" → anchor (0.5, -0.2)
-        shader.setFloatUniform("uSource", w * 0.5f, -0.2f * h)
-        shader.setFloatUniform("uAim", 0f, 1f)
+        // Origin: left edge, exactly at the arc's centre (pivot 0, 0.5h), so
+        // the light looks like it pours out of the wheel arc itself.
+        shader.setFloatUniform("uSource", 0f, h * 0.5f)
+        shader.setFloatUniform("uAim", 1f, 0f)
         shader.setFloatUniform("uReach", maxOf(w, h))
         shader.setFloatUniform(
             "uColor",
@@ -274,8 +299,8 @@ private fun frac(v: Float): Float = v - floor(v)
 private fun buildRays(w: Float, h: Float): List<RayShape> {
     if (w <= 0f || h <= 0f) return emptyList()
 
-    val srcX = w * 0.5f
-    val srcY = -h * 0.2f
+    val srcX = 0f
+    val srcY = h * 0.5f
 
     var minA = Float.MAX_VALUE
     var maxA = -Float.MAX_VALUE
@@ -332,7 +357,7 @@ private fun DrawScope.drawRays(
     intensity: Float,
 ) {
     if (rays.isEmpty()) return
-    val src = Offset(size.width * 0.5f, -size.height * 0.2f)
+    val src = Offset(0f, size.height * 0.5f)
 
     val glowR = size.width * 0.62f
     drawCircle(
