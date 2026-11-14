@@ -1,5 +1,9 @@
 package com.rajatxo.lutea.ui.components
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -35,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +60,7 @@ import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -74,6 +80,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.roundToInt
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.foundation.LocalLuteaWindowInsets
@@ -339,6 +351,7 @@ fun EffectVisual(
                 if (eightDOn && ballRotationOn) {
                     SpatialOrbBall(
                         headSizePx = with(density) { headSizeDp.toPx() },
+                        headRes = headRes,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -1741,12 +1754,321 @@ private fun DrawScope.drawJellyfish(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Glowing 8D ball — traces head-shaped arc following the LFO phase
+// Glowing 8D ball
+//
+//   PATH — the outline of the REAL head image (headphones included) is traced from
+//          its pixels at runtime, and the ball runs along that outline, just outside
+//          it, from one ear over the top to the other ear. Swap the head image and
+//          the path follows the new shape by itself. (If the image can't be read, a
+//          head-shaped curve is used instead.)
+//   LOOK — glossy cream → amber → coral orb with a slowly flowing wave, a pale rim
+//          and a soft red-orange haze.
 // ─────────────────────────────────────────────────────────────────────────────
+
+private const val HEAD_RAYS = 181
+private const val ORBIT_LUT = 256
+private const val PI_F = 3.1415927f
+
+/** Ball radius as a fraction of the head box side. */
+private const val ORB_R_FRAC = 0.062f
+
+/** Distance from the head outline to the ball CENTRE, in ball radii (1.0 = touching). */
+private const val ORB_GAP_R = 1.25f
+
+/**
+ * Upper outline of the head, as seen from the ear-level centre point.
+ * Units are "bitmap heights" (so they stay isotropic): x / bitmapHeight, y / bitmapHeight.
+ * r[k] is the outline radius at angle PI + PI·k/(HEAD_RAYS-1): k = 0 is the LEFT ear,
+ * the middle is straight up, k = HEAD_RAYS-1 is the RIGHT ear.
+ */
+private class HeadTrace(val aspect: Float, val cx: Float, val cy: Float, val r: FloatArray)
+
+private val headTraceCache = java.util.concurrent.ConcurrentHashMap<Int, HeadTrace>()
+
+/** Decodes the head drawable at a small size (raster or vector). Runs off the main thread. */
+private fun loadHeadBitmap(ctx: Context, resId: Int, maxDim: Int = 200): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeResource(ctx.resources, resId, bounds)
+    if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxDim) sample *= 2
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inScaled = false
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        BitmapFactory.decodeResource(ctx.resources, resId, opts)?.let { return it }
+    }
+    // Vector (or other) drawable: rasterise it.
+    val d = ContextCompat.getDrawable(ctx, resId) ?: return null
+    val iw = if (d.intrinsicWidth > 0) d.intrinsicWidth else maxDim
+    val ih = if (d.intrinsicHeight > 0) d.intrinsicHeight else maxDim
+    val k = maxDim.toFloat() / maxOf(iw, ih)
+    val w = maxOf(1, (iw * k).toInt())
+    val h = maxOf(1, (ih * k).toInt())
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    d.setBounds(0, 0, w, h)
+    d.draw(android.graphics.Canvas(bmp))
+    return bmp
+}
+
+/**
+ * Finds the head + headphones silhouette and returns its upper outline.
+ *  1. foreground = alpha (transparent background) or colour distance from the border colour
+ *  2. keep the largest connected blob
+ *  3. ear level = middle of the widest band of rows (the ear cups)
+ *  4. cast rays from the ear-level centre over the top; the farthest foreground pixel on
+ *     each ray is the outline (so the headphone band, not the skull, is followed)
+ *  5. fill tiny dents and smooth
+ */
+private fun traceHead(bmp: Bitmap): HeadTrace? {
+    val w = bmp.width
+    val h = bmp.height
+    if (w < 16 || h < 16) return null
+    val n = w * h
+    val px = IntArray(n)
+    bmp.getPixels(px, 0, w, 0, 0, w, h)
+
+    // ── 1. foreground mask ──
+    val bd = 2
+    val cap = 2 * bd * (w + h) + 16
+    val br = IntArray(cap)
+    val bgc = IntArray(cap)
+    val bb = IntArray(cap)
+    var bn = 0
+    var clear = 0
+    for (y in 0 until h) {
+        for (x in 0 until w) {
+            if (x >= bd && x < w - bd && y >= bd && y < h - bd) continue
+            val c = px[y * w + x]
+            if (bn < cap) {
+                br[bn] = (c shr 16) and 0xFF
+                bgc[bn] = (c shr 8) and 0xFF
+                bb[bn] = c and 0xFF
+                bn++
+            }
+            if ((c ushr 24) < 40) clear++
+        }
+    }
+    if (bn == 0) return null
+    val mask = BooleanArray(n)
+    if (clear.toFloat() / bn > 0.5f) {
+        for (i in 0 until n) mask[i] = (px[i] ushr 24) >= 40
+    } else {
+        java.util.Arrays.sort(br, 0, bn)
+        java.util.Arrays.sort(bgc, 0, bn)
+        java.util.Arrays.sort(bb, 0, bn)
+        val mR = br[bn / 2]
+        val mG = bgc[bn / 2]
+        val mB = bb[bn / 2]
+        val dist = FloatArray(n)
+        for (i in 0 until n) {
+            val c = px[i]
+            dist[i] = maxOf(
+                abs(((c shr 16) and 0xFF) - mR),
+                abs(((c shr 8) and 0xFF) - mG),
+                abs((c and 0xFF) - mB),
+            ).toFloat()
+        }
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var sum = 0f
+                for (dy in -1..1) {
+                    val yy = (y + dy).coerceIn(0, h - 1)
+                    for (dx in -1..1) sum += dist[yy * w + (x + dx).coerceIn(0, w - 1)]
+                }
+                mask[y * w + x] = sum / 9f > 6f && (px[y * w + x] ushr 24) >= 40
+            }
+        }
+    }
+
+    // ── 2. largest connected blob ──
+    val lab = IntArray(n)
+    val stack = IntArray(n)
+    var best = 0
+    var bestLab = 0
+    var cur = 0
+    for (start in 0 until n) {
+        if (!mask[start] || lab[start] != 0) continue
+        cur++
+        var sp = 0
+        stack[sp++] = start
+        lab[start] = cur
+        var count = 0
+        while (sp > 0) {
+            val p = stack[--sp]
+            count++
+            val x = p % w
+            val y = p / w
+            if (x > 0) { val q = p - 1; if (mask[q] && lab[q] == 0) { lab[q] = cur; stack[sp++] = q } }
+            if (x < w - 1) { val q = p + 1; if (mask[q] && lab[q] == 0) { lab[q] = cur; stack[sp++] = q } }
+            if (y > 0) { val q = p - w; if (mask[q] && lab[q] == 0) { lab[q] = cur; stack[sp++] = q } }
+            if (y < h - 1) { val q = p + w; if (mask[q] && lab[q] == 0) { lab[q] = cur; stack[sp++] = q } }
+        }
+        if (count > best) { best = count; bestLab = cur }
+    }
+    if (bestLab == 0) return null
+
+    // ── 3. silhouette extent + ear level ──
+    val left = IntArray(h) { -1 }
+    val right = IntArray(h) { -1 }
+    var top = -1
+    var bot = -1
+    var rowsWith = 0
+    for (y in 0 until h) {
+        var lo = -1
+        var hi = -1
+        for (x in 0 until w) {
+            if (lab[y * w + x] == bestLab) {
+                if (lo < 0) lo = x
+                hi = x
+            }
+        }
+        left[y] = lo
+        right[y] = hi
+        if (lo >= 0) {
+            rowsWith++
+            if (top < 0) top = y
+            bot = y
+        }
+    }
+    if (top < 0 || rowsWith < h * 0.3f) return null
+    val bh = bot - top + 1
+
+    val wid = FloatArray(h) { if (left[it] >= 0) (right[it] - left[it]).toFloat() else 0f }
+    val ws = FloatArray(h) { y ->
+        var s = 0f
+        for (d in -2..2) {
+            val yy = y + d
+            if (yy in 0 until h) s += wid[yy]
+        }
+        s / 5f
+    }
+    val y0 = (top + 0.18f * bh).toInt().coerceIn(0, h - 1)
+    val y1 = (top + 0.62f * bh).toInt().coerceIn(y0, h - 1)
+    var widest = 0f
+    for (y in y0..y1) widest = maxOf(widest, ws[y])
+    var first = y0
+    while (first < y1 && ws[first] < 0.96f * widest) first++
+    var run = first
+    while (run + 1 <= y1 && ws[run + 1] >= 0.96f * widest) run++
+    val ye = (first + run) / 2
+    if (left[ye] < 0) return null
+    val xc = (left[ye] + right[ye]) / 2f
+
+    // ── 4. rays over the top: left ear → top → right ear ──
+    val rmax = sqrt((w * w + h * h).toFloat())
+    val raw = FloatArray(HEAD_RAYS)
+    for (k in 0 until HEAD_RAYS) {
+        val th = PI_F + PI_F * k / (HEAD_RAYS - 1)
+        val c = cos(th)
+        val s = sin(th)
+        var last = 0f
+        var t = 0f
+        while (t < rmax) {
+            val x = (xc + c * t).roundToInt()
+            val y = (ye + s * t).roundToInt()
+            if (x < 0 || x >= w || y < 0 || y >= h) break
+            if (lab[y * w + x] == bestLab) last = t
+            t += 0.5f
+        }
+        raw[k] = last
+    }
+
+    // ── 5. fill small dents (sliding max), then smooth (gaussian) ──
+    val filled = FloatArray(HEAD_RAYS) { i ->
+        var m = 0f
+        for (d in -5..5) m = maxOf(m, raw[(i + d).coerceIn(0, HEAD_RAYS - 1)])
+        m
+    }
+    val sigma = 4f
+    val kk = 12
+    val kern = FloatArray(2 * kk + 1) {
+        val z = (it - kk) / sigma
+        exp(-0.5f * z * z)
+    }
+    var ksum = 0f
+    for (v in kern) ksum += v
+    val smooth = FloatArray(HEAD_RAYS) { i ->
+        var s = 0f
+        for (d in -kk..kk) s += kern[d + kk] * filled[(i + d).coerceIn(0, HEAD_RAYS - 1)]
+        s / ksum
+    }
+
+    // Sanity: a real head outline is neither tiny nor wider than the picture.
+    var rMin = Float.MAX_VALUE
+    var rMax = 0f
+    for (v in smooth) {
+        if (v < rMin) rMin = v
+        if (v > rMax) rMax = v
+    }
+    if (rMin < 0.12f * bh || rMax > 0.98f * maxOf(w, h)) return null
+
+    return HeadTrace(
+        aspect = w.toFloat() / h,
+        cx = xc / h,
+        cy = ye.toFloat() / h,
+        r = FloatArray(HEAD_RAYS) { smooth[it] / h },
+    )
+}
+
+/** Head-shaped curve (rounded box) used only if the real image can't be traced. */
+private fun fallbackHeadTrace(): HeadTrace {
+    val r = FloatArray(HEAD_RAYS) { k ->
+        val th = PI_F + PI_F * k / (HEAD_RAYS - 1)
+        val p = 2.6f
+        val c = abs(cos(th)) / 0.40f
+        val s = abs(sin(th)) / 0.41f
+        (c.pow(p) + s.pow(p)).pow(-1f / p)
+    }
+    return HeadTrace(aspect = 1f, cx = 0.5f, cy = 0.5f, r = r)
+}
+
+/**
+ * The ball's track in canvas pixels: the traced outline pushed outward by [gapPx],
+ * resampled to ORBIT_LUT points that are evenly spaced ALONG the path (so the ball
+ * keeps its speed round the headphone cups). Returns x0,y0,x1,y1,…  — index 0 is the
+ * left ear, the last point is the right ear.
+ */
+private fun buildOrbit(trace: HeadTrace, boxW: Float, boxH: Float, gapPx: Float): FloatArray {
+    // The head image is drawn with ContentScale.Fit, centred in the box.
+    val scale = minOf(boxH, boxW / trace.aspect)           // pixels per "bitmap height"
+    val ox = (boxW - trace.aspect * scale) / 2f
+    val oy = (boxH - scale) / 2f
+    val gap = gapPx / scale
+
+    val xs = FloatArray(HEAD_RAYS)
+    val ys = FloatArray(HEAD_RAYS)
+    for (k in 0 until HEAD_RAYS) {
+        val th = PI_F + PI_F * k / (HEAD_RAYS - 1)
+        val rr = trace.r[k] + gap
+        xs[k] = ox + (trace.cx + rr * cos(th)) * scale
+        ys[k] = oy + (trace.cy + rr * sin(th)) * scale
+    }
+    val cum = FloatArray(HEAD_RAYS)
+    for (k in 1 until HEAD_RAYS) {
+        val dx = xs[k] - xs[k - 1]
+        val dy = ys[k] - ys[k - 1]
+        cum[k] = cum[k - 1] + sqrt(dx * dx + dy * dy)
+    }
+    val total = cum[HEAD_RAYS - 1]
+    val out = FloatArray(ORBIT_LUT * 2)
+    var seg = 0
+    for (i in 0 until ORBIT_LUT) {
+        val target = total * i / (ORBIT_LUT - 1)
+        while (seg < HEAD_RAYS - 2 && cum[seg + 1] < target) seg++
+        val span = cum[seg + 1] - cum[seg]
+        val f = if (span > 1e-6f) ((target - cum[seg]) / span).coerceIn(0f, 1f) else 0f
+        out[2 * i] = xs[seg] + (xs[seg + 1] - xs[seg]) * f
+        out[2 * i + 1] = ys[seg] + (ys[seg + 1] - ys[seg]) * f
+    }
+    return out
+}
 
 @Composable
 private fun SpatialOrbBall(
     headSizePx: Float,
+    headRes: Int,
     modifier: Modifier = Modifier,
 ) {
     var phase by remember { mutableStateOf(0f) }
@@ -1760,74 +2082,194 @@ private fun SpatialOrbBall(
         }
     }
 
+    // Trace the real head image once (off the main thread, then cached).
+    val context = LocalContext.current
+    val trace by produceState<HeadTrace?>(initialValue = headTraceCache[headRes], headRes) {
+        if (value == null) {
+            value = withContext(Dispatchers.Default) {
+                headTraceCache[headRes] ?: run {
+                    val traced = runCatching {
+                        val bmp = loadHeadBitmap(context, headRes)
+                        val t = if (bmp != null) traceHead(bmp) else null
+                        bmp?.recycle()
+                        t
+                    }.getOrNull() ?: fallbackHeadTrace()
+                    headTraceCache[headRes] = traced
+                    traced
+                }
+            }
+        }
+    }
+
+    val ballR = headSizePx * ORB_R_FRAC
+    val orbit = remember(trace, headSizePx) {
+        trace?.let { buildOrbit(it, headSizePx, headSizePx, ballR * ORB_GAP_R) }
+    }
+
+    // Slow wave inside the orb (read in the draw lambda, so it only redraws).
+    val infinite = rememberInfiniteTransition(label = "orb")
+    val waveAnim = infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(7000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "orbWave",
+    )
+    val orbClip = remember { Path() }
+    val bandPath = remember { Path() }
+
     Canvas(modifier = modifier) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
+        val lut = orbit ?: return@Canvas
 
-        // Arc path — hugs the head/headphones shape like a band.
-        // Tight radius: stays close to the head, not a wide circle.
-        // Ball is always in FRONT or above the head, NEVER behind.
-        // orbitW tighter so ball is closer to the ears at the sides.
-        // orbitH stays at 0.46 — top gap is perfect per user feedback.
-        val orbitW = headSizePx * 0.45f   // half-width: tighter at ear positions
-        val orbitH = headSizePx * 0.46f   // height: gap above headphone band (perfect)
-        val ballR = headSizePx * 0.035f
-        val glowR = ballR * 3.5f
+        // sin(phase) < 0 → sound LEFT → left ear (start of the track)
+        // sin(phase) > 0 → sound RIGHT → right ear (end of the track)
+        val pos = (sin(phase) + 1f) * 0.5f * (ORBIT_LUT - 1)
+        val i0 = pos.toInt().coerceIn(0, ORBIT_LUT - 2)
+        val fr = pos - i0
+        val ballX = lut[2 * i0] + (lut[2 * i0 + 2] - lut[2 * i0]) * fr
+        val ballY = lut[2 * i0 + 1] + (lut[2 * i0 + 3] - lut[2 * i0 + 1]) * fr
 
-        // Ball X = sin(phase) × orbitW
-        // sin < 0 → sound LEFT → user's left ear → SCREEN LEFT ✓
-        // sin > 0 → sound RIGHT → user's right ear → SCREEN RIGHT ✓
-        val sinP = kotlin.math.sin(phase.toDouble()).toFloat()
+        drawGlowOrb(ballX, ballY, ballR, waveAnim.value, orbClip, bandPath)
+    }
+}
 
-        // Ball Y: follow the head shape. The ball should be CLOSE to the head:
-        // - At ears (sin = ±1, cos = 0) → ball at ear level (Y ≈ cy)
-        // - At center (sin = 0, cos = ±1) → ball just above the headphone band (Y ≈ cy - orbitH)
-        // Use |cos|^0.7 for a shape that's rounder than a pure ellipse but
-        // still has a flatter top than a circle. Snug fit.
-        val cosP = kotlin.math.cos(phase.toDouble()).toFloat()
-        val absCos = kotlin.math.abs(cosP)
-        val arcShape = Math.pow(absCos.toDouble(), 0.7).toFloat()
+/**
+ * Glossy orb: cream top → amber → coral-red on the left, a flowing wave boundary,
+ * soft peach light along the bottom, a pale rim, and a warm red-orange haze around it.
+ */
+private fun DrawScope.drawGlowOrb(
+    bx: Float,
+    by: Float,
+    r: Float,
+    wave: Float,
+    clip: Path,
+    band: Path,
+) {
+    val c = Offset(bx, by)
 
-        val ballX = cx + sinP * orbitW
-        val ballY = cy - arcShape * orbitH
+    // ── haze ──
+    val haze = Color(0xFFE23E24)
+    val hazeR = r * 3.4f
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to haze.copy(alpha = 0.50f),
+            0.294f to haze.copy(alpha = 0.46f),
+            0.441f to haze.copy(alpha = 0.32f),
+            0.588f to haze.copy(alpha = 0.15f),
+            0.765f to haze.copy(alpha = 0.06f),
+            1f to haze.copy(alpha = 0f),
+            center = c,
+            radius = hazeR,
+        ),
+        radius = hazeR,
+        center = c,
+    )
 
-        // Sunset palette
-        val deepOrange = Color(0xFFEA6113)
-        val midOrange = Color(0xFFF88F22)
-        val lightOrange = Color(0xFFFBB931)
-        val paleYellow = Color(0xFFFFE3B3)
+    // ── body, clipped to the disc ──
+    clip.reset()
+    clip.addOval(Rect(bx - r, by - r, bx + r, by + r))
+    clipPath(clip) {
+        // base: cream → amber → peach, top to bottom
+        drawRect(
+            brush = Brush.verticalGradient(
+                0f to Color(0xFFFFF7BA),
+                0.05f to Color(0xFFFFF7BA),
+                0.60f to Color(0xFFFFC868),
+                1f to Color(0xFFFFBE70),
+                startY = by - r,
+                endY = by + r,
+            ),
+            topLeft = Offset(bx - r, by - r),
+            size = Size(2f * r, 2f * r),
+        )
 
-        // Outer glow — radial gradient fading to transparent
+        // orange below a wavy boundary (feathered: 4 offset copies)
+        val orange = Color(0xFFFF9C3A)
+        val steps = 16
+        for (off in floatArrayOf(-0.12f, -0.04f, 0.04f, 0.12f)) {
+            band.reset()
+            for (i in 0..steps) {
+                val u = -1.05f + 2.1f * i / steps
+                val yb = 0.02f + 0.30f * u +
+                    0.05f * sin(3.3f * u + wave) +
+                    0.03f * sin(7.1f * u - 2f * wave + 1f) + off
+                val x = bx + u * r
+                val y = by + yb * r
+                if (i == 0) band.moveTo(x, y) else band.lineTo(x, y)
+            }
+            band.lineTo(bx + 1.05f * r, by + 1.4f * r)
+            band.lineTo(bx - 1.05f * r, by + 1.4f * r)
+            band.close()
+            drawPath(path = band, color = orange.copy(alpha = 0.33f))
+        }
+
+        // hot coral-red blob on the left
+        val red = Color(0xFFFD5834)
+        val redC = Offset(bx - 0.78f * r, by + (0.12f + 0.04f * sin(wave)) * r)
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(
-                    midOrange.copy(alpha = 0.7f),
-                    lightOrange.copy(alpha = 0.35f),
-                    paleYellow.copy(alpha = 0.12f),
-                    Color.Transparent,
-                ),
-                center = Offset(ballX, ballY),
-                radius = glowR,
+                0f to red.copy(alpha = 0.92f),
+                0.30f to red.copy(alpha = 0.70f),
+                0.50f to red.copy(alpha = 0.45f),
+                0.70f to red.copy(alpha = 0.28f),
+                0.85f to red.copy(alpha = 0.10f),
+                1f to red.copy(alpha = 0f),
+                center = redC,
+                radius = 0.8f * r,
             ),
-            radius = glowR,
-            center = Offset(ballX, ballY),
+            radius = 0.8f * r,
+            center = redC,
         )
 
-        // Ball core — solid deep orange
+        // soft peach light rising from the bottom rim
+        val peach = Color(0xFFFFD6A0)
+        val peachC = Offset(bx + 0.10f * r, by + 1.05f * r)
         drawCircle(
-            color = deepOrange,
-            radius = ballR,
-            center = Offset(ballX, ballY),
+            brush = Brush.radialGradient(
+                0f to peach.copy(alpha = 0.55f),
+                0.30f to peach.copy(alpha = 0.33f),
+                0.50f to peach.copy(alpha = 0.21f),
+                0.75f to peach.copy(alpha = 0.04f),
+                1f to peach.copy(alpha = 0f),
+                center = peachC,
+                radius = 1.0f * r,
+            ),
+            radius = 1.0f * r,
+            center = peachC,
         )
 
-        // Ball highlight — bright spot for 3D look
+        // cream gloss, upper right
+        val gloss = Color(0xFFFFFCCD)
+        val glossC = Offset(bx + 0.28f * r, by - 0.62f * r)
         drawCircle(
-            color = paleYellow.copy(alpha = 0.7f),
-            radius = ballR * 0.35f,
-            center = Offset(
-                ballX - ballR * 0.25f,
-                ballY - ballR * 0.25f,
+            brush = Brush.radialGradient(
+                0f to gloss.copy(alpha = 0.75f),
+                0.25f to gloss.copy(alpha = 0.52f),
+                0.50f to gloss.copy(alpha = 0.33f),
+                0.75f to gloss.copy(alpha = 0.14f),
+                1f to gloss.copy(alpha = 0f),
+                center = glossC,
+                radius = 0.95f * r,
             ),
+            radius = 0.95f * r,
+            center = glossC,
+        )
+
+        // pale rim so the sphere reads round
+        val rim = Color(0xFFFFEECD)
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to rim.copy(alpha = 0f),
+                0.78f to rim.copy(alpha = 0f),
+                0.90f to rim.copy(alpha = 0.10f),
+                1f to rim.copy(alpha = 0.32f),
+                center = c,
+                radius = r,
+            ),
+            radius = r,
+            center = c,
         )
     }
 }
