@@ -53,6 +53,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
@@ -60,6 +61,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -2309,13 +2312,21 @@ private fun DrawScope.drawGlowOrb(
 // from an empty screen.
 //
 // Plain Canvas maths (3D rotation + light perspective + layered gradients),
-// no GL. One cycle = GLASS_CYCLE_S seconds; `t` is the position inside it.
+// no GL. `t` is seconds since the tab was opened: one assemble, then a
+// slow perpetual tumble.
 // ─────────────────────────────────────────────────────────────────────────────
 
-private const val GLASS_CYCLE_S = 8.6f
+/** Assembly + deceleration ends here; after this the shell just keeps turning. */
+private const val GLASS_SETTLE_S = 5.5f
+/** Constant tumble speed once the shell has assembled (rad/s, ≈17°/s). */
+private const val GLASS_SPIN_RAD_S = 0.30f
 private const val GLASS_PLATES = 20
 private const val GLASS_EDGE_PTS = 28
 private const val GLASS_CAM_DIST = 4.6f
+
+/** Draw pass: 0 = interior (blurred), 1 = front shell (crisp). */
+private const val GLASS_PASS_BACK = 0
+private const val GLASS_PASS_FRONT = 1
 
 private val GlassDeep = Color(0xFF1E3BB8)       // cobalt body
 private val GlassBlue = Color(0xFF3D6BF2)       // electric blue
@@ -2325,6 +2336,41 @@ private val GlassPink = Color(0xFFE86FB1)       // iridescent streaks
 private val GlassPale = Color(0xFFCFE6FF)       // crisp edge + specular
 private val GlassLavender = Color(0xFFB9A6FF)   // core halo
 private val GlassHot = Color(0xFFFFFFFF)        // core
+
+// 8D off → colourless crystal. Same alphas, just milled white glass.
+private val GlassWhiteDeep = Color(0xFF46525E)
+private val GlassWhiteBlue = Color(0xFFDDE6EF)
+private val GlassWhiteCyan = Color(0xFFFFFFFF)
+private val GlassWhiteViolet = Color(0xFFC3CCD6)
+private val GlassWhitePink = Color(0xFFEEF2F7)
+private val GlassWhitePale = Color(0xFFFFFFFF)
+private val GlassWhiteLavender = Color(0xFFE8EDF3)
+
+/** One frame's glass palette: white crystal at [mix] = 0, colour at 1. */
+private class GlassPalette(
+    val deep: Color,
+    val blue: Color,
+    val cyan: Color,
+    val violet: Color,
+    val pink: Color,
+    val pale: Color,
+    val lavender: Color,
+    val hot: Color,
+)
+
+private fun glassPalette(mix: Float): GlassPalette {
+    val m = mix.coerceIn(0f, 1f)
+    return GlassPalette(
+        deep = jmix(GlassWhiteDeep, GlassDeep, m),
+        blue = jmix(GlassWhiteBlue, GlassBlue, m),
+        cyan = jmix(GlassWhiteCyan, GlassCyan, m),
+        violet = jmix(GlassWhiteViolet, GlassViolet, m),
+        pink = jmix(GlassWhitePink, GlassPink, m),
+        pale = jmix(GlassWhitePale, GlassPale, m),
+        lavender = jmix(GlassWhiteLavender, GlassLavender, m),
+        hot = GlassHot,
+    )
+}
 
 private fun Color.ga(a: Float): Color = copy(alpha = a.coerceIn(0f, 1f))
 
@@ -2485,7 +2531,7 @@ private class GlassField {
 
 /**
  * @param rad  radius of the assembled shell in px
- * @param t    seconds inside the 8.6 s cycle
+ * @param t    seconds since the Effect tab was opened (0 = first frame)
  * @param glow 0..0.55 tap burst
  */
 private fun DrawScope.drawGlassShell(
@@ -2495,38 +2541,41 @@ private fun DrawScope.drawGlassShell(
     rad: Float,
     t: Float,
     glow: Float,
+    mix: Float = 1f,
+    pass: Int = GLASS_PASS_FRONT,
 ) {
-    val tt = t.coerceIn(0f, GLASS_CYCLE_S)
+    val tt = t.coerceAtLeast(0f)
+    val pal = glassPalette(mix)
     val c0 = Offset(baseX, baseY)
     val g = 1f + glow * 1.4f
     val d = GLASS_CAM_DIST
     val kScale = rad * 0.977f
 
-    // ── orientation: fast tumble that decelerates onto the "flower" pose ──
-    val settle = 1f - glassEaseOut(tt / 5.5f)
-    val theta = 5.2f * settle + 0.06f * (tt - 5.5f).coerceAtLeast(0f) + 0.5f * glassSmooth(7.4f, 8.4f, tt)
+    // ── orientation: fast tumble that decelerates onto the "flower" pose and
+    //    then keeps turning slowly for as long as the page is open ──
+    val buildT = tt.coerceAtMost(GLASS_SETTLE_S)
+    val settle = 1f - glassEaseOut(buildT / GLASS_SETTLE_S)
+    val theta = 5.2f * settle + GLASS_SPIN_RAD_S * (tt - GLASS_SETTLE_S).coerceAtLeast(0f)
     glassRotation(f.rs, 0.3651f, 0.9129f, 0.1826f, theta)
     glassMul(f.mat, f.rs, f.rt)
     val m = f.mat
 
-    // ── plate poses → screen-space outlines ──
+    // ── plate poses → screen-space outlines (one-shot assemble: plates fly in
+    //    from small shards and lock; nothing ever bursts or re-joins) ──
     var sumVis = 0f
     for (i in 0 until f.n) {
         val a = glassEaseOut((tt - f.delayIn[i]) / 1.6f)
-        val b = glassEaseIn((tt - f.delayOut[i]) / 0.7f)
-        val vis = a * (1f - b)
+        val vis = a
         f.pvis[i] = vis
         sumVis += vis
         if (vis < 0.004f) continue
 
-        val extra = (1f - a) * f.startOff[i] + b * 1.1f
-        val scl = (0.12f + 0.88f * a) * (1f - 0.65f * b)
+        val extra = (1f - a) * f.startOff[i]
+        val scl = 0.12f + 0.88f * a
         val drift = (1f - a) * 0.28f
         val ox = f.drx[i] * drift
         val oy = f.dry[i] * drift
         val oz = f.drz[i] * drift
-        val gx = b * rad * 0.20f * f.burstX[i]       // burst: slides outward and sinks
-        val gy = b * rad * 0.50f * f.burstY[i]
 
         val ddx = f.dx[i]; val ddy = f.dy[i]; val ddz = f.dz[i]
         val rz = m[6] * (ddx * (1f + extra) + ox) + m[7] * (ddy * (1f + extra) + oy) + m[8] * (ddz * (1f + extra) + oz)
@@ -2549,8 +2598,8 @@ private fun DrawScope.drawGlassShell(
             val ry = m[3] * ux + m[4] * uy + m[5] * uz
             val rzz = m[6] * ux + m[7] * uy + m[8] * uz
             val ps = d / (d - rzz)
-            val px = baseX + rx * ps * kScale + gx
-            val py = baseY - ry * ps * kScale + gy
+            val px = baseX + rx * ps * kScale
+            val py = baseY - ry * ps * kScale
             f.sx[base + k] = px
             f.sy[base + k] = py
             sumX += px
@@ -2571,16 +2620,16 @@ private fun DrawScope.drawGlassShell(
     }
     val asm = sumVis / f.n
 
-    // ── 1. soft blue halo around the silhouette + faint body haze ──
-    if (asm > 0.003f) {
+    // ── 1. soft halo around the silhouette + faint body haze (interior) ──
+    if (pass == GLASS_PASS_BACK && asm > 0.003f) {
         val haloR = rad * 1.32f
         drawCircle(
             brush = Brush.radialGradient(
-                0f to GlassBlue.ga(0f),
-                0.55f to GlassBlue.ga(0.05f * asm * g),
-                0.74f to GlassBlue.ga(0.20f * asm * g),
-                0.86f to GlassDeep.ga(0.10f * asm * g),
-                1f to GlassDeep.ga(0f),
+                0f to pal.blue.ga(0f),
+                0.55f to pal.blue.ga(0.05f * asm * g),
+                0.74f to pal.blue.ga(0.20f * asm * g),
+                0.86f to pal.deep.ga(0.10f * asm * g),
+                1f to pal.deep.ga(0f),
                 center = c0,
                 radius = haloR,
             ),
@@ -2590,9 +2639,9 @@ private fun DrawScope.drawGlassShell(
         val bodyR = rad * 0.97f
         drawCircle(
             brush = Brush.radialGradient(
-                0f to GlassDeep.ga(0.02f * asm),
-                0.75f to GlassDeep.ga(0.08f * asm * g),
-                1f to GlassBlue.ga(0.20f * asm * g),
+                0f to pal.deep.ga(0.02f * asm),
+                0.75f to pal.deep.ga(0.08f * asm * g),
+                1f to pal.blue.ga(0.20f * asm * g),
                 center = c0,
                 radius = bodyR,
             ),
@@ -2615,20 +2664,20 @@ private fun DrawScope.drawGlassShell(
         ord[j + 1] = key
     }
 
-    // ── 2. plates on the far side ──
-    for (q in 0 until cnt) {
-        val i = ord[q]
-        if (f.pz[i] < 0f) drawGlassPlate(f, i, true, c0, rad, tt, g)
+    // ── 2. plates on the far side (interior) ──
+    if (pass == GLASS_PASS_BACK) {
+        for (q in 0 until cnt) {
+            val i = ord[q]
+            if (f.pz[i] < 0f) drawGlassPlate(f, i, true, c0, rad, tt, g, pal)
+        }
     }
 
     // ── 3. core, seen through the front glass ──
-    var core = 0.35f * glassSmooth(2.0f, 3.2f, tt) +
-        0.45f * glassSmooth(3.5f, 6.5f, tt) +
-        0.90f * glassSmooth(7.2f, 7.9f, tt)
-    core *= 1f - glassSmooth(8.15f, 8.55f, tt)
-    val pulseWin = glassSmooth(4.0f, 4.6f, tt) * (1f - glassSmooth(7.0f, 7.4f, tt))
-    core *= 1f + 0.06f * sin(tt * 5f) * pulseWin
-    if (core > 0.004f) {
+    var core = 0.30f * glassSmooth(2.0f, 3.2f, tt) +
+        0.50f * glassSmooth(3.5f, 6.5f, tt)
+    // gentle breathing once lit — the bubble stays alive without looping
+    core *= 1f + 0.05f * sin(tt * 2.2f) * glassSmooth(3.6f, 4.6f, tt)
+    if (pass == GLASS_PASS_BACK && core > 0.004f) {
         val kg = core * g
         // vertical streak while the core first ignites (~3.6 s)
         val sd = (tt - 3.6f) / 0.25f
@@ -2637,10 +2686,10 @@ private fun DrawScope.drawGlassShell(
         scale(scaleX = 1f, scaleY = streak, pivot = c0) {
             drawCircle(
                 brush = Brush.radialGradient(
-                    0f to GlassHot.ga(0.60f * kg),
-                    0.18f to GlassLavender.ga(0.46f * kg),
-                    0.50f to GlassViolet.ga(0.20f * kg),
-                    1f to GlassDeep.ga(0f),
+                    0f to pal.hot.ga(0.60f * kg),
+                    0.18f to pal.lavender.ga(0.46f * kg),
+                    0.50f to pal.violet.ga(0.20f * kg),
+                    1f to pal.deep.ga(0f),
                     center = c0,
                     radius = haloR,
                 ),
@@ -2650,27 +2699,29 @@ private fun DrawScope.drawGlassShell(
             )
             val discR = rad * (0.016f + 0.034f * core) * (1f + glow * 0.7f)
             drawCircle(
-                color = GlassHot.ga(1.1f * core),
+                color = pal.hot.ga(1.1f * core),
                 radius = discR,
                 center = c0,
             )
         }
     }
 
-    // ── 4. plates on the near side ──
-    for (q in 0 until cnt) {
-        val i = ord[q]
-        if (f.pz[i] >= 0f) drawGlassPlate(f, i, false, c0, rad, tt, g)
+    // ── 4. plates on the near side (crisp, above the blurred interior) ──
+    if (pass == GLASS_PASS_FRONT) {
+        for (q in 0 until cnt) {
+            val i = ord[q]
+            if (f.pz[i] >= 0f) drawGlassPlate(f, i, false, c0, rad, tt, g, pal)
+        }
     }
 
     // ── 5. a last hint of the core on top of the glass ──
-    if (core > 0.05f) {
+    if (pass == GLASS_PASS_FRONT && core > 0.05f) {
         val r = rad * (0.014f + 0.020f * core)
         drawCircle(
             brush = Brush.radialGradient(
-                0f to GlassHot.ga(0.85f * core),
-                0.5f to GlassLavender.ga(0.35f * core),
-                1f to GlassLavender.ga(0f),
+                0f to pal.hot.ga(0.85f * core),
+                0.5f to pal.lavender.ga(0.35f * core),
+                1f to pal.lavender.ga(0f),
                 center = c0,
                 radius = r * 3f,
             ),
@@ -2690,6 +2741,7 @@ private fun DrawScope.drawGlassPlate(
     rad: Float,
     tt: Float,
     g: Float,
+    pal: pal.palette,
 ) {
     val np = f.np
     val base = i * np
@@ -2731,10 +2783,10 @@ private fun DrawScope.drawGlassPlate(
     drawPath(
         path = p,
         brush = Brush.radialGradient(
-            0f to GlassDeep.ga(0.10f * v),
-            0.55f to GlassBlue.ga(0.24f * v),
-            0.86f to GlassBlue.ga(0.40f * v),
-            1f to GlassCyan.ga(0.50f * v),
+            0f to pal.deep.ga(0.10f * v),
+            0.55f to pal.blue.ga(0.24f * v),
+            0.86f to pal.blue.ga(0.40f * v),
+            1f to pal.cyan.ga(0.50f * v),
             center = Offset(cx, cy),
             radius = r,
         ),
@@ -2746,9 +2798,9 @@ private fun DrawScope.drawGlassPlate(
     drawPath(
         path = p,
         brush = Brush.radialGradient(
-            0f to GlassPink.ga(0.40f * pinkK),
-            0.55f to GlassViolet.ga(0.22f * pinkK),
-            1f to GlassViolet.ga(0f),
+            0f to pal.pink.ga(0.40f * pinkK),
+            0.55f to pal.violet.ga(0.22f * pinkK),
+            1f to pal.violet.ga(0f),
             center = Offset(cx + ux * r * 0.40f, cy + uy * r * 0.40f),
             radius = r * 0.95f,
         ),
@@ -2759,9 +2811,9 @@ private fun DrawScope.drawGlassPlate(
     drawPath(
         path = p,
         brush = Brush.radialGradient(
-            0f to GlassPale.ga(0.32f * sheen),
-            0.5f to GlassCyan.ga(0.12f * sheen),
-            1f to GlassCyan.ga(0f),
+            0f to pal.pale.ga(0.32f * sheen),
+            0.5f to pal.cyan.ga(0.12f * sheen),
+            1f to pal.cyan.ga(0f),
             center = Offset(cx - r * 0.28f, cy - r * 0.32f),
             radius = r * 0.60f,
         ),
@@ -2771,20 +2823,20 @@ private fun DrawScope.drawGlassPlate(
     if (!back) {
         drawPath(
             path = p,
-            color = GlassCyan.ga((0.10f + 0.20f * fr) * v * g),
+            color = pal.cyan.ga((0.10f + 0.20f * fr) * v * g),
             style = Stroke(width = rad * 0.020f),
             blendMode = BlendMode.Plus,
         )
     }
     drawPath(
         path = p,
-        color = GlassCyan.ga((0.22f + 0.28f * fr) * v * g),
+        color = pal.cyan.ga((0.22f + 0.28f * fr) * v * g),
         style = Stroke(width = rad * 0.007f),
         blendMode = BlendMode.Plus,
     )
     drawPath(
         path = p,
-        color = GlassPale.ga((0.30f + 0.30f * fr) * v),
+        color = pal.pale.ga((0.30f + 0.30f * fr) * v),
         style = Stroke(width = (rad * 0.0026f).coerceAtLeast(0.7f)),
     )
 }
@@ -2858,6 +2910,23 @@ private data class Direction(
     val label: String,
 )
 
+/** Sphere radius for a composition of width [w] — mirrors the layout maths in
+ *  SphereComposition's Canvas, so the glass overlay layers land exactly on the
+ *  shell the rest of the composition is built around. */
+private fun sphereRadiusForWidth(w: Float): Float {
+    val edgeGapPx = w * 0.08f
+    val labelFontSize = w * 0.028f
+    val labelHalfWidth = labelFontSize * 6f * 0.55f / 2f
+    val tagSize = w * 0.028f
+    val tagToLabelGap = w * 0.012f
+    val labelCenterFromCenter = w / 2f - edgeGapPx - labelHalfWidth
+    val tagR = labelCenterFromCenter - labelHalfWidth - tagSize / 2f - tagToLabelGap
+    val dottedR = tagR - tagSize / 2f - w * 0.008f
+    val ringR = dottedR - w * 0.012f
+    val arrowBaseR = ringR - w * 0.045f
+    return arrowBaseR - w * 0.012f
+}
+
 /** Which creature the Effect page shows in the middle. */
 private enum class SphereStyle {
     /** The original white dot sphere (default). */
@@ -2925,16 +2994,23 @@ private fun SphereComposition(
         label = "flow",
     )
 
-    // Glass orb clock: seconds inside its 8.6 s assemble → ignite → burst cycle.
-    val glassAnim = infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = GLASS_CYCLE_S,
-        animationSpec = infiniteRepeatable(
-            animation = tween((GLASS_CYCLE_S * 1000f).toInt(), easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "glassT",
-    )
+    // Glass orb clock — starts at 0 every time the Effect page is opened, plays
+    // the one-shot assemble + ignite, and then keeps ticking so the shell turns
+    // slowly for as long as the page stays open. No burst, no loop, no restart.
+    // Read inside the Canvas draw lambda, so this only invalidates drawing.
+    val glassT = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    androidx.compose.runtime.LaunchedEffect(sphereStyle) {
+        if (sphereStyle != SphereStyle.GLASS) return@LaunchedEffect
+        var t = 0f
+        var last = 0L
+        while (true) {
+            androidx.compose.runtime.withFrameNanos { now ->
+                if (last != 0L) t += ((now - last) / 1_000_000_000f).coerceAtMost(0.05f)
+                last = now
+                glassT.floatValue = t
+            }
+        }
+    }
 
     // OLD look: 8 tag icons at compass positions + LEFT/RIGHT/UP/DOWN text labels.
     // Shown when expandProgress = 0 (default). Cross-fades to the new 1-25/2-24
@@ -3288,19 +3364,10 @@ private fun SphereComposition(
                 glow = glow,
                 tint = tint,
             )
-        } else if (sphereStyle == SphereStyle.GLASS) {
-            // ── Glass Bubble ──
-            // Iridescent glass petals assemble into a tumbling shell, a white-violet
-            // core ignites inside, then the shell bursts and the loop restarts.
-            drawGlassShell(
-                f = glass,
-                baseX = cx,
-                baseY = sphereCy,
-                rad = sphereR * 0.93f,
-                t = glassAnim.value,
-                glow = glow,
-            )
-        } else {
+        } else if (sphereStyle != SphereStyle.GLASS) {
+            // ── Glass Bubble is drawn in its own layers above this canvas (see
+            //    the blurred interior + crisp shell siblings below), so the
+            //    backdrop stays untouched while the glass gets a real blur. ──
             // ── Metamorphic Sphere — the dotted sphere ──
             // Coloured with the glow-ball palette (see orbDotColor). No state
             // colour: the 8D state is shown by the green menu dots.
@@ -3371,6 +3438,79 @@ private fun SphereComposition(
         }
         }
         }
+        }
+
+        // ── Glass Bubble layers ─────────────────────────────────────────────
+        // Drawn as two stacked layers so the glass is actually blurred instead
+        // of faked with gradients:
+        //   • interior — far plates + igniting core, softened by a real GPU
+        //                RenderEffect blur (API 31+; sharp below that)
+        //   • front    — near plates + rim highlights, crisp, on top
+        // Both passes run the same maths, so every outline lands exactly where
+        // the single-canvas version drew it.
+        if (sphereStyle == SphereStyle.GLASS) {
+            val density = LocalDensity.current
+            val glassBlur = remember(density) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    val px = with(density) { 6.dp.toPx() }
+                    BlurEffect(px, px, TileMode.Decal)
+                } else null
+            }
+            // The blurred layer only covers the orb (0.64 × the composition
+            // width), not the whole page — a full-screen RenderEffect blur every
+            // frame is far too expensive for a phone.
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val wDp = maxWidth
+                val orbSide = wDp * 0.64f
+                Box(
+                    modifier = Modifier
+                        .offset(x = wDp * 0.18f, y = wDp * 0.168f)
+                        .size(orbSide)
+                        .graphicsLayer { renderEffect = glassBlur },
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        // Composition width, recovered from the sub-layer size.
+                        val w = size.width / 0.64f
+                        val compK = 1.10f
+                        val compLift = w * 0.012f
+                        translate(left = -w * 0.18f, top = -w * 0.168f) {
+                            scale(scaleX = compK, scaleY = compK, pivot = Offset(w / 2f, w / 2f)) {
+                                translate(left = 0f, top = -compLift) {
+                                    drawGlassShell(
+                                        f = glass,
+                                        baseX = w / 2f,
+                                        baseY = w / 2f,
+                                        rad = sphereRadiusForWidth(w) * 0.93f,
+                                        t = glassT.floatValue,
+                                        glow = glow,
+                                        mix = sphereMix,
+                                        pass = GLASS_PASS_BACK,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val compK = 1.10f
+                val compLift = w * 0.012f
+                scale(scaleX = compK, scaleY = compK, pivot = Offset(w / 2f, w / 2f)) {
+                    translate(left = 0f, top = -compLift) {
+                        drawGlassShell(
+                            f = glass,
+                            baseX = w / 2f,
+                            baseY = w / 2f,
+                            rad = sphereRadiusForWidth(w) * 0.93f,
+                            t = glassT.floatValue,
+                            glow = glow,
+                            mix = sphereMix,
+                            pass = GLASS_PASS_FRONT,
+                        )
+                    }
+                }
+            }
         }
 
         // Tap overlay for clicking on numbers
