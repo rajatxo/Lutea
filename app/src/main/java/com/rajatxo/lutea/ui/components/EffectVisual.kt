@@ -164,8 +164,11 @@ fun EffectVisual(
     // sphere) is the default; Ocean Jelly is the newer jellyfish. Persisted.
     var sphereStyle by remember {
         mutableStateOf(
-            if (prefs.getString("sphere_style", "metamorphic") == "jelly") SphereStyle.JELLY
-            else SphereStyle.METAMORPHIC
+            when (prefs.getString("sphere_style", "metamorphic")) {
+                "jelly" -> SphereStyle.JELLY
+                "glass" -> SphereStyle.GLASS
+                else -> SphereStyle.METAMORPHIC
+            }
         )
     }
     val expandProgress = androidx.compose.animation.core.animateFloatAsState(
@@ -594,6 +597,19 @@ fun EffectVisual(
                             onClick = {
                                 sphereStyle = SphereStyle.JELLY
                                 prefs.edit().putString("sphere_style", "jelly").apply()
+                            },
+                        )
+                        EffectActionCapsule(
+                            label = "Glass Bubble",
+                            active = sphereStyle == SphereStyle.GLASS,
+                            textSize = capsuleTextSize,
+                            corner = capsuleCorner,
+                            padH = capsulePadH,
+                            padV = capsulePadV,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                sphereStyle = SphereStyle.GLASS
+                                prefs.edit().putString("sphere_style", "glass").apply()
                             },
                         )
                     }
@@ -2274,6 +2290,210 @@ private fun DrawScope.drawGlowOrb(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Glass shell — translucent lenses that gather into a bubble
+//
+// Seven soft lenses drift near the middle of the sphere, then swell, slide outward
+// and close into a segmented glass shell. A warm point of light sits inside it and
+// glows through the overlapping lenses. Every couple of seconds the lenses relax
+// back toward the middle again, so the loop breathes instead of spinning forever.
+//
+// Everything is a periodic function of `flow`, so the 15 s loop is seamless.
+// Palette follows the 8D glow ball around the head (cream → amber → deep orange),
+// with a warm blush on the lower edge standing in for the bubble's iridescence.
+// ─────────────────────────────────────────────────────────────────────────────
+
+private class GlassField {
+    val n = 7
+    val ang = FloatArray(n)
+    val seed = FloatArray(n)
+    val wMul = FloatArray(n)
+    val hMul = FloatArray(n)
+    val tilt = FloatArray(n)
+    val alpha = FloatArray(n)
+    val path = Path()
+
+    init {
+        val rnd = Random(29)
+        for (i in 0 until n) {
+            ang[i] = TWO_PI_F * i / n + (rnd.nextFloat() - 0.5f) * 0.26f
+            seed[i] = rnd.nextFloat() * TWO_PI_F
+            wMul[i] = 0.86f + rnd.nextFloat() * 0.30f
+            hMul[i] = 0.80f + rnd.nextFloat() * 0.48f
+            tilt[i] = (rnd.nextFloat() - 0.5f) * 0.22f
+            alpha[i] = 0.72f + rnd.nextFloat() * 0.28f
+        }
+    }
+}
+
+/** A lens: two cubic arcs meeting at a sharp tip on each side. */
+private fun buildLens(path: Path, w: Float, h: Float) {
+    path.reset()
+    path.moveTo(-w, 0f)
+    path.cubicTo(-w * 0.55f, -h, w * 0.55f, -h, w, 0f)
+    path.cubicTo(w * 0.55f, h, -w * 0.55f, h, -w, 0f)
+    path.close()
+}
+
+/**
+ * @param rad  radius of the assembled shell in px
+ * @param flow looping phase 0..2π (15 s)
+ * @param glow 0..0.55 tap burst
+ */
+private fun DrawScope.drawGlassShell(
+    f: GlassField,
+    baseX: Float,
+    baseY: Float,
+    rad: Float,
+    flow: Float,
+    glow: Float,
+) {
+    val deep = Color(0xFFEA6113)
+    val mid = Color(0xFFF88F22)
+    val light = Color(0xFFFBB931)
+    val cream = Color(0xFFFFE3B3)
+    val hot = Color(0xFFFFF7DE)
+    val blush = Color(0xFFFF8A6B)
+
+    // Assembly 0 (loose lenses) → 1 (closed shell), smooth at both ends.
+    val raw = 0.5f + 0.5f * sin(flow)
+    val a = raw * raw * (3f - 2f * raw)
+    val c0 = Offset(baseX, baseY)
+    val g = 1f + glow * 1.4f
+
+    // ── 1. milky bloom behind the shell ──
+    val bloomR = rad * 1.22f
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to light.copy(alpha = (0.10f * g).coerceAtMost(0.9f)),
+            0.45f to mid.copy(alpha = (0.07f * g).coerceAtMost(0.9f)),
+            0.78f to deep.copy(alpha = (0.05f * g).coerceAtMost(0.9f)),
+            1f to deep.copy(alpha = 0f),
+            center = c0,
+            radius = bloomR,
+        ),
+        radius = bloomR,
+        center = c0,
+    )
+
+    // ── 2. core light, seen through the glass ──
+    val corePulse = 0.5f + 0.5f * sin(3f * flow)
+    val coreR = rad * (0.20f + 0.05f * corePulse) * (1f + glow * 0.7f)
+    drawCircle(
+        brush = Brush.radialGradient(
+            0f to hot.copy(alpha = (0.55f * a * g).coerceIn(0f, 1f)),
+            0.30f to cream.copy(alpha = (0.30f * a * g).coerceIn(0f, 1f)),
+            0.62f to light.copy(alpha = (0.12f * a * g).coerceIn(0f, 1f)),
+            1f to light.copy(alpha = 0f),
+            center = c0,
+            radius = coreR,
+        ),
+        radius = coreR,
+        center = c0,
+    )
+
+    // ── 3. lenses ──
+    val d0 = rad * 0.50f
+    val w0 = rad * 0.30f
+    val h0 = rad * 0.13f
+    for (i in 0 until f.n) {
+        val sw = sin(flow + f.seed[i])
+        val wob = sin(2f * flow + f.seed[i] * 1.7f)
+        val angle = f.ang[i] + flow + 0.05f * wob
+        val d = (d0 - rad * 0.10f * a) * (1f + 0.03f * sw)
+        val w = w0 * f.wMul[i] * (0.45f + 0.55f * a)
+        val h = h0 * f.hMul[i] * (0.45f + 0.55f * a)
+        val px = baseX + d * cos(angle)
+        val py = baseY + d * sin(angle)
+        val petalDeg = angle * RAD_TO_DEG + 90f + f.tilt[i] * RAD_TO_DEG + 4f * sw
+        val pa = f.alpha[i] * (0.35f + 0.65f * a)
+
+        buildLens(f.path, w, h)
+        translate(left = px, top = py) {
+            rotate(degrees = petalDeg, pivot = Offset.Zero) {
+                drawPath(
+                    path = f.path,
+                    brush = Brush.linearGradient(
+                        0f to light.copy(alpha = 0.30f * pa),
+                        0.45f to mid.copy(alpha = 0.22f * pa),
+                        1f to deep.copy(alpha = 0.36f * pa),
+                        start = Offset(-w * 0.30f, -h),
+                        end = Offset(w * 0.30f, h),
+                    ),
+                )
+                // bubble edge
+                drawPath(
+                    path = f.path,
+                    color = cream.copy(alpha = 0.30f * pa),
+                    style = Stroke(width = (rad * 0.0035f).coerceAtLeast(0.7f)),
+                )
+                // inner lens line
+                scale(scaleX = 0.78f, scaleY = 0.72f, pivot = Offset.Zero) {
+                    drawPath(
+                        path = f.path,
+                        color = cream.copy(alpha = 0.16f * pa),
+                        style = Stroke(width = (rad * 0.0022f).coerceAtLeast(0.5f)),
+                    )
+                }
+                // specular highlight near the outer tip
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0f to hot.copy(alpha = 0.55f * pa),
+                        0.45f to cream.copy(alpha = 0.18f * pa),
+                        1f to cream.copy(alpha = 0f),
+                        center = Offset(w * 0.42f, -h * 0.30f),
+                        radius = w * 0.42f,
+                    ),
+                    radius = w * 0.42f,
+                    center = Offset(w * 0.42f, -h * 0.30f),
+                )
+                // warm blush on the opposite edge
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0f to blush.copy(alpha = 0.20f * pa),
+                        1f to blush.copy(alpha = 0f),
+                        center = Offset(-w * 0.45f, h * 0.15f),
+                        radius = w * 0.50f,
+                    ),
+                    radius = w * 0.50f,
+                    center = Offset(-w * 0.45f, h * 0.15f),
+                )
+            }
+        }
+    }
+
+    // ── 4. outer shell rim ──
+    if (a > 0.05f) {
+        drawCircle(
+            color = cream.copy(alpha = 0.16f * a),
+            radius = rad * 0.88f,
+            center = c0,
+            style = Stroke(width = (rad * 0.003f).coerceAtLeast(0.6f)),
+        )
+    }
+
+    // ── 5. hot core point, on top of the glass ──
+    if (a > 0.30f) {
+        val hotR = rad * 0.045f * (1f + 0.15f * corePulse)
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to hot.copy(alpha = 0.90f * a),
+                0.35f to cream.copy(alpha = 0.40f * a),
+                1f to cream.copy(alpha = 0f),
+                center = c0,
+                radius = hotR * 3.2f,
+            ),
+            radius = hotR * 3.2f,
+            center = c0,
+        )
+        drawCircle(
+            color = hot.copy(alpha = 0.85f * a),
+            radius = hotR,
+            center = c0,
+        )
+    }
+}
+
 private data class Direction(
     val angleDeg: Float,
     val label: String,
@@ -2285,6 +2505,8 @@ private enum class SphereStyle {
     METAMORPHIC,
     /** The jellyfish renderer. */
     JELLY,
+    /** Translucent lenses that gather into a glass bubble. */
+    GLASS,
 }
 
 @Composable
@@ -2305,6 +2527,7 @@ private fun SphereComposition(
 ) {
     val points = remember { fibonacciSphere(180) }
     val jelly = remember { JellyField() }
+    val glass = remember { GlassField() }
     val infinite = rememberInfiniteTransition(label = "sphere")
     // Slow spin — used by the metamorphic sphere only. 0 when 8D is off (or when
     // the Sphere Rotation switch is off). The value is read inside the Canvas
@@ -2681,6 +2904,18 @@ private fun SphereComposition(
                 breath = sin(pulseAnim.value),
                 glow = glow,
                 tint = tint,
+            )
+        } else if (sphereStyle == SphereStyle.GLASS) {
+            // ── Glass Bubble ──
+            // Warm palette of the 8D glow ball: cream → amber → deep orange.
+            // The lenses gather and relax, and a hot point glows inside.
+            drawGlassShell(
+                f = glass,
+                baseX = cx,
+                baseY = cy,
+                rad = sphereR * 0.93f,
+                flow = flowAnim.value,
+                glow = glow,
             )
         } else {
             // ── Metamorphic Sphere — the original white dot sphere ──
