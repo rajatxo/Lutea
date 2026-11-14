@@ -347,7 +347,54 @@ fun EffectVisual(
                         bottomEnd = plateCorner,
                     )
                 )
-                .background(Color.Black),
+                .drawWithCache {
+                    // Same grey → black fall as the card behind the head, so the
+                    // plate reads as the top half of one continuous surface.
+                    val grey = Color(0xFF1A1A1A)
+                    val darkerGrey = Color(0xFF0F0F0F)
+                    val black = Color(0xFF000000)
+                    val brush = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to grey,
+                            0.25f to grey,
+                            0.35f to darkerGrey,
+                            1.0f to black,
+                        )
+                    )
+                    onDrawBehind {
+                        drawRect(brush)
+                        // Dot grid — but it never enters the circle that runs
+                        // through the eight compass labels: dots fade out over a
+                        // 5.5% band just outside that circle, so the area the
+                        // rings/sphere occupy stays clean.
+                        val dotSpacing = size.minDimension * 0.04f
+                        val dotRadius = size.minDimension * 0.004f
+                        val dotAlpha = 0.06f
+                        val circleX = size.width * 0.5f
+                        val circleY = size.width * 0.5f - 1.10f * COMP_LIFT_FRAC * size.width
+                        val circleR = size.width * 0.4112f
+                        val fadeBand = size.width * 0.055f
+                        var yPos = dotSpacing
+                        while (yPos < size.height) {
+                            var xPos = dotSpacing
+                            while (xPos < size.width) {
+                                val dx = xPos - circleX
+                                val dy = yPos - circleY
+                                val k = ((sqrt(dx * dx + dy * dy) - circleR) / fadeBand)
+                                    .coerceIn(0f, 1f)
+                                if (k > 0.01f) {
+                                    drawCircle(
+                                        color = Color.White.copy(alpha = dotAlpha * k),
+                                        radius = dotRadius,
+                                        center = Offset(xPos, yPos),
+                                    )
+                                }
+                                xPos += dotSpacing
+                            }
+                            yPos += dotSpacing
+                        }
+                    }
+                },
         )
 
         // ── Head image — above the plate, so expanding the plate never hides it ──
@@ -2317,7 +2364,7 @@ private fun DrawScope.drawGlowOrb(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Assembly + deceleration ends here; after this the shell just keeps turning. */
-private const val GLASS_SETTLE_S = 5.5f
+private const val GLASS_SETTLE_S = 3.0f
 /** Constant tumble speed once the shell has assembled (rad/s, ≈17°/s). */
 private const val GLASS_SPIN_RAD_S = 0.30f
 private const val GLASS_PLATES = 20
@@ -2329,6 +2376,9 @@ private const val GLASS_BLUR_DP = 5f
 /** Draw pass: 0 = interior (blurred), 1 = front shell (crisp). */
 private const val GLASS_PASS_BACK = 0
 private const val GLASS_PASS_FRONT = 1
+
+/** Whole-composition upward nudge, as a fraction of the composition width. */
+private const val COMP_LIFT_FRAC = 0.035f
 
 // 8D on → ice-cyan plates (#9EF9FF) with a lime glow ball (#D4FF9C) burning
 // inside. The tints below are all pulled around #9EF9FF so every petal reads
@@ -2523,7 +2573,7 @@ private class GlassField {
             drz[i] = t1z * cos(dd) + t2z * sin(dd)
 
             startOff[i] = 0.12f + rnd.nextFloat() * 0.40f
-            delayIn[i] = 0.25f + 1.10f * rnd.nextFloat()
+            delayIn[i] = 0.12f + 0.55f * rnd.nextFloat()
             delayOut[i] = 7.35f + 0.35f * rnd.nextFloat()
             burstX[i] = rnd.nextFloat() * 2f - 1f
             burstY[i] = 0.45f + rnd.nextFloat() * 0.55f
@@ -2573,7 +2623,7 @@ private fun DrawScope.drawGlassShell(
     //    from small shards and lock; nothing ever bursts or re-joins) ──
     var sumVis = 0f
     for (i in 0 until f.n) {
-        val a = glassEaseOut((tt - f.delayIn[i]) / 1.6f)
+        val a = glassEaseOut((tt - f.delayIn[i]) / 0.95f)
         val vis = a
         f.pvis[i] = vis
         sumVis += vis
@@ -2682,14 +2732,14 @@ private fun DrawScope.drawGlassShell(
     }
 
     // ── 3. core, seen through the front glass ──
-    var core = 0.30f * glassSmooth(2.0f, 3.2f, tt) +
-        0.50f * glassSmooth(3.5f, 6.5f, tt)
+    var core = 0.30f * glassSmooth(0.9f, 1.6f, tt) +
+        0.50f * glassSmooth(1.6f, 3.0f, tt)
     // gentle breathing once lit — the bubble stays alive without looping
-    core *= 1f + 0.05f * sin(tt * 2.2f) * glassSmooth(3.6f, 4.6f, tt)
+    core *= 1f + 0.05f * sin(tt * 2.2f) * glassSmooth(1.6f, 2.2f, tt)
     if (pass == GLASS_PASS_BACK && core > 0.004f) {
         val kg = core * g
         // vertical streak while the core first ignites (~3.6 s)
-        val sd = (tt - 3.6f) / 0.25f
+        val sd = (tt - 1.7f) / 0.16f
         val streak = 1f + 1.5f * exp(-sd * sd)
         // Wide halo first: the ball now throws light well past its own disc.
         val outR = rad * (0.55f + 0.55f * core) * (1f + glow * 0.6f)
@@ -3118,7 +3168,7 @@ private fun SphereComposition(
         // nudged up by compLift. The tap layers below mirror this transform
         // exactly, so taps keep landing on the drawn numbers.
         val compK = 1.10f
-        val compLift = size.width * 0.012f
+        val compLift = size.width * COMP_LIFT_FRAC
         scale(scaleX = compK, scaleY = compK, pivot = Offset(size.width / 2f, size.width / 2f)) {
         translate(left = 0f, top = -compLift) {
         // Universal Layout Law #7: sizes are fractions of screen dimensions.
@@ -3535,7 +3585,7 @@ private fun SphereComposition(
                         // Composition width, recovered from the sub-layer size.
                         val w = size.width / 0.64f
                         val compK = 1.10f
-                        val compLift = w * 0.012f
+                        val compLift = w * COMP_LIFT_FRAC
                         translate(left = -w * 0.18f, top = -w * 0.168f) {
                             scale(scaleX = compK, scaleY = compK, pivot = Offset(w / 2f, w / 2f)) {
                                 translate(left = 0f, top = -compLift) {
@@ -3558,7 +3608,7 @@ private fun SphereComposition(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val compK = 1.10f
-                val compLift = w * 0.012f
+                val compLift = w * COMP_LIFT_FRAC
                 scale(scaleX = compK, scaleY = compK, pivot = Offset(w / 2f, w / 2f)) {
                     translate(left = 0f, top = -compLift) {
                         drawGlassShell(
@@ -3606,7 +3656,7 @@ private fun SphereComposition(
                                 // Mirror the canvas transform (scale 1.10 about
                                 // the centre, lifted 0.012w).
                                 val lx = cx + (bx - cx) * 1.10f
-                                val ly = cy + (by - cy) * 1.10f - w * 0.012f
+                                val ly = cy + (by - cy) * 1.10f - w * COMP_LIFT_FRAC
                                 if ((offset.x - lx) * (offset.x - lx) + (offset.y - ly) * (offset.y - ly) < tapR * tapR) {
                                     onNumberClick(num, true)
                                     return@detectTapGestures
@@ -3620,7 +3670,7 @@ private fun SphereComposition(
                                 // Mirror the canvas transform (scale 1.10 about
                                 // the centre, lifted 0.012w).
                                 val lx = cx + (bx - cx) * 1.10f
-                                val ly = cy + (by - cy) * 1.10f - w * 0.012f
+                                val ly = cy + (by - cy) * 1.10f - w * COMP_LIFT_FRAC
                                 if ((offset.x - lx) * (offset.x - lx) + (offset.y - ly) * (offset.y - ly) < tapR * tapR) {
                                     onNumberClick(num, false)
                                     return@detectTapGestures
