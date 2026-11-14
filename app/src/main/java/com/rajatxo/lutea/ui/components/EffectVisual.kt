@@ -162,13 +162,14 @@ fun EffectVisual(
     var ballRotationOn by remember {
         mutableStateOf(prefs.getBoolean("ball_rotation", true))
     }
-    // Which sphere the Effect page draws. Glass bubble is the default.
+    // Which sphere the Effect page draws. The glow-ball-coloured dot sphere
+    // is the default. Persisted.
     var sphereStyle by remember {
         mutableStateOf(
-            when (prefs.getString("sphere_style", "glass")) {
+            when (prefs.getString("sphere_style", "metamorphic")) {
                 "jelly" -> SphereStyle.JELLY
-                "metamorphic" -> SphereStyle.METAMORPHIC
-                else -> SphereStyle.GLASS
+                "glass" -> SphereStyle.GLASS
+                else -> SphereStyle.METAMORPHIC
             }
         )
     }
@@ -2783,6 +2784,65 @@ private fun DrawScope.drawGlassPlate(
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Dotted sphere colouring — same palette as the glow ball that orbits the head
+// (drawGlowOrb): cream top → amber → orange below a wavy line, a hot coral-red
+// blob on the left, peach light along the bottom, cream gloss upper right and a
+// pale rim. The colour is looked up from each dot's SCREEN position, so the
+// dots rotate through a fixed "lit sphere" and the colours flow across them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+private val OrbCream = Color(0xFFFFF7BA)
+private val OrbAmber = Color(0xFFFFC868)
+private val OrbAmberLow = Color(0xFFFFBE70)
+private val OrbOrange = Color(0xFFFF9C3A)
+private val OrbRed = Color(0xFFFD5834)
+private val OrbPeach = Color(0xFFFFD6A0)
+private val OrbGloss = Color(0xFFFFFCCD)
+private val OrbRim = Color(0xFFFFEECD)
+private val OrbHaze = Color(0xFFE23E24)
+
+/**
+ * @param nx   dot x on the sphere, -1 (left) … 1 (right)
+ * @param ny   dot y on the sphere, -1 (top) … 1 (bottom)
+ * @param wave slow phase that makes the orange boundary and red blob drift
+ */
+private fun orbDotColor(nx: Float, ny: Float, wave: Float): Color {
+    // base: cream → amber → amber, top to bottom
+    val t = ((ny + 1f) * 0.5f).coerceIn(0f, 1f)
+    var c = when {
+        t < 0.05f -> OrbCream
+        t < 0.60f -> jmix(OrbCream, OrbAmber, (t - 0.05f) / 0.55f)
+        else -> jmix(OrbAmber, OrbAmberLow, (t - 0.60f) / 0.40f)
+    }
+    // orange below a wavy boundary (feathered)
+    val yb = 0.02f + 0.30f * nx +
+        0.05f * sin(3.3f * nx + wave) +
+        0.03f * sin(7.1f * nx - 2f * wave + 1f)
+    val below = ((ny - yb) / 0.24f + 0.5f).coerceIn(0f, 1f)
+    c = jmix(c, OrbOrange, 0.75f * below)
+    // hot coral-red blob on the left
+    val rdx = nx + 0.78f
+    val rdy = ny - (0.12f + 0.04f * sin(wave))
+    val rk = (1f - sqrt(rdx * rdx + rdy * rdy) / 0.8f).coerceIn(0f, 1f)
+    c = jmix(c, OrbRed, 0.92f * rk)
+    // soft peach light rising from the bottom
+    val pdx = nx - 0.10f
+    val pdy = ny - 1.05f
+    val pk = (1f - sqrt(pdx * pdx + pdy * pdy)).coerceIn(0f, 1f)
+    c = jmix(c, OrbPeach, 0.45f * pk)
+    // cream gloss, upper right
+    val gdx = nx - 0.28f
+    val gdy = ny + 0.62f
+    val gk = (1f - sqrt(gdx * gdx + gdy * gdy) / 0.95f).coerceIn(0f, 1f)
+    c = jmix(c, OrbGloss, 0.75f * gk)
+    // pale rim so the sphere reads round
+    val rr = sqrt(nx * nx + ny * ny)
+    val rimK = ((rr - 0.78f) / 0.22f).coerceIn(0f, 1f)
+    c = jmix(c, OrbRim, 0.32f * rimK)
+    return c
+}
+
 private data class Direction(
     val angleDeg: Float,
     val label: String,
@@ -3218,9 +3278,9 @@ private fun SphereComposition(
                 glow = glow,
             )
         } else {
-            // ── Metamorphic Sphere — the original white dot sphere ──
-            // Pure white, no state colour at all: the 8D state is shown by the
-            // green menu dots, never by the sphere.
+            // ── Metamorphic Sphere — the dotted sphere ──
+            // Coloured with the glow-ball palette (see orbDotColor). No state
+            // colour: the 8D state is shown by the green menu dots.
             val rotation = (if (rotationEnabled) rotationAnim.value else 0f) + spinDeg
             val baseDot = size.width * 0.0075f
             val ang = Math.toRadians(rotation.toDouble()).toFloat()
@@ -3233,6 +3293,21 @@ private fun SphereComposition(
             }
             projected.sortBy { it.z }
             val pulseAmp = 0.10f + 0.35f * glow
+            val orbWave = flowAnim.value * 2f     // 7.5 s, seamless inside the 15 s loop
+            // warm red-orange haze, like the one around the glow ball
+            val hazeR = sphereR * 1.55f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0f to OrbHaze.copy(alpha = (0.16f * (1f + glow * 1.4f)).coerceAtMost(0.5f)),
+                    0.55f to OrbHaze.copy(alpha = (0.09f * (1f + glow * 1.4f)).coerceAtMost(0.4f)),
+                    0.80f to OrbHaze.copy(alpha = 0.03f),
+                    1f to OrbHaze.copy(alpha = 0f),
+                    center = Offset(cx, cy),
+                    radius = hazeR,
+                ),
+                radius = hazeR,
+                center = Offset(cx, cy),
+            )
             for (v in projected) {
                 val depth = (v.z + 1f) * 0.5f
                 val wave = sin(pulseAnim.value + depth * 3f)
@@ -3241,10 +3316,11 @@ private fun SphereComposition(
                 val px = cx + v.x * sphereR
                 val py = cy - v.y * sphereR
                 val alpha = (0.18f + depth * 0.82f).coerceAtMost(1f)
-                // Burst halo on tap, white like the dots.
+                val dotColor = orbDotColor(v.x, -v.y, orbWave)
+                // Burst halo on tap, in the dot's own colour.
                 if (glow > 0.01f) {
                     drawCircle(
-                        color = Color.White.copy(
+                        color = dotColor.copy(
                             alpha = (0.26f * glow * (0.35f + depth * 0.65f)).coerceIn(0f, 0.55f)
                         ),
                         radius = dotR * (2.4f + 1.2f * glow),
@@ -3252,7 +3328,7 @@ private fun SphereComposition(
                     )
                 }
                 drawCircle(
-                    color = Color.White.copy(alpha = alpha),
+                    color = dotColor.copy(alpha = alpha),
                     radius = dotR.coerceAtLeast(0.3f),
                     center = Offset(px, py),
                 )
