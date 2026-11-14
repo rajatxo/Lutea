@@ -2294,13 +2294,13 @@ private fun DrawScope.drawGlowOrb(
 // Glass shell — translucent lenses that gather into a bubble
 //
 // Seven soft lenses drift near the middle of the sphere, then swell, slide outward
-// and close into a segmented glass shell. A warm point of light sits inside it and
-// glows through the overlapping lenses. Every couple of seconds the lenses relax
-// back toward the middle again, so the loop breathes instead of spinning forever.
+// and close into a segmented glass shell. A bright core light sits inside it and
+// glows through the overlapping lenses. Every cycle the lenses relax back toward
+// the middle, so the loop breathes instead of spinning forever.
 //
 // Everything is a periodic function of `flow`, so the 15 s loop is seamless.
-// Palette follows the 8D glow ball around the head (cream → amber → deep orange),
-// with a warm blush on the lower edge standing in for the bubble's iridescence.
+// Palette follows the reference frames: deep cobalt bodies, cyan rims,
+// violet cores, pink iridescent streaks, white-hot centre.
 // ─────────────────────────────────────────────────────────────────────────────
 
 private class GlassField {
@@ -2318,20 +2318,20 @@ private class GlassField {
         for (i in 0 until n) {
             ang[i] = TWO_PI_F * i / n + (rnd.nextFloat() - 0.5f) * 0.26f
             seed[i] = rnd.nextFloat() * TWO_PI_F
-            wMul[i] = 0.86f + rnd.nextFloat() * 0.30f
-            hMul[i] = 0.80f + rnd.nextFloat() * 0.48f
+            wMul[i] = 0.88f + rnd.nextFloat() * 0.30f
+            hMul[i] = 0.82f + rnd.nextFloat() * 0.46f
             tilt[i] = (rnd.nextFloat() - 0.5f) * 0.22f
-            alpha[i] = 0.72f + rnd.nextFloat() * 0.28f
+            alpha[i] = 0.78f + rnd.nextFloat() * 0.22f
         }
     }
 }
 
-/** A lens: two cubic arcs meeting at a sharp tip on each side. */
+/** A rounded segment: two cubic arcs with blunt, curved ends. */
 private fun buildLens(path: Path, w: Float, h: Float) {
     path.reset()
     path.moveTo(-w, 0f)
-    path.cubicTo(-w * 0.55f, -h, w * 0.55f, -h, w, 0f)
-    path.cubicTo(w * 0.55f, h, -w * 0.55f, h, -w, 0f)
+    path.cubicTo(-w * 0.68f, -h * 1.10f, w * 0.68f, -h * 1.10f, w, 0f)
+    path.cubicTo(w * 0.68f, h * 1.10f, -w * 0.68f, h * 1.10f, -w, 0f)
     path.close()
 }
 
@@ -2348,12 +2348,13 @@ private fun DrawScope.drawGlassShell(
     flow: Float,
     glow: Float,
 ) {
-    val deep = Color(0xFFEA6113)
-    val mid = Color(0xFFF88F22)
-    val light = Color(0xFFFBB931)
-    val cream = Color(0xFFFFE3B3)
-    val hot = Color(0xFFFFF7DE)
-    val blush = Color(0xFFFF8A6B)
+    val deep = Color(0xFF1E3BB8)      // cobalt body
+    val blue = Color(0xFF3D6BF2)      // mid blue
+    val cyan = Color(0xFF6FD1FF)      // rims / edge light
+    val violet = Color(0xFF8A5CF0)    // core patches
+    val pink = Color(0xFFE86FB1)      // iridescent streak
+    val pale = Color(0xFFCFE6FF)      // inner highlight line
+    val hot = Color(0xFFFFFFFF)       // centre point
 
     // Assembly 0 (loose lenses) → 1 (closed shell), smooth at both ends.
     val raw = 0.5f + 0.5f * sin(flow)
@@ -2361,13 +2362,13 @@ private fun DrawScope.drawGlassShell(
     val c0 = Offset(baseX, baseY)
     val g = 1f + glow * 1.4f
 
-    // ── 1. milky bloom behind the shell ──
-    val bloomR = rad * 1.22f
+    // ── 1. deep glow behind the shell ──
+    val bloomR = rad * 1.24f
     drawCircle(
         brush = Brush.radialGradient(
-            0f to light.copy(alpha = (0.10f * g).coerceAtMost(0.9f)),
-            0.45f to mid.copy(alpha = (0.07f * g).coerceAtMost(0.9f)),
-            0.78f to deep.copy(alpha = (0.05f * g).coerceAtMost(0.9f)),
+            0f to blue.copy(alpha = (0.13f * g).coerceAtMost(0.9f)),
+            0.45f to violet.copy(alpha = (0.10f * g).coerceAtMost(0.9f)),
+            0.80f to deep.copy(alpha = (0.07f * g).coerceAtMost(0.9f)),
             1f to deep.copy(alpha = 0f),
             center = c0,
             radius = bloomR,
@@ -2378,13 +2379,13 @@ private fun DrawScope.drawGlassShell(
 
     // ── 2. core light, seen through the glass ──
     val corePulse = 0.5f + 0.5f * sin(3f * flow)
-    val coreR = rad * (0.20f + 0.05f * corePulse) * (1f + glow * 0.7f)
+    val coreR = rad * (0.22f + 0.05f * corePulse) * (1f + glow * 0.7f)
     drawCircle(
         brush = Brush.radialGradient(
-            0f to hot.copy(alpha = (0.55f * a * g).coerceIn(0f, 1f)),
-            0.30f to cream.copy(alpha = (0.30f * a * g).coerceIn(0f, 1f)),
-            0.62f to light.copy(alpha = (0.12f * a * g).coerceIn(0f, 1f)),
-            1f to light.copy(alpha = 0f),
+            0f to hot.copy(alpha = (0.50f * a * g).coerceIn(0f, 1f)),
+            0.30f to violet.copy(alpha = (0.34f * a * g).coerceIn(0f, 1f)),
+            0.62f to deep.copy(alpha = (0.16f * a * g).coerceIn(0f, 1f)),
+            1f to deep.copy(alpha = 0f),
             center = c0,
             radius = coreR,
         ),
@@ -2393,69 +2394,82 @@ private fun DrawScope.drawGlassShell(
     )
 
     // ── 3. lenses ──
-    val d0 = rad * 0.50f
-    val w0 = rad * 0.30f
-    val h0 = rad * 0.13f
+    val d0 = rad * 0.48f
+    val w0 = rad * 0.34f
+    val h0 = rad * 0.155f
     for (i in 0 until f.n) {
         val sw = sin(flow + f.seed[i])
         val wob = sin(2f * flow + f.seed[i] * 1.7f)
         val angle = f.ang[i] + flow + 0.05f * wob
-        val d = (d0 - rad * 0.10f * a) * (1f + 0.03f * sw)
+        val d = (d0 - rad * 0.09f * a) * (1f + 0.03f * sw)
         val w = w0 * f.wMul[i] * (0.45f + 0.55f * a)
         val h = h0 * f.hMul[i] * (0.45f + 0.55f * a)
         val px = baseX + d * cos(angle)
         val py = baseY + d * sin(angle)
         val petalDeg = angle * RAD_TO_DEG + 90f + f.tilt[i] * RAD_TO_DEG + 4f * sw
-        val pa = f.alpha[i] * (0.35f + 0.65f * a)
+        val pa = f.alpha[i] * (0.40f + 0.60f * a)
 
         buildLens(f.path, w, h)
         translate(left = px, top = py) {
             rotate(degrees = petalDeg, pivot = Offset.Zero) {
+                // body: cobalt → blue → violet, running along the segment
                 drawPath(
                     path = f.path,
                     brush = Brush.linearGradient(
-                        0f to light.copy(alpha = 0.30f * pa),
-                        0.45f to mid.copy(alpha = 0.22f * pa),
-                        1f to deep.copy(alpha = 0.36f * pa),
+                        0f to deep.copy(alpha = 0.46f * pa),
+                        0.48f to blue.copy(alpha = 0.40f * pa),
+                        1f to violet.copy(alpha = 0.44f * pa),
                         start = Offset(-w * 0.30f, -h),
                         end = Offset(w * 0.30f, h),
                     ),
                 )
-                // bubble edge
+                // iridescence: cyan sheen on the upper lip, pink on the lower lip
                 drawPath(
                     path = f.path,
-                    color = cream.copy(alpha = 0.30f * pa),
-                    style = Stroke(width = (rad * 0.0035f).coerceAtLeast(0.7f)),
+                    brush = Brush.verticalGradient(
+                        0f to cyan.copy(alpha = 0.16f * pa),
+                        0.45f to Color.Transparent,
+                        0.72f to pink.copy(alpha = 0.20f * pa),
+                        1f to pink.copy(alpha = 0.08f * pa),
+                        startY = -h * 1.1f,
+                        endY = h * 1.1f,
+                    ),
                 )
-                // inner lens line
-                scale(scaleX = 0.78f, scaleY = 0.72f, pivot = Offset.Zero) {
+                // bright cyan rim
+                drawPath(
+                    path = f.path,
+                    color = cyan.copy(alpha = 0.40f * pa),
+                    style = Stroke(width = (rad * 0.0038f).coerceAtLeast(0.7f)),
+                )
+                // inner highlight line
+                scale(scaleX = 0.80f, scaleY = 0.74f, pivot = Offset.Zero) {
                     drawPath(
                         path = f.path,
-                        color = cream.copy(alpha = 0.16f * pa),
+                        color = pale.copy(alpha = 0.20f * pa),
                         style = Stroke(width = (rad * 0.0022f).coerceAtLeast(0.5f)),
                     )
                 }
                 // specular highlight near the outer tip
                 drawCircle(
                     brush = Brush.radialGradient(
-                        0f to hot.copy(alpha = 0.55f * pa),
-                        0.45f to cream.copy(alpha = 0.18f * pa),
-                        1f to cream.copy(alpha = 0f),
+                        0f to hot.copy(alpha = 0.60f * pa),
+                        0.40f to pale.copy(alpha = 0.22f * pa),
+                        1f to pale.copy(alpha = 0f),
                         center = Offset(w * 0.42f, -h * 0.30f),
-                        radius = w * 0.42f,
+                        radius = w * 0.40f,
                     ),
-                    radius = w * 0.42f,
+                    radius = w * 0.40f,
                     center = Offset(w * 0.42f, -h * 0.30f),
                 )
-                // warm blush on the opposite edge
+                // pink glow on the opposite edge
                 drawCircle(
                     brush = Brush.radialGradient(
-                        0f to blush.copy(alpha = 0.20f * pa),
-                        1f to blush.copy(alpha = 0f),
+                        0f to pink.copy(alpha = 0.26f * pa),
+                        1f to pink.copy(alpha = 0f),
                         center = Offset(-w * 0.45f, h * 0.15f),
-                        radius = w * 0.50f,
+                        radius = w * 0.52f,
                     ),
-                    radius = w * 0.50f,
+                    radius = w * 0.52f,
                     center = Offset(-w * 0.45f, h * 0.15f),
                 )
             }
@@ -2465,29 +2479,30 @@ private fun DrawScope.drawGlassShell(
     // ── 4. outer shell rim ──
     if (a > 0.05f) {
         drawCircle(
-            color = cream.copy(alpha = 0.16f * a),
+            color = cyan.copy(alpha = 0.20f * a),
             radius = rad * 0.88f,
             center = c0,
-            style = Stroke(width = (rad * 0.003f).coerceAtLeast(0.6f)),
+            style = Stroke(width = (rad * 0.0032f).coerceAtLeast(0.6f)),
         )
     }
 
     // ── 5. hot core point, on top of the glass ──
-    if (a > 0.30f) {
-        val hotR = rad * 0.045f * (1f + 0.15f * corePulse)
+    if (a > 0.25f) {
+        val hotR = rad * 0.042f * (1f + 0.15f * corePulse)
         drawCircle(
             brush = Brush.radialGradient(
-                0f to hot.copy(alpha = 0.90f * a),
-                0.35f to cream.copy(alpha = 0.40f * a),
-                1f to cream.copy(alpha = 0f),
+                0f to hot.copy(alpha = 0.95f * a),
+                0.22f to violet.copy(alpha = 0.55f * a),
+                0.55f to blue.copy(alpha = 0.22f * a),
+                1f to blue.copy(alpha = 0f),
                 center = c0,
-                radius = hotR * 3.2f,
+                radius = hotR * 3.6f,
             ),
-            radius = hotR * 3.2f,
+            radius = hotR * 3.6f,
             center = c0,
         )
         drawCircle(
-            color = hot.copy(alpha = 0.85f * a),
+            color = hot.copy(alpha = 0.90f * a),
             radius = hotR,
             center = c0,
         )
