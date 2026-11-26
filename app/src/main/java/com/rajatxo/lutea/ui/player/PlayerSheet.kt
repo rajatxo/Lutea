@@ -189,6 +189,10 @@ fun PlayerSheet(
             val darkAlpha = (e * 2.2f).coerceIn(0f, 1f)
             val miniAlpha = (1f - e * 3.5f).coerceIn(0f, 1f)
             val fullAlpha = ((e - 0.55f) / 0.35f).coerceIn(0f, 1f)
+            // The immersive blurred background ("down blur") fades in as the
+            // sheet opens. It sits BEHIND the dark surface; the morphing cover's
+            // bottom DstIn fade melts the sharp cover into it.
+            val blurAlpha = ((e - 0.25f) / 0.5f).coerceIn(0f, 1f)
 
             // ── The ONE shared cover ──
             // Mini state: 40dp thumbnail, 12dp in from the capsule's left,
@@ -232,14 +236,9 @@ fun PlayerSheet(
                 scope.launch {
                     expansion.animateTo(
                         target,
-                        // Softer than the tap-open spring: a flick-driven
-                        // settle on StiffnessMedium glides longer and carries
-                        // the gesture's momentum further, which reads as
-                        // "buttery" rather than a hard snap. Still critically
-                        // damped (no bounce), so it never overshoots.
                         spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMedium,
+                            stiffness = Spring.StiffnessHigh,
                         ),
                         initialVelocity = initialVel,
                     )
@@ -338,31 +337,23 @@ fun PlayerSheet(
                     )
             ) {
                 // ── Immersive blurred background ("down blur") ──
-                // The surface the morphing cover melts into. CRITICAL FOR
-                // SMOOTHNESS: this mounts via AnimatedVisibility on the SETTLED
-                // [expanded] state, NOT on the live [expansion.value]. Reading
-                // a per-frame alpha here would re-evaluate the blur every drag
-                // frame — and Modifier.blur() is a SOFTWARE path on API 29/30
-                // (no RenderEffect until 31), so a per-frame software blur on a
-                // full-sheet image is the single biggest jank source. By tying
-                // it to [expanded], the blur layer mounts ONCE when the player
-                // settles open and the GPU caches it; during the drag the seam
-                // colour sweeps up cheaply and the blur resolves after settle.
-                AnimatedVisibility(
-                    visible = expanded,
-                    enter = fadeIn(animationSpec = tween(220)),
-                    exit = fadeOut(animationSpec = tween(160)),
-                ) {
+                // A heavily-blurred copy of the cover filling the sheet. It is
+                // the surface the morphing cover melts into: the cover's bottom
+                // DstIn fade erases its own pixels, revealing THIS blur beneath.
+                // Fades in with [blurAlpha] so it only appears as the player
+                // opens (the capsule has no blur).
+                if (blurAlpha > 0f) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .graphicsLayer { alpha = blurAlpha }
                             .background(seamColor)
                     ) {
                         currentSong?.albumArtUri?.let { artUri ->
                             val blurRequest = remember(artUri) {
                                 ImageRequest.Builder(context)
                                     .data(artUri)
-                                    .size(Size(360, 360))
+                                    .size(Size(540, 540))
                                     .build()
                             }
                             AsyncImage(
@@ -371,7 +362,7 @@ fun PlayerSheet(
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .blur(72.dp),
+                                    .blur(96.dp),
                             )
                         }
                     }
@@ -392,12 +383,6 @@ fun PlayerSheet(
                     density = density,
                     context = context,
                     eased = eased,
-                    // The bottom melt (DstIn) only renders when the cover is
-                    // SETTLED open. During the drag the cover is a plain clip —
-                    // no offscreen compositing buffer, no per-frame DstIn. The
-                    // melt is imperceptible while the cover is flying, so gating
-                    // it removes the heaviest per-frame GPU cost for free.
-                    meltActive = expanded && e > 0.985f,
                 )                // ── Mini row: title/artist + play/pause + next ──
                 if (miniAlpha > 0f) {
                     Row(
@@ -469,10 +454,6 @@ fun PlayerSheet(
  * growing drag never triggers a re-decode per frame), positioned by absolute
  * offset within the sheet and clipped to a lerped corner radius. The border
  * tints from the mini ink to white as it grows.
- *
- * @param meltActive only when true (cover SETTLED open) does the bottom DstIn
- *   melt render. Offscreen compositing + DstIn allocate a fresh GPU buffer
- *   every frame, so they are gated off the drag's critical path entirely.
  */
 @Composable
 private fun SharedCoverArt(
@@ -484,7 +465,6 @@ private fun SharedCoverArt(
     density: Density,
     context: Context,
     eased: Float,
-    meltActive: Boolean,
 ) {
     Box(
         modifier = Modifier
@@ -496,42 +476,37 @@ private fun SharedCoverArt(
                 )
             }
             .size(artSize)
+            // Offscreen compositing is REQUIRED for DstIn to erase the cover's
+            // own pixels (otherwise it blends against whatever is behind the
+            // layer, which has no effect on the cover).
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .clip(RoundedCornerShape(artRadius))
             .background(Color(0xFF2A2A2A))
-            // Bottom DstIn melt — the Spiral3 blend — ONLY when settled open.
-            // Offscreen compositing is required for DstIn to erase the cover's
-            // own pixels, but it allocates an offscreen buffer per frame; gating
-            // it to [meltActive] keeps the drag at zero offscreen cost. The melt
-            // is imperceptible while the cover is moving, so this is a free win.
-            .then(
-                if (meltActive) {
-                    Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                } else {
-                    Modifier
+            // Bottom DstIn fade — the Spiral3 blend. As the cover grows into
+            // the hero, its bottom edge dissolves into the immersive blur
+            // beneath it. The fade height grows with the cover (capped at
+            // 140dp like the original), and it only appears as the cover opens
+            // (scaled by [eased]) so the mini thumbnail stays fully solid.
+            .drawWithContent {
+                drawContent()
+                val fadeStrength = eased
+                if (fadeStrength > 0.01f) {
+                    val maxFadePx = 140.dp.toPx()
+                    val fadeHeight = (size.height * 0.45f)
+                        .coerceAtMost(maxFadePx)
+                        .coerceAtLeast(0f)
+                    val fadeStartY = (size.height - fadeHeight).coerceAtLeast(0f)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color.Black, Color.Transparent),
+                            startY = fadeStartY,
+                            endY = size.height,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                        alpha = fadeStrength,
+                    )
                 }
-            )
-            .then(
-                if (meltActive) {
-                    Modifier.drawWithContent {
-                        drawContent()
-                        val maxFadePx = 140.dp.toPx()
-                        val fadeHeight = (size.height * 0.45f)
-                            .coerceAtMost(maxFadePx)
-                            .coerceAtLeast(0f)
-                        val fadeStartY = (size.height - fadeHeight).coerceAtLeast(0f)
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(Color.Black, Color.Transparent),
-                                startY = fadeStartY,
-                                endY = size.height,
-                            ),
-                            blendMode = BlendMode.DstIn,
-                        )
-                    }
-                } else {
-                    Modifier
-                }
-            )
+            }
             .border(
                 width = 0.8.dp,
                 color = lerpColor(
