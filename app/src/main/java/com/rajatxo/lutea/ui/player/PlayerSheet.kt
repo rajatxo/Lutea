@@ -148,6 +148,7 @@ fun PlayerSheet(
             exit = fadeOut(tween(180)) + slideOutVertically(tween(220)) { it },
         ) {
             MiniCapsule(
+                modifier = Modifier.align(Alignment.BottomCenter),
                 title = currentSong?.title.orEmpty(),
                 artist = currentSong?.artist.orEmpty(),
                 artUri = currentSong?.albumArtUri,
@@ -189,6 +190,7 @@ fun PlayerSheet(
 
 @Composable
 private fun MiniCapsule(
+    modifier: Modifier = Modifier,
     title: String,
     artist: String,
     artUri: android.net.Uri?,
@@ -232,8 +234,7 @@ private fun MiniCapsule(
     }
 
     Box(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
+        modifier = modifier
             .padding(bottom = bottomPadding)
             .width(width)
             .height(MiniHeight)
