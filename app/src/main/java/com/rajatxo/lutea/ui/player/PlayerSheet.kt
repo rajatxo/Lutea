@@ -114,6 +114,12 @@ val LocalPlayerNavigation = staticCompositionLocalOf { PlayerNavigation() }
 fun PlayerSheet(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
+    /** LIVE 0f→1f expand progress, hoisted from the host. The host owns this
+     *  Animatable so the nav + control overlays can fade IN SYNC with the
+     *  cover during the drag — not on separate boolean-driven tweens that only
+     *  fire after the drag settles (the old "controls vanish last, nav appears
+     *  last" lag). This composable still drives it (LaunchedEffect + drag). */
+    expansion: Animatable<Float, *>,
     modifier: Modifier = Modifier,
     onLyricsClick: () -> Unit = {},
     onQueueOpen: () -> Unit = {},
@@ -130,7 +136,8 @@ fun PlayerSheet(
     val density = LocalDensity.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val expansion = remember { Animatable(if (expanded) 1f else 0f) }
+    // expansion is HOISTED from the host (see param) so nav + controls can
+    // sync to the live drag. The host seeds its initial value.
 
     // Themed seam colour = the cover's own dominant colour (Palette, cached).
     // Used as the dark surface's tint so a cold-start cover load shows a themed

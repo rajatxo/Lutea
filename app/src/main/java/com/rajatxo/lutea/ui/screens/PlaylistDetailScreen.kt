@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -231,6 +232,9 @@ fun PlaylistDetailScreen(
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var playerVisible by remember { mutableStateOf(false) }
+    // Hoisted live expand progress so this screen's nav/controls can sync to
+    // the cover drag (matches LuteaScaffold). 0 = collapsed, 1 = expanded.
+    val playerExpansion = remember { Animatable(0f) }
     var showLyrics by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     val playerPageProgress = if (showLyrics || showQueue) 1f else 0f
@@ -893,6 +897,7 @@ fun PlaylistDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 expanded = playerVisible,
                 onExpandedChange = { playerVisible = it },
+                expansion = playerExpansion,
                 onLyricsClick = { showLyrics = true },
                 onQueueOpen = { showQueue = true },
                 pageProgress = playerPageProgress,

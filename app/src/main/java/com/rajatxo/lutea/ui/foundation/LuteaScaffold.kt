@@ -159,6 +159,11 @@ fun LuteaScaffold(
     var searchOpen by remember { mutableStateOf(false) }
     val searchOpenState = remember { mutableStateOf(false) }
     var playerVisible by remember { mutableStateOf(false) }
+    // ★ LIVE expand progress, hoisted so nav + control overlays fade IN SYNC
+    //    with the cover during the drag — not on separate boolean tweens that
+    //    fire only after the drag settles (the old "controls vanish last, nav
+    //    appears last" lag). 0 = collapsed mini, 1 = fully expanded.
+    val playerExpansion = remember { Animatable(0f) }
     var showLyrics by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     // Page-open progress drives the player's control-hide animation for BOTH
@@ -693,12 +698,11 @@ fun LuteaScaffold(
             // Drawn BEFORE the player sheet so the sheet paints on top of it
             // when expanded. Also fades out when the player or lyrics is visible
             // so it doesn't show through.
-            // The nav dissolves as the player sheet grows over it.
-            val navAlpha by animateFloatAsState(
-                targetValue = if (playerVisible || showLyrics || showQueue) 0f else 1f,
-                animationSpec = tween(280),
-                label = "navAlpha",
-            )
+            // The nav dissolves as the player sheet grows over it. SYNCED to the
+            // live [playerExpansion] so it fades IN as soon as you start dragging
+            // the player down — not on a separate tween that fires after settle.
+            // (Lyrics/queue pages fully hide it regardless.)
+            val navAlpha = if (showLyrics || showQueue) 0f else (1f - playerExpansion.value)
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -763,6 +767,7 @@ fun LuteaScaffold(
                 modifier = Modifier.fillMaxSize(),
                 expanded = playerVisible,
                 onExpandedChange = { playerVisible = it },
+                expansion = playerExpansion,
                 onLyricsClick = { showLyrics = true },
                 onQueueOpen = { showQueue = true },
                 pageProgress = pageProgress,
@@ -811,30 +816,23 @@ fun LuteaScaffold(
                 )
             }
 
-            // ★ Persistent control bar — the Mochy Flagship behaviour: the seek
-            //    bar + transport STAY visible over the player AND the lyrics page
-            //    AND the queue page, as one bottom overlay. It is shown whenever
-            //    the player is expanded (any of the three), and fades out with the
-            //    player when it collapses to the mini capsule.
-            if (playerVisible) {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = playerVisible,
-                    enter = androidx.compose.animation.fadeIn(
-                        animationSpec = androidx.compose.animation.core.tween(300)
-                    ),
-                    exit = androidx.compose.animation.fadeOut(
-                        animationSpec = androidx.compose.animation.core.tween(200)
-                    ),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        com.rajatxo.lutea.ui.player.PlayerControlBar(
-                            onClose = { playerVisible = false; showLyrics = false; showQueue = false },
-                            onQueueClick = { showQueue = true },
-                            onLyricsClick = { showLyrics = true },
-                            modifier = Modifier.align(Alignment.BottomCenter),
-                        )
-                    }
+            // ★ Persistent control bar — SYNCED to the live [playerExpansion] so
+            //    the seek bar + transport VANISH WITH the cover shrink, not on a
+            //    separate tween that fires after the drag settles (the old lag).
+            //    Fully present when expanded, gone when collapsed. Lyrics/queue
+            //    keep it at full (it overlays those pages).
+            if (playerVisible || playerExpansion.value > 0.01f) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    com.rajatxo.lutea.ui.player.PlayerControlBar(
+                        onClose = { playerVisible = false; showLyrics = false; showQueue = false },
+                        onQueueClick = { showQueue = true },
+                        onLyricsClick = { showLyrics = true },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .graphicsLayer {
+                                this.alpha = if (showLyrics || showQueue) 1f else playerExpansion.value
+                            },
+                    )
                 }
             }
         }
