@@ -391,6 +391,7 @@ fun PlayerSheet(
                     artRadius = artRadius,
                     density = density,
                     context = context,
+                    eased = eased,
                     // The bottom melt (DstIn) only renders when the cover is
                     // SETTLED open. During the drag the cover is a plain clip —
                     // no offscreen compositing buffer, no per-frame DstIn. The
