@@ -160,9 +160,11 @@ fun LuteaScaffold(
     val searchOpenState = remember { mutableStateOf(false) }
     var playerVisible by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
     // Page-open progress drives the player's control-hide animation for BOTH
     // the lyrics and queue pages (Mochy's controlsHiddenState). 1 = a page is
     // fully open, 0 = player-only.
+    val pageProgress = if (showLyrics || showQueue) 1f else 0f
     val searchHistoryOverlay = remember { SearchHistoryOverlayState() }
     val context = LocalContext.current
     val searchSoundOverlay = remember(context) {
@@ -223,8 +225,12 @@ fun LuteaScaffold(
                 else if (menuOpen) menuOpen = false
             }
 
-            // ★ Back while the player is open is handled further down, after
-            //    the player itself, so it always wins over this handler.
+            // ★ Back with the player stack open: queue closes → lyrics closes
+            //    → player collapses. Most specific first; never closes the app
+            //    from underneath the player.
+            BackHandler(enabled = showQueue) { showQueue = false }
+            BackHandler(enabled = showLyrics && !showQueue) { showLyrics = false }
+            BackHandler(enabled = playerVisible && !showLyrics && !showQueue) { playerVisible = false }
 
             // Content — fills the WHOLE screen
             Box(
@@ -653,7 +659,7 @@ fun LuteaScaffold(
             //    grounds the bottom of the screen. Drawn BEFORE the mini player
             //    so its glass paints on top of it.
             val miniPlayerGap = 56.dp       // inset → mini player bottom edge
-            val miniPlayerHeight = 56.dp    // keep in sync with MiniPlayer.kt
+            val miniPlayerHeight = 56.dp    // keep in sync with PlayerSheet.kt
             val miniPlayerBottom = effBottomDp + miniPlayerGap
             val bottomFadeHeightDp = miniPlayerBottom + miniPlayerHeight * 0.5f
             if (!imeOpen) {
@@ -689,7 +695,7 @@ fun LuteaScaffold(
             // so it doesn't show through.
             // The nav dissolves as the player sheet grows over it.
             val navAlpha by animateFloatAsState(
-                targetValue = if (playerVisible || showLyrics) 0f else 1f,
+                targetValue = if (playerVisible || showLyrics || showQueue) 0f else 1f,
                 animationSpec = tween(280),
                 label = "navAlpha",
             )
@@ -707,7 +713,7 @@ fun LuteaScaffold(
                     onTabSelected = onTabSelected,
                     backdrop = glassBackdrop,
                     onSearchLongPress = {
-                        if (!playerVisible && !showLyrics) {
+                        if (!playerVisible && !showLyrics && !showQueue) {
                             if (activeTab != LuteaTab.Search) onTabSelected(LuteaTab.Search)
                             menuOpen = false
                             searchSoundOverlay.expanded = true
@@ -723,7 +729,8 @@ fun LuteaScaffold(
                 SearchClearAllOverlay(
                     visible = historyClearVisible &&
                         !playerVisible &&
-                        !showLyrics,
+                        !showLyrics &&
+                        !showQueue,
                     backdrop = glassBackdrop,
                     onClearAll = { searchHistoryOverlay.clearAll() },
                     modifier = Modifier
@@ -740,41 +747,30 @@ fun LuteaScaffold(
                 backdrop = glassBackdrop,
                 visible = activeTab == LuteaTab.Search &&
                     !playerVisible &&
-                    !showLyrics,
+                    !showLyrics &&
+                    !showQueue,
                 bottomPadding = searchSoundCardBottom,
             )
 
-            // ★ Mini player — the simple glass capsule above the nav. Tap it
-            //    (or drag it up) to open the full player. No morph, no shared
-            //    surface: the player is its own screen on top of everything.
-            com.rajatxo.lutea.ui.player.MiniPlayer(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = miniPlayerBottom),
-                onExpand = { playerVisible = true },
+            // ★ Full player — overlays the entire screen when expanded.
+            //    Slide-up from bottom. Swipe down or tap close to collapse.
+            //    Drawn AFTER the nav bar so it paints on top of it.
+            // ★ Player sheet — the mini player and the full player are one
+            //    surface. Drag it up (or tap it) to morph into the full player;
+            //    drag down or tap close to go back. Drawn AFTER the nav so it
+            //    paints on top of it, but it only blocks touches where it is.
+            com.rajatxo.lutea.ui.player.PlayerSheet(
+                modifier = Modifier.fillMaxSize(),
+                expanded = playerVisible,
+                onExpandedChange = { playerVisible = it },
+                onLyricsClick = { showLyrics = true },
+                onQueueOpen = { showQueue = true },
+                pageProgress = pageProgress,
                 hidden = imeOpen,
                 backdrop = glassBackdrop,
                 navMatchedWidth = navMatchedWidth,
+                miniBottomPadding = miniPlayerBottom,
             )
-
-            // ★ Full player — the immersive blurred cover screen. Painted above
-            //    the nav and the mini player.
-            com.rajatxo.lutea.ui.player.FullPlayer(
-                visible = playerVisible,
-                onClose = {
-                    playerVisible = false
-                    showLyrics = false
-                },
-                onLyricsClick = { showLyrics = true },
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            // Back: lyrics closes first, then the player. Registered after the
-            // player so it always wins while the player is open — back never
-            // leaves the app from underneath the player.
-            BackHandler(enabled = playerVisible) {
-                if (showLyrics) showLyrics = false else playerVisible = false
-            }
 
             // ★ Lyrics screen — on top of everything. Opens from the player's
             //    lyrics icon. Closes back to the player.
@@ -791,6 +787,55 @@ fun LuteaScaffold(
                 com.rajatxo.lutea.ui.screens.LyricsScreen(
                     onClose = { showLyrics = false },
                 )
+            }
+
+            // ★ Queue screen — opens by swiping UP on the player (the user's
+            //    chosen gesture). Shares the cover-derived gradient with the
+            //    player so it reads as a continuation of the now-playing page.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showQueue,
+                enter = androidx.compose.animation.slideInVertically(
+                    animationSpec = androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) { it / 2 } + androidx.compose.animation.fadeIn(
+                    animationSpec = androidx.compose.animation.core.tween(300)
+                ),
+                exit = androidx.compose.animation.slideOutVertically(
+                    animationSpec = androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) { it / 2 } + androidx.compose.animation.fadeOut(
+                    animationSpec = androidx.compose.animation.core.tween(250)
+                ),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                com.rajatxo.lutea.ui.screens.QueueScreen(
+                    onClose = { showQueue = false },
+                )
+            }
+
+            // ★ Persistent control bar — the Mochy Flagship behaviour: the seek
+            //    bar + transport STAY visible over the player AND the lyrics page
+            //    AND the queue page, as one bottom overlay. It is shown whenever
+            //    the player is expanded (any of the three), and fades out with the
+            //    player when it collapses to the mini capsule.
+            if (playerVisible) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = playerVisible,
+                    enter = androidx.compose.animation.fadeIn(
+                        animationSpec = androidx.compose.animation.core.tween(300)
+                    ),
+                    exit = androidx.compose.animation.fadeOut(
+                        animationSpec = androidx.compose.animation.core.tween(200)
+                    ),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        com.rajatxo.lutea.ui.player.PlayerControlBar(
+                            onClose = { playerVisible = false; showLyrics = false; showQueue = false },
+                            onQueueClick = { showQueue = true },
+                            onLyricsClick = { showLyrics = true },
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                        )
+                    }
+                }
             }
         }
     }

@@ -122,6 +122,7 @@ import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.foundation.LuteaTabCapsule
 import com.rajatxo.lutea.ui.foundation.fluidNavMetrics
 import com.rajatxo.lutea.ui.foundation.navBarWidthFor
+import com.rajatxo.lutea.ui.player.PlayerSheet
 import com.rajatxo.lutea.ui.util.LuteaTab
 import com.rajatxo.lutea.ui.util.rememberCoverThemeColor
 import java.time.Instant
@@ -229,6 +230,10 @@ fun PlaylistDetailScreen(
     DetailLightSystemBarIcons()
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var playerVisible by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
+    val playerPageProgress = if (showLyrics || showQueue) 1f else 0f
     var menuOpen by remember { mutableStateOf(false) }
     // Custom-order (sort) menu + its current mode.
     var customOrderOpen by remember { mutableStateOf(false) }
@@ -283,12 +288,15 @@ fun PlaylistDetailScreen(
     }
     // Back closes the topmost layer first: lyrics, player, editor, song menu,
     // custom order, playlist menu, search, then the page.
-    BackHandler(enabled = !searchOpen && !menuOpen && !customOrderOpen && songMenuSong == null && editingSong == null) { onBack() }
+    BackHandler(enabled = !playerVisible && !showLyrics && !showQueue && !searchOpen && !menuOpen && !customOrderOpen && songMenuSong == null && editingSong == null) { onBack() }
     BackHandler(enabled = searchOpen) { searchOpen = false }
     BackHandler(enabled = menuOpen) { menuOpen = false }
     BackHandler(enabled = customOrderOpen) { customOrderOpen = false }
     BackHandler(enabled = songMenuSong != null) { songMenuSong = null }
     BackHandler(enabled = editingSong != null) { editingSong = null }
+    BackHandler(enabled = showQueue) { showQueue = false }
+    BackHandler(enabled = showLyrics && !showQueue) { showLyrics = false }
+    BackHandler(enabled = playerVisible && !showLyrics && !showQueue) { playerVisible = false }
     LaunchedEffect(searchOpen) {
         if (searchOpen) {
             menuOpen = false
@@ -881,8 +889,48 @@ fun PlaylistDetailScreen(
                     onDismiss = { editingSong = null },
                 )
             }
-            // The mini player and the full player live in the scaffold, which
-            // hosts this page — no second copy here.
+            PlayerSheet(
+                modifier = Modifier.fillMaxSize(),
+                expanded = playerVisible,
+                onExpandedChange = { playerVisible = it },
+                onLyricsClick = { showLyrics = true },
+                onQueueOpen = { showQueue = true },
+                pageProgress = playerPageProgress,
+                backdrop = pageBackdrop,
+                navMatchedWidth = navMetrics.navBarWidthFor(LuteaTab.entries.size),
+                miniBottomPadding = navBottom + 56.dp,
+            )
+            if (showLyrics) {
+                LyricsScreen(onClose = { showLyrics = false })
+            }
+            if (showQueue) {
+                QueueScreen(onClose = { showQueue = false })
+            }
+            // Persistent control bar — seek + transport stay over the player,
+            // lyrics and queue pages (Mochy Flagship).
+            if (playerVisible) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = playerVisible,
+                    enter = androidx.compose.animation.fadeIn(
+                        animationSpec = androidx.compose.animation.core.tween(300)
+                    ),
+                    exit = androidx.compose.animation.fadeOut(
+                        animationSpec = androidx.compose.animation.core.tween(200)
+                    ),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        com.rajatxo.lutea.ui.player.PlayerControlBar(
+                            onClose = { playerVisible = false; showLyrics = false; showQueue = false },
+                            onQueueClick = { showQueue = true },
+                            onLyricsClick = { showLyrics = true },
+                            modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter),
+                        )
+                    }
+                }
+            }
             // Glass-morphism notification capsule (remove-from-playlist /
             // favourite) with an Undo button. Placed exactly like the search
             // tab's hold-to-delete capsule: centred, clear of the nav (48dp)
