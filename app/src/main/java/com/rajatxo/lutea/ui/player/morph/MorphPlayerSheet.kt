@@ -588,7 +588,7 @@ private fun FullPlayer(
                     .background(Color(0xFF1B1B1E))
                     .graphicsLayer {
                         val a = alpha()
-                        alpha = a
+                        this.alpha = a
                         scaleX = 0.92f + 0.08f * a
                         scaleY = 0.92f + 0.08f * a
                     },
@@ -884,7 +884,7 @@ private fun QueueLayer(
                     start = 16.dp, end = 16.dp, top = 4.dp, bottom = navBottom + 28.dp,
                 ),
             ) {
-                itemsIndexed(songs, key = { i, s -> "$i_${s.id}" }) { i, s ->
+                itemsIndexed(songs, key = { i, s -> "${i}_${s.id}" }) { i, s ->
                     QueueRow(
                         song = s,
                         isCurrent = i == index,
