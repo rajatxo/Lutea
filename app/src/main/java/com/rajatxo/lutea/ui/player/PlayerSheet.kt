@@ -1,8 +1,11 @@
 package com.rajatxo.lutea.ui.player
 
+import android.content.Context
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,7 +14,9 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,11 +25,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -52,14 +57,18 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -72,6 +81,7 @@ import com.rajatxo.lutea.playback.PlaybackConnection
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.util.rememberCoverThemeColor
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** Same dark ink the nav capsule uses on its white glass. */
 private val MiniInk = Color(0xFF1C1C1E)
@@ -87,14 +97,18 @@ data class PlayerNavigation(
 val LocalPlayerNavigation = staticCompositionLocalOf { PlayerNavigation() }
 
 /**
- * The mini player and the full player are two independent surfaces.
+ * PlayerSheet — ONE surface that IS the mini player collapsed and the full
+ * player expanded. There is exactly one cover-art element: a single
+ * [AsyncImage] that is the 40dp thumbnail in the capsule and grows — corner
+ * radius and all — into the full-width square hero cover at the top of the
+ * player. No second [PlayerCoverBlend], no full-screen blur, no offscreen
+ * compositing on the transition's critical path. That is what makes the
+ * expand/shrink read as "the mini player itself is growing", and what removes
+ * the lag: the GPU only touches one image, and it is layout-driven (offset +
+ * size), not a per-frame filter.
  *
- * Mini: a fixed glass capsule. Swipe up (or tap) gives a small bounce and
- * opens the player; swipe down stops playback and removes the capsule.
- *
- * Player: a full-screen surface that only fades in/out. Swipe down (or tap
- * close) fades it out and brings the mini capsule back. Nothing morphs or
- * slides between the two — they are not the same element.
+ * @param miniBottomPadding distance from the screen bottom to the capsule's
+ *   bottom edge (the host's nav-bar space). Animates to zero as it expands.
  */
 @Composable
 fun PlayerSheet(
@@ -103,7 +117,8 @@ fun PlayerSheet(
     modifier: Modifier = Modifier,
     onLyricsClick: () -> Unit = {},
     onQueueOpen: () -> Unit = {},
-    /** 0 = player only, 1 = a lyrics/queue page is fully open. */
+    /** 0 = player only, 1 = a lyrics/queue page is fully open. Drives the
+     *  control-hide animation (Mochy controlsHiddenState). */
     pageProgress: Float = 0f,
     hidden: Boolean = false,
     backdrop: LayerBackdrop? = null,
@@ -112,229 +127,430 @@ fun PlayerSheet(
 ) {
     val currentSong by PlaybackConnection.currentSong.collectAsState()
     val isPlaying by PlaybackConnection.isPlaying.collectAsState()
+    val density = LocalDensity.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val bounce = remember { Animatable(0f) }
+    val expansion = remember { Animatable(if (expanded) 1f else 0f) }
 
+    // Themed seam colour = the cover's own dominant colour (Palette, cached).
+    // Used as the dark surface's tint so a cold-start cover load shows a themed
+    // colour behind the blur instead of pure black (no black flash).
     val coverUriStr = currentSong?.albumArtUri?.toString()
     val seamColor by rememberCoverThemeColor(
         coverUri = coverUriStr,
         fallbackSeed = currentSong?.id?.toString(),
     )
 
-    // A tiny lift-and-settle on the capsule; the player itself just fades in.
     LaunchedEffect(expanded) {
-        if (!expanded) bounce.snapTo(0f)
-    }
-    val openPlayer: () -> Unit = {
-        if (!expanded) {
-            scope.launch {
-                bounce.animateTo(-10f, tween(90, easing = FastOutSlowInEasing))
-                bounce.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
-                onExpandedChange(true)
-            }
-        }
-    }
-
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        val maxW = maxWidth
-
-        // ── Mini player: its own tiny surface, never a seed for the player ──
-        AnimatedVisibility(
-            visible = currentSong != null && !expanded && !hidden,
-            enter = fadeIn(tween(220)) + slideInVertically(tween(280)) { it },
-            // Fade quickly so it looks like it slips behind the nav bar.
-            exit = fadeOut(tween(140)) + slideOutVertically(tween(240)) { it / 6 },
-        ) {
-            // AnimatedVisibility's own layout ignores ParentDataModifiers, so
-            // the capsule needs a real Box to align in — without it the align
-            // is dropped and the capsule sits at the top-left corner.
-            Box(Modifier.fillMaxSize()) {
-                MiniCapsule(
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    title = currentSong?.title.orEmpty(),
-                    artist = currentSong?.artist.orEmpty(),
-                    artUri = currentSong?.albumArtUri,
-                    playing = isPlaying,
-                    width = navMatchedWidth ?: (maxW - 32.dp),
-                    bottomPadding = miniBottomPadding,
-                    bouncePx = { bounce.value },
-                    backdrop = backdrop,
-                    onOpen = openPlayer,
-                    onDismiss = {
-                        // Swipe down: kill the mini player and the music with it.
-                        PlaybackConnection.stop()
-                    },
-                )
-            }
-        }
-
-        // ── Full player: independent screen, fade-only transition ──
-        AnimatedVisibility(
-            visible = expanded && !hidden,
-            enter = fadeIn(animationSpec = tween(300)),
-            exit = fadeOut(animationSpec = tween(240)),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            FullPlayerScreen(
-                artUri = currentSong?.albumArtUri,
-                seamColor = seamColor,
-                context = context,
-                onClose = { onExpandedChange(false) },
-                onLyricsClick = onLyricsClick,
-                onQueueOpen = onQueueOpen,
-            )
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Mini capsule
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun MiniCapsule(
-    modifier: Modifier = Modifier,
-    title: String,
-    artist: String,
-    artUri: android.net.Uri?,
-    playing: Boolean,
-    width: Dp,
-    bottomPadding: Dp,
-    bouncePx: () -> Float,
-    backdrop: LayerBackdrop?,
-    onOpen: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val shape = RoundedCornerShape(percent = 50)
-    val glassSurface = if (backdrop != null) {
-        Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { shape },
-            effects = { blur(16.dp.toPx()) },
-            onDrawSurface = {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.80f),
-                            Color.White.copy(alpha = 0.64f),
-                        )
-                    )
-                )
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.White.copy(alpha = 0.30f),
-                        0.55f to Color.Transparent,
-                        1f to Color.Transparent,
-                    )
-                )
-            },
-        )
-    } else {
-        Modifier.background(
-            brush = Brush.verticalGradient(listOf(Color.White, Color(0xFFD8D8DC))),
-            shape = shape,
+        // Critically-damped spring (dampingRatio = 1 → no overshoot/bounce),
+        // high stiffness → opens FAST and settles without sluggishness. A
+        // tween here ignored the finger's momentum on a tap-drag and always
+        // ran the full fixed duration, which read as slow/lagging. The spring
+        // starts from whatever velocity the drag left behind.
+        expansion.animateTo(
+            targetValue = if (expanded) 1f else 0f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessHigh,
+            ),
         )
     }
 
-    Box(
-        modifier = modifier
-            .padding(bottom = bottomPadding)
-            .width(width)
-            .height(MiniHeight)
-            .graphicsLayer { translationY = bouncePx() }
-            .shadow(elevation = 6.dp, shape = shape, clip = true)
-            .clip(shape)
-            .then(glassSurface)
-            .border(
-                width = 0.8.dp,
-                brush = Brush.verticalGradient(
-                    0f to Color.White.copy(alpha = 0.95f),
-                    0.5f to Color.White.copy(alpha = 0.18f),
-                    1f to Color.White.copy(alpha = 0.55f),
-                ),
-                shape = shape,
-            )
-            .pointerInput(Unit) {
-                var up = 0f
-                var down = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { up = 0f; down = 0f },
-                    onVerticalDrag = { _, dy ->
-                        if (dy < 0f) up -= dy else down += dy
-                    },
-                    onDragEnd = {
-                        when {
-                            up > 24.dp.toPx() -> onOpen()
-                            down > 24.dp.toPx() -> onDismiss()
-                        }
-                    },
-                )
-            },
+    AnimatedVisibility(
+        visible = (currentSong != null || expanded) && !hidden,
+        enter = slideInVertically(animationSpec = tween(300)) { it } + fadeIn(),
+        exit = slideOutVertically(animationSpec = tween(300)) { it } + fadeOut(),
+        modifier = modifier,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { onOpen() }
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MiniCoverArt(artUri = artUri)
-            Spacer(Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = MiniInk,
-                    fontSize = 14.sp,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = artist,
-                    color = MiniInk.copy(alpha = 0.68f),
-                    fontSize = 12.sp,
-                    fontFamily = CalSansFamily,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val maxW = maxWidth
+            val maxH = maxHeight
+            val e = expansion.value
+            // NO smoothstep here. A smoothstep (e*e*(3-2e)) double-eases on top
+            // of the animation spec, so during a drag the cover would barely
+            // move at low expansion while your finger moved a lot — that
+            // sticky, "lagging", heavy feel. Linear (eased = e) makes the
+            // geometry track the finger 1:1; the spring spec does all the
+            // easing on release. This is the single biggest smoothness win.
+            val eased = e
+
+            val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+            val navBottom = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
+
+            val capsuleW = navMatchedWidth ?: (maxW - 32.dp)
+            val sheetW = lerp(capsuleW, maxW, eased)
+            val sheetH = lerp(MiniHeight, maxH, eased)
+            val sheetBottom = lerp(miniBottomPadding, 0.dp, eased)
+            val sheetShape = RoundedCornerShape(lerp(MiniHeight / 2f, 0.dp, eased))
+
+            // The capsule glass fades out fast; the dark player surface fades
+            // in behind it. The mini row and the player body cross-fade.
+            val glassAlpha = (1f - e * 4f).coerceIn(0f, 1f)
+            val darkAlpha = (e * 2.2f).coerceIn(0f, 1f)
+            val miniAlpha = (1f - e * 3.5f).coerceIn(0f, 1f)
+            val fullAlpha = ((e - 0.55f) / 0.35f).coerceIn(0f, 1f)
+
+            // ── The ONE shared cover ──
+            // Mini state: 40dp thumbnail, 12dp in from the capsule's left,
+            // vertically centred in the 56dp capsule, 8dp corner radius.
+            // Full state: full-width square, top edge flush with the sheet's
+            // top (which is the screen top once expanded), 0dp corner radius.
+            // Size, position and corner radius all lerp together, so the
+            // thumbnail literally grows into the hero cover — one element.
+            val miniArtSize = 40.dp
+            val miniArtInset = 12.dp
+            val miniArtCy = MiniHeight / 2f
+            val miniArtRadius = 8.dp
+
+            val heroArtSize = maxW
+            val heroArtCy = maxW / 2f
+            val heroArtRadius = 0.dp
+
+            val artSize = lerp(miniArtSize, heroArtSize, eased)
+            val artCx = lerp(miniArtInset + miniArtSize / 2f, maxW / 2f, eased)
+            val artCy = lerp(miniArtCy, heroArtCy, eased)
+            val artRadius = lerp(miniArtRadius, heroArtRadius, eased)
+
+            val travelPx = with(density) {
+                (maxH - MiniHeight - miniBottomPadding).toPx()
+            }.coerceAtLeast(1f)
+
+            val settle: (Float) -> Unit = { velocity ->
+                val target = when {
+                    velocity < -1200f -> 1f
+                    velocity > 1200f -> 0f
+                    expansion.value > 0.4f -> 1f
+                    else -> 0f
+                }
+                // Convert the flick's pixel velocity (screen-down positive) into
+                // expansion-axis velocity (swipe up = negative px = positive
+                // expansion). Feeding this as the spring's initial velocity is
+                // what makes a fast upward flick WHOOSH open instead of getting
+                // dampened to a slow ease — the gesture's momentum carries
+                // straight through into the settle.
+                val initialVel = -velocity / travelPx
+                scope.launch {
+                    expansion.animateTo(
+                        target,
+                        // Softer than the tap-open spring: a flick-driven
+                        // settle on StiffnessMedium glides longer and carries
+                        // the gesture's momentum further, which reads as
+                        // "buttery" rather than a hard snap. Still critically
+                        // damped (no bounce), so it never overshoots.
+                        spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMedium,
+                        ),
+                        initialVelocity = initialVel,
+                    )
+                }
+                if ((target == 1f) != expanded) onExpandedChange(target == 1f)
+            }
+
+            val dragState = rememberDraggableState { dy ->
+                scope.launch {
+                    expansion.snapTo((expansion.value - dy / travelPx).coerceIn(0f, 1f))
+                }
+            }
+
+            // ── Collapsed capsule glass, pinned where the mini player lives ──
+            if (glassAlpha > 0f) {
+                val capsuleShape = RoundedCornerShape(percent = 50)
+                val glassSurface = if (backdrop != null) {
+                    Modifier.drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { capsuleShape },
+                        effects = { blur(16.dp.toPx()) },
+                        onDrawSurface = {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = 0.80f),
+                                        Color.White.copy(alpha = 0.64f),
+                                    )
+                                )
+                            )
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    0f to Color.White.copy(alpha = 0.30f),
+                                    0.55f to Color.Transparent,
+                                    1f to Color.Transparent,
+                                )
+                            )
+                        },
+                    )
+                } else {
+                    Modifier.background(
+                        brush = Brush.verticalGradient(
+                            listOf(Color.White, Color(0xFFD8D8DC))
+                        ),
+                        shape = capsuleShape,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = miniBottomPadding)
+                        .width(capsuleW)
+                        .height(MiniHeight)
+                        .graphicsLayer { alpha = glassAlpha }
+                        .shadow(elevation = 6.dp, shape = capsuleShape, clip = true)
+                        .clip(capsuleShape)
+                        .then(glassSurface)
+                        .border(
+                            width = 0.8.dp,
+                            brush = Brush.verticalGradient(
+                                0f to Color.White.copy(alpha = 0.95f),
+                                0.50f to Color.White.copy(alpha = 0.18f),
+                                1f to Color.White.copy(alpha = 0.55f),
+                            ),
+                            shape = capsuleShape,
+                        )
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            MiniButton(
-                iconRes = if (playing) R.drawable.ic_pause else R.drawable.ic_play,
-                contentDescription = if (playing) "Pause" else "Play",
-                onClick = { PlaybackConnection.playPause() },
-            )
-            Spacer(Modifier.width(8.dp))
-            MiniButton(
-                iconRes = R.drawable.ic_next,
-                contentDescription = "Next",
-                onClick = { PlaybackConnection.next() },
-            )
+
+            // ── The morphing sheet ──
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = sheetBottom)
+                    .width(sheetW)
+                    .height(sheetH)
+                    .clip(sheetShape)
+                    // Themed seam colour is the sheet's base surface (fades in
+                    // with [darkAlpha]). The immersive blur sits on top of it,
+                    // and the morphing cover sits on top of the blur — so the
+                    // cover's DstIn-erased bottom reveals the blur, which in
+                    // turn sits over the seam colour. No pure black anywhere.
+                    .background(seamColor.copy(alpha = darkAlpha))
+                    .draggable(
+                        state = dragState,
+                        orientation = Orientation.Vertical,
+                        onDragStopped = { velocity -> settle(velocity) },
+                    )
+                    // While open, swallow taps on the empty player surface so
+                    // they cannot reach the screen underneath.
+                    .then(
+                        if (expanded) Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {} else Modifier
+                    )
+            ) {
+                // ── Immersive blurred background ("down blur") ──
+                // The surface the morphing cover melts into. CRITICAL FOR
+                // SMOOTHNESS: this mounts via AnimatedVisibility on the SETTLED
+                // [expanded] state, NOT on the live [expansion.value]. Reading
+                // a per-frame alpha here would re-evaluate the blur every drag
+                // frame — and Modifier.blur() is a SOFTWARE path on API 29/30
+                // (no RenderEffect until 31), so a per-frame software blur on a
+                // full-sheet image is the single biggest jank source. By tying
+                // it to [expanded], the blur layer mounts ONCE when the player
+                // settles open and the GPU caches it; during the drag the seam
+                // colour sweeps up cheaply and the blur resolves after settle.
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(animationSpec = tween(220)),
+                    exit = fadeOut(animationSpec = tween(160)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(seamColor)
+                    ) {
+                        currentSong?.albumArtUri?.let { artUri ->
+                            val blurRequest = remember(artUri) {
+                                ImageRequest.Builder(context)
+                                    .data(artUri)
+                                    .size(Size(360, 360))
+                                    .build()
+                            }
+                            AsyncImage(
+                                model = blurRequest,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .blur(72.dp),
+                            )
+                        }
+                    }
+                }
+
+                // ── The single shared cover art ──
+                // One AsyncImage. It is the mini thumbnail (40dp, 8dp radius,
+                // capsule-left) and the full hero cover (full-width square,
+                // flush to the sheet's top, square corners) — size, position
+                // and corner radius lerp together so it grows, not crossfades.
+                // Its bottom edge dissolves into the blur above via DstIn.
+                SharedCoverArt(
+                    artUri = currentSong?.albumArtUri,
+                    artSize = artSize,
+                    artCx = artCx,
+                    artCy = artCy,
+                    artRadius = artRadius,
+                    density = density,
+                    context = context,
+                    // The bottom melt (DstIn) only renders when the cover is
+                    // SETTLED open. During the drag the cover is a plain clip —
+                    // no offscreen compositing buffer, no per-frame DstIn. The
+                    // melt is imperceptible while the cover is flying, so gating
+                    // it removes the heaviest per-frame GPU cost for free.
+                    meltActive = expanded && e > 0.985f,
+                )                // ── Mini row: title/artist + play/pause + next ──
+                if (miniAlpha > 0f) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = miniAlpha }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { onExpandedChange(true) }
+                            .padding(start = 64.dp, end = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = currentSong?.title ?: "",
+                                color = MiniInk,
+                                fontSize = 14.sp,
+                                fontFamily = CalSansFamily,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = currentSong?.artist ?: "",
+                                color = MiniInk.copy(alpha = 0.68f),
+                                fontSize = 12.sp,
+                                fontFamily = CalSansFamily,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        Spacer(Modifier.width(8.dp))
+
+                        MiniButton(
+                            iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            onClick = { PlaybackConnection.playPause() },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        MiniButton(
+                            iconRes = R.drawable.ic_next,
+                            contentDescription = "Next",
+                            onClick = { PlaybackConnection.next() },
+                        )
+                    }
+                }
+
+                // ── Expanded player body ──
+                if (fullAlpha > 0f) {
+                    ExpandedPlayerBody(
+                        alpha = fullAlpha,
+                        onClose = { onExpandedChange(false) },
+                        onLyricsClick = onLyricsClick,
+                        onQueueOpen = onQueueOpen,
+                        pageProgress = pageProgress,
+                    )
+                }
+            }
         }
     }
 }
 
+/**
+ * The single shared cover. One [AsyncImage], fixed 1080 decode size (so the
+ * growing drag never triggers a re-decode per frame), positioned by absolute
+ * offset within the sheet and clipped to a lerped corner radius. The border
+ * tints from the mini ink to white as it grows.
+ *
+ * @param meltActive only when true (cover SETTLED open) does the bottom DstIn
+ *   melt render. Offscreen compositing + DstIn allocate a fresh GPU buffer
+ *   every frame, so they are gated off the drag's critical path entirely.
+ */
 @Composable
-private fun MiniCoverArt(artUri: android.net.Uri?) {
-    val context = LocalContext.current
+private fun SharedCoverArt(
+    artUri: Uri?,
+    artSize: Dp,
+    artCx: Dp,
+    artCy: Dp,
+    artRadius: Dp,
+    density: Density,
+    context: Context,
+    eased: Float,
+    meltActive: Boolean,
+) {
     Box(
         modifier = Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .offset {
+                val half = with(density) { artSize.toPx() } / 2f
+                IntOffset(
+                    (with(density) { artCx.toPx() } - half).roundToInt(),
+                    (with(density) { artCy.toPx() } - half).roundToInt(),
+                )
+            }
+            .size(artSize)
+            .clip(RoundedCornerShape(artRadius))
             .background(Color(0xFF2A2A2A))
-            .border(0.8.dp, MiniInk.copy(alpha = 0.10f), RoundedCornerShape(8.dp)),
+            // Bottom DstIn melt — the Spiral3 blend — ONLY when settled open.
+            // Offscreen compositing is required for DstIn to erase the cover's
+            // own pixels, but it allocates an offscreen buffer per frame; gating
+            // it to [meltActive] keeps the drag at zero offscreen cost. The melt
+            // is imperceptible while the cover is moving, so this is a free win.
+            .then(
+                if (meltActive) {
+                    Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                } else {
+                    Modifier
+                }
+            )
+            .then(
+                if (meltActive) {
+                    Modifier.drawWithContent {
+                        drawContent()
+                        val maxFadePx = 140.dp.toPx()
+                        val fadeHeight = (size.height * 0.45f)
+                            .coerceAtMost(maxFadePx)
+                            .coerceAtLeast(0f)
+                        val fadeStartY = (size.height - fadeHeight).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = fadeStartY,
+                                endY = size.height,
+                            ),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    }
+                } else {
+                    Modifier
+                }
+            )
+            .border(
+                width = 0.8.dp,
+                color = lerpColor(
+                    MiniInk.copy(alpha = 0.10f),
+                    Color.White.copy(alpha = 0.10f),
+                    eased,
+                ).copy(alpha = (1f - eased).coerceIn(0f, 1f)),
+                shape = RoundedCornerShape(artRadius),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         artUri?.let { uri ->
+            // Fixed decode size: the art grows during the expand drag, so a
+            // layout-sized request would restart on every frame and settle on
+            // a small decode. 1080 keeps the real metadata art crisp without
+            // a huge bitmap.
             val request = remember(uri) {
                 ImageRequest.Builder(context)
                     .data(uri)
-                    .size(Size(160, 160))
+                    .size(Size(1080, 1080))
                     .build()
             }
             AsyncImage(
@@ -375,101 +591,28 @@ private fun MiniButton(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Full player: its own screen, no shared geometry with the capsule
-// ─────────────────────────────────────────────────────────────────────────────
-
 @Composable
-private fun FullPlayerScreen(
-    artUri: android.net.Uri?,
-    seamColor: Color,
-    context: android.content.Context,
+private fun ExpandedPlayerBody(
+    alpha: Float,
     onClose: () -> Unit,
     onLyricsClick: () -> Unit,
     onQueueOpen: () -> Unit,
+    pageProgress: Float,
 ) {
-    BoxWithConstraints(
+    // The expanded player is a LIGHTWEIGHT surface: the themed seam colour
+    // (already painted by the morphing sheet's background) + the immersive
+    // blurred cover behind it. The title/artist + control cluster are drawn by
+    // the host's persistent [PlayerControlBar] overlay (so they stay on the
+    // lyrics/queue pages too). Here we only need the top bar (lyrics + close).
+    // The sharp cover is the single shared element above — no second
+    // PlayerCoverBlend.
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(seamColor)
-            .pointerInput(Unit) {
-                var pulledDown = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { pulledDown = 0f },
-                    onVerticalDrag = { _, dy ->
-                        pulledDown = if (dy > 0f) pulledDown + dy else 0f
-                    },
-                    onDragEnd = {
-                        if (pulledDown > 80.dp.toPx()) onClose()
-                    },
-                )
-            }
-            // Swallow taps on the player surface so nothing underneath reacts.
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) {},
+            .graphicsLayer { this.alpha = alpha }
     ) {
-        // Immersive backdrop: the same art, heavily blurred.
-        artUri?.let { uri ->
-            val blurRequest = remember(uri) {
-                ImageRequest.Builder(context)
-                    .data(uri)
-                    .size(Size(540, 540))
-                    .build()
-            }
-            AsyncImage(
-                model = blurRequest,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(96.dp),
-            )
-        }
-
-        // Fixed hero cover, flush with the top; its bottom melts into the blur.
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .background(Color(0xFF2A2A2A))
-                .drawWithContent {
-                    drawContent()
-                    val fadeHeight = (size.height * 0.45f)
-                        .coerceAtMost(140.dp.toPx())
-                        .coerceAtLeast(0f)
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(Color.Black, Color.Transparent),
-                            startY = (size.height - fadeHeight).coerceAtLeast(0f),
-                            endY = size.height,
-                        ),
-                        blendMode = BlendMode.DstIn,
-                    )
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            artUri?.let { uri ->
-                val request = remember(uri) {
-                    ImageRequest.Builder(context)
-                        .data(uri)
-                        .size(Size(1080, 1080))
-                        .build()
-                }
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
-        // Top scrim + top bar (lyrics / close). Controls live in the host's
-        // persistent PlayerControlBar at the bottom.
+        // A subtle scrim behind the top bar so the round buttons stay legible
+        // over any cover.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -482,6 +625,8 @@ private fun FullPlayerScreen(
                     )
                 )
         )
+
+        // ── Top bar: lyrics button (left) + close (right) ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -502,11 +647,10 @@ private fun FullPlayerScreen(
                 onClick = onClose,
             )
         }
-        // The host's control bar owns the queue button; this callback is kept
-        // in the signature so call sites stay unchanged.
     }
 }
 
+/** A small round icon button for the expanded player's top bar. */
 @Composable
 private fun TopBarCircleButton(
     iconRes: Int,
