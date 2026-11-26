@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.lerp as lerpFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -582,8 +581,9 @@ private fun SharedTitle(
 
     val left = lerp(miniLeft, fullLeft, eased)
     val top = lerp(miniCenterY - 12.dp, fullTop, eased)  // mini: shift up by ~half line
-    val titleSp = lerpFloat(miniTitleSp, fullTitleSp, eased)
-    val artistSp = lerpFloat(miniArtistSp, fullArtistSp, eased)
+    // Inline float lerp (androidx.compose.animation.core.lerp is internal).
+    val titleSp = miniTitleSp + (fullTitleSp - miniTitleSp) * eased
+    val artistSp = miniArtistSp + (fullArtistSp - miniArtistSp) * eased
 
     // Colour: dark ink (mini) → white (full).
     val titleColor = lerpColor(MiniInk, Color.White, eased)
