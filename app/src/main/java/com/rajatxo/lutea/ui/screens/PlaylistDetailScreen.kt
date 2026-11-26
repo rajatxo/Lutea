@@ -122,7 +122,6 @@ import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.foundation.LuteaTabCapsule
 import com.rajatxo.lutea.ui.foundation.fluidNavMetrics
 import com.rajatxo.lutea.ui.foundation.navBarWidthFor
-import com.rajatxo.lutea.ui.player.morph.MorphPlayerSheet
 import com.rajatxo.lutea.ui.util.LuteaTab
 import com.rajatxo.lutea.ui.util.rememberCoverThemeColor
 import java.time.Instant
@@ -230,8 +229,6 @@ fun PlaylistDetailScreen(
     DetailLightSystemBarIcons()
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var playerVisible by remember { mutableStateOf(false) }
-    var showLyrics by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     // Custom-order (sort) menu + its current mode.
     var customOrderOpen by remember { mutableStateOf(false) }
@@ -286,7 +283,7 @@ fun PlaylistDetailScreen(
     }
     // Back closes the topmost layer first: lyrics, player, editor, song menu,
     // custom order, playlist menu, search, then the page.
-    BackHandler(enabled = !playerVisible && !showLyrics && !searchOpen && !menuOpen && !customOrderOpen && songMenuSong == null && editingSong == null) { onBack() }
+    BackHandler(enabled = !searchOpen && !menuOpen && !customOrderOpen && songMenuSong == null && editingSong == null) { onBack() }
     BackHandler(enabled = searchOpen) { searchOpen = false }
     BackHandler(enabled = menuOpen) { menuOpen = false }
     BackHandler(enabled = customOrderOpen) { customOrderOpen = false }
@@ -884,18 +881,8 @@ fun PlaylistDetailScreen(
                     onDismiss = { editingSong = null },
                 )
             }
-            MorphPlayerSheet(
-                modifier = Modifier.fillMaxSize(),
-                onLyricsClick = { showLyrics = true },
-                onActiveChange = { playerVisible = it },
-                navMatchedWidth = navMetrics.navBarWidthFor(LuteaTab.entries.size),
-                miniBottomPadding = navBottom + 56.dp,
-            )
-            // Registered after the sheet so back closes lyrics before the player.
-            BackHandler(enabled = showLyrics) { showLyrics = false }
-            if (showLyrics) {
-                LyricsScreen(onClose = { showLyrics = false })
-            }
+            // The mini player and the full player live in the scaffold, which
+            // hosts this page — no second copy here.
             // Glass-morphism notification capsule (remove-from-playlist /
             // favourite) with an Undo button. Placed exactly like the search
             // tab's hold-to-delete capsule: centred, clear of the nav (48dp)

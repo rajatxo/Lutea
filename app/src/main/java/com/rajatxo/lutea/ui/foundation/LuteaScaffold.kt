@@ -223,10 +223,8 @@ fun LuteaScaffold(
                 else if (menuOpen) menuOpen = false
             }
 
-            // ★ Back with the player stack open: the queue closes and the
-            //    player collapses inside MorphPlayerSheet, which owns those
-            //    gestures. The lyrics handler is registered below the sheet so
-            //    it wins while lyrics is open.
+            // ★ Back while the player is open is handled further down, after
+            //    the player itself, so it always wins over this handler.
 
             // Content — fills the WHOLE screen
             Box(
@@ -655,7 +653,7 @@ fun LuteaScaffold(
             //    grounds the bottom of the screen. Drawn BEFORE the mini player
             //    so its glass paints on top of it.
             val miniPlayerGap = 56.dp       // inset → mini player bottom edge
-            val miniPlayerHeight = 56.dp    // keep in sync with PlayerSheet.kt
+            val miniPlayerHeight = 56.dp    // keep in sync with MiniPlayer.kt
             val miniPlayerBottom = effBottomDp + miniPlayerGap
             val bottomFadeHeightDp = miniPlayerBottom + miniPlayerHeight * 0.5f
             if (!imeOpen) {
@@ -746,20 +744,37 @@ fun LuteaScaffold(
                 bottomPadding = searchSoundCardBottom,
             )
 
-            // ★ Player sheet — one surface: mini capsule ⇄ full player ⇄ queue.
-            //    Drag up/down to morph, swipe up from the player for the queue.
-            //    Drawn AFTER the nav so it paints on top of it.
-            com.rajatxo.lutea.ui.player.morph.MorphPlayerSheet(
-                modifier = Modifier.fillMaxSize(),
-                onLyricsClick = { showLyrics = true },
-                onActiveChange = { playerVisible = it },
+            // ★ Mini player — the simple glass capsule above the nav. Tap it
+            //    (or drag it up) to open the full player. No morph, no shared
+            //    surface: the player is its own screen on top of everything.
+            com.rajatxo.lutea.ui.player.MiniPlayer(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = miniPlayerBottom),
+                onExpand = { playerVisible = true },
                 hidden = imeOpen,
+                backdrop = glassBackdrop,
                 navMatchedWidth = navMatchedWidth,
-                miniBottomPadding = miniPlayerBottom,
             )
 
-            // Registered after the sheet so back closes lyrics first.
-            BackHandler(enabled = showLyrics) { showLyrics = false }
+            // ★ Full player — the immersive blurred cover screen. Painted above
+            //    the nav and the mini player.
+            com.rajatxo.lutea.ui.player.FullPlayer(
+                visible = playerVisible,
+                onClose = {
+                    playerVisible = false
+                    showLyrics = false
+                },
+                onLyricsClick = { showLyrics = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            // Back: lyrics closes first, then the player. Registered after the
+            // player so it always wins while the player is open — back never
+            // leaves the app from underneath the player.
+            BackHandler(enabled = playerVisible) {
+                if (showLyrics) showLyrics = false else playerVisible = false
+            }
 
             // ★ Lyrics screen — on top of everything. Opens from the player's
             //    lyrics icon. Closes back to the player.
