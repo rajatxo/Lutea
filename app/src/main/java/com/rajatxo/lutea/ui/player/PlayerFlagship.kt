@@ -340,49 +340,14 @@ fun PlayerControlBar(
             .padding(horizontal = 24.dp)
             .padding(bottom = 24.dp),
     ) {
-        // ── Title row: title/artist left, heart + up-chevron right ──
+        // ── Heart + up-chevron row (title/artist now live in the morphing
+        //    SharedTitle inside PlayerSheet — one continuous element mini→full,
+        //    so they are removed here to avoid a duplicate title when expanded) ──
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = currentSong?.title ?: "Nothing playing",
-                    color = Color.White,
-                    fontSize = 22.sp,
-                    fontFamily = BillieEilishFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            enabled = currentSong != null,
-                            onClick = { nav.onAlbumClick() },
-                        )
-                        .padding(vertical = 2.dp),
-                )
-                Text(
-                    text = currentSong?.artist ?: "",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 14.sp,
-                    fontFamily = CalSansFamily,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            enabled = currentSong != null,
-                            onClick = { nav.onArtistClick() },
-                        )
-                        .padding(vertical = 2.dp),
-                )
-            }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.weight(1f))
             val isFav = currentSong?.id in favourites
             FlagshipIconButton(
                 iconRes = if (isFav) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline,
