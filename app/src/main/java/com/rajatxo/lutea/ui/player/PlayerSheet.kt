@@ -55,7 +55,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -113,7 +112,6 @@ fun PlayerSheet(
 ) {
     val currentSong by PlaybackConnection.currentSong.collectAsState()
     val isPlaying by PlaybackConnection.isPlaying.collectAsState()
-    val density = LocalDensity.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val bounce = remember { Animatable(0f) }
@@ -384,15 +382,19 @@ private fun FullPlayerScreen(
     onLyricsClick: () -> Unit,
     onQueueOpen: () -> Unit,
 ) {
-    val density = LocalDensity.current
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(seamColor)
             .pointerInput(Unit) {
+                var pulledDown = 0f
                 detectVerticalDragGestures(
+                    onDragStart = { pulledDown = 0f },
                     onVerticalDrag = { _, dy ->
-                        if (dy > with(density) { 80.dp.toPx() }) onClose()
+                        pulledDown = if (dy > 0f) pulledDown + dy else 0f
+                    },
+                    onDragEnd = {
+                        if (pulledDown > 80.dp.toPx()) onClose()
                     },
                 )
             }
