@@ -408,6 +408,17 @@ object PlaybackConnection {
         catch (e: Exception) { Log.e(TAG, "playPause failed", e) }
     }
 
+    /** Stop playback and clear the song so the mini player goes away. */
+    fun stop() {
+        try {
+            flushPlayTime()
+            controller?.stop()
+            controller?.clearMediaItems()
+        } catch (e: Exception) { Log.e(TAG, "stop failed", e) }
+        _isPlaying.value = false
+        _currentSong.value = null
+    }
+
     fun next() {
         try { controller?.seekToNextMediaItem() }
         catch (e: Exception) { Log.e(TAG, "next failed", e) }
