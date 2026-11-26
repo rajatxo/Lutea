@@ -160,11 +160,9 @@ fun LuteaScaffold(
     val searchOpenState = remember { mutableStateOf(false) }
     var playerVisible by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
-    var showQueue by remember { mutableStateOf(false) }
     // Page-open progress drives the player's control-hide animation for BOTH
     // the lyrics and queue pages (Mochy's controlsHiddenState). 1 = a page is
     // fully open, 0 = player-only.
-    val pageProgress = if (showLyrics || showQueue) 1f else 0f
     val searchHistoryOverlay = remember { SearchHistoryOverlayState() }
     val context = LocalContext.current
     val searchSoundOverlay = remember(context) {
@@ -225,12 +223,10 @@ fun LuteaScaffold(
                 else if (menuOpen) menuOpen = false
             }
 
-            // ★ Back with the player stack open: queue closes → lyrics closes
-            //    → player collapses. Most specific first; never closes the app
-            //    from underneath the player.
-            BackHandler(enabled = showQueue) { showQueue = false }
-            BackHandler(enabled = showLyrics && !showQueue) { showLyrics = false }
-            BackHandler(enabled = playerVisible && !showLyrics && !showQueue) { playerVisible = false }
+            // ★ Back with the player stack open: the queue closes and the
+            //    player collapses inside MorphPlayerSheet, which owns those
+            //    gestures. The lyrics handler is registered below the sheet so
+            //    it wins while lyrics is open.
 
             // Content — fills the WHOLE screen
             Box(
@@ -695,7 +691,7 @@ fun LuteaScaffold(
             // so it doesn't show through.
             // The nav dissolves as the player sheet grows over it.
             val navAlpha by animateFloatAsState(
-                targetValue = if (playerVisible || showLyrics || showQueue) 0f else 1f,
+                targetValue = if (playerVisible || showLyrics) 0f else 1f,
                 animationSpec = tween(280),
                 label = "navAlpha",
             )
@@ -713,7 +709,7 @@ fun LuteaScaffold(
                     onTabSelected = onTabSelected,
                     backdrop = glassBackdrop,
                     onSearchLongPress = {
-                        if (!playerVisible && !showLyrics && !showQueue) {
+                        if (!playerVisible && !showLyrics) {
                             if (activeTab != LuteaTab.Search) onTabSelected(LuteaTab.Search)
                             menuOpen = false
                             searchSoundOverlay.expanded = true
@@ -729,8 +725,7 @@ fun LuteaScaffold(
                 SearchClearAllOverlay(
                     visible = historyClearVisible &&
                         !playerVisible &&
-                        !showLyrics &&
-                        !showQueue,
+                        !showLyrics,
                     backdrop = glassBackdrop,
                     onClearAll = { searchHistoryOverlay.clearAll() },
                     modifier = Modifier
@@ -747,30 +742,25 @@ fun LuteaScaffold(
                 backdrop = glassBackdrop,
                 visible = activeTab == LuteaTab.Search &&
                     !playerVisible &&
-                    !showLyrics &&
-                    !showQueue,
+                    !showLyrics,
                 bottomPadding = searchSoundCardBottom,
             )
 
-            // ★ Full player — overlays the entire screen when expanded.
-            //    Slide-up from bottom. Swipe down or tap close to collapse.
-            //    Drawn AFTER the nav bar so it paints on top of it.
-            // ★ Player sheet — the mini player and the full player are one
-            //    surface. Drag it up (or tap it) to morph into the full player;
-            //    drag down or tap close to go back. Drawn AFTER the nav so it
-            //    paints on top of it, but it only blocks touches where it is.
-            com.rajatxo.lutea.ui.player.PlayerSheet(
+            // ★ Player sheet — one surface: mini capsule ⇄ full player ⇄ queue.
+            //    Drag up/down to morph, swipe up from the player for the queue.
+            //    Drawn AFTER the nav so it paints on top of it.
+            com.rajatxo.lutea.ui.player.morph.MorphPlayerSheet(
                 modifier = Modifier.fillMaxSize(),
-                expanded = playerVisible,
-                onExpandedChange = { playerVisible = it },
                 onLyricsClick = { showLyrics = true },
-                onQueueOpen = { showQueue = true },
-                pageProgress = pageProgress,
+                onActiveChange = { playerVisible = it },
                 hidden = imeOpen,
                 backdrop = glassBackdrop,
                 navMatchedWidth = navMatchedWidth,
                 miniBottomPadding = miniPlayerBottom,
             )
+
+            // Registered after the sheet so back closes lyrics first.
+            BackHandler(enabled = showLyrics) { showLyrics = false }
 
             // ★ Lyrics screen — on top of everything. Opens from the player's
             //    lyrics icon. Closes back to the player.
@@ -787,55 +777,6 @@ fun LuteaScaffold(
                 com.rajatxo.lutea.ui.screens.LyricsScreen(
                     onClose = { showLyrics = false },
                 )
-            }
-
-            // ★ Queue screen — opens by swiping UP on the player (the user's
-            //    chosen gesture). Shares the cover-derived gradient with the
-            //    player so it reads as a continuation of the now-playing page.
-            androidx.compose.animation.AnimatedVisibility(
-                visible = showQueue,
-                enter = androidx.compose.animation.slideInVertically(
-                    animationSpec = androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-                ) { it / 2 } + androidx.compose.animation.fadeIn(
-                    animationSpec = androidx.compose.animation.core.tween(300)
-                ),
-                exit = androidx.compose.animation.slideOutVertically(
-                    animationSpec = androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-                ) { it / 2 } + androidx.compose.animation.fadeOut(
-                    animationSpec = androidx.compose.animation.core.tween(250)
-                ),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                com.rajatxo.lutea.ui.screens.QueueScreen(
-                    onClose = { showQueue = false },
-                )
-            }
-
-            // ★ Persistent control bar — the Mochy Flagship behaviour: the seek
-            //    bar + transport STAY visible over the player AND the lyrics page
-            //    AND the queue page, as one bottom overlay. It is shown whenever
-            //    the player is expanded (any of the three), and fades out with the
-            //    player when it collapses to the mini capsule.
-            if (playerVisible) {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = playerVisible,
-                    enter = androidx.compose.animation.fadeIn(
-                        animationSpec = androidx.compose.animation.core.tween(300)
-                    ),
-                    exit = androidx.compose.animation.fadeOut(
-                        animationSpec = androidx.compose.animation.core.tween(200)
-                    ),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        com.rajatxo.lutea.ui.player.PlayerControlBar(
-                            onClose = { playerVisible = false; showLyrics = false; showQueue = false },
-                            onQueueClick = { showQueue = true },
-                            onLyricsClick = { showLyrics = true },
-                            modifier = Modifier.align(Alignment.BottomCenter),
-                        )
-                    }
-                }
             }
         }
     }
