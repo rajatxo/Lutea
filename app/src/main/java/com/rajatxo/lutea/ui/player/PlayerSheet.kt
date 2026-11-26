@@ -328,6 +328,7 @@ fun PlayerSheet(
                         artUri = currentSong?.albumArtUri,
                         context = context,
                         alpha = fullAlpha,
+                        modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
 
@@ -436,10 +437,14 @@ private fun MiniCoverArt(artUri: Uri?, context: Context) {
  * dissolves (DstIn) into the heavily blurred copy of the same art underneath.
  */
 @Composable
-private fun HeroCoverArt(artUri: Uri?, context: Context, alpha: Float) {
+private fun HeroCoverArt(
+    artUri: Uri?,
+    context: Context,
+    alpha: Float,
+    modifier: Modifier = Modifier,
+) {
     Box(
-        modifier = Modifier
-            .align(Alignment.TopCenter)
+        modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             // Offscreen is required for DstIn to erase the cover's own pixels.
