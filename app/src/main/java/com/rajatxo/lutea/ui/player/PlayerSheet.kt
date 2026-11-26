@@ -143,24 +143,30 @@ fun PlayerSheet(
         AnimatedVisibility(
             visible = currentSong != null && !expanded && !hidden,
             enter = fadeIn(tween(220)) + slideInVertically(tween(280)) { it },
-            exit = fadeOut(tween(180)) + slideOutVertically(tween(220)) { it },
+            // Fade quickly so it looks like it slips behind the nav bar.
+            exit = fadeOut(tween(140)) + slideOutVertically(tween(240)) { it / 6 },
         ) {
-            MiniCapsule(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                title = currentSong?.title.orEmpty(),
-                artist = currentSong?.artist.orEmpty(),
-                artUri = currentSong?.albumArtUri,
-                playing = isPlaying,
-                width = navMatchedWidth ?: (maxW - 32.dp),
-                bottomPadding = miniBottomPadding,
-                bouncePx = { bounce.value },
-                backdrop = backdrop,
-                onOpen = openPlayer,
-                onDismiss = {
-                    // Swipe down: kill the mini player and the music with it.
-                    PlaybackConnection.stop()
-                },
-            )
+            // AnimatedVisibility's own layout ignores ParentDataModifiers, so
+            // the capsule needs a real Box to align in — without it the align
+            // is dropped and the capsule sits at the top-left corner.
+            Box(Modifier.fillMaxSize()) {
+                MiniCapsule(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    title = currentSong?.title.orEmpty(),
+                    artist = currentSong?.artist.orEmpty(),
+                    artUri = currentSong?.albumArtUri,
+                    playing = isPlaying,
+                    width = navMatchedWidth ?: (maxW - 32.dp),
+                    bottomPadding = miniBottomPadding,
+                    bouncePx = { bounce.value },
+                    backdrop = backdrop,
+                    onOpen = openPlayer,
+                    onDismiss = {
+                        // Swipe down: kill the mini player and the music with it.
+                        PlaybackConnection.stop()
+                    },
+                )
+            }
         }
 
         // ── Full player: independent screen, fade-only transition ──
