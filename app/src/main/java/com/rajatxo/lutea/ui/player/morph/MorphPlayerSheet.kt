@@ -1,20 +1,15 @@
 package com.rajatxo.lutea.ui.player.morph
 
-import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -25,10 +20,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,29 +45,29 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -81,9 +76,6 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.size.Size
-import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.data.store.FavouriteStore
 import com.rajatxo.lutea.domain.model.Song
@@ -97,29 +89,33 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  MorphPlayerSheet — one surface that is the mini player, the full player and
-//  the queue, connected by two continuous motion axes:
+//  MorphPlayerSheet — one window that opens from the mini capsule into the
+//  full player and then into the queue.
 //
-//    expansion (0 → 1)  mini capsule  ⇄  full player
-//    queue     (0 → 1)  full player   ⇄  queue list
+//  This is the Yuma-style sheet: the window is a *clipped, translated* box, not
+//  a cross-fade of two players. One fraction drives everything:
 //
-//  A single vertical drag drives whichever axis the gesture belongs to; a flick
-//  carries its own momentum into the spring settle, so the open/close reads as
-//  the capsule *growing* and the queue *sliding up over* the player — not as a
-//  cross-fade between separate screens. One shared cover art grows from the
-//  40dp thumbnail into the hero cover and then shrinks + fades as the queue
-//  rises. Reimplemented for Lutea; it does not touch the legacy PlayerSheet.
+//    top edge        collapsedTop  →  0            (follows the finger)
+//    height          mini height   →  screen height
+//    width           capsule       →  screen width
+//    corner radius   28dp          →  0
+//
+//  The player content inside is always laid out at full screen size and pinned
+//  to the window's top-left, so it is *revealed* as the window grows instead of
+//  being re-laid-out every frame. The mini row is simply the top band of that
+//  content, which is why the capsule turns into the player without a jump.
+//
+//  All per-frame values are read inside layout/draw lambdas, so a drag never
+//  recomposes the tree.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Dark ink used for text on the collapsed white-glass capsule. */
+private val MiniHeight = 56.dp
+private val MiniArt = 40.dp
 private val MorphInk = Color(0xFF1C1C1E)
 
-/** Height of the collapsed capsule. */
-private val MorphMiniHeight = 56.dp
-
-/** Soft, bounce-free settle that accepts the drag's flick velocity. */
+/** Bounce-free settle that carries the flick velocity into the spring. */
 private val SettleSpec = spring<Float>(
-    dampingRatio = 0.86f,
+    dampingRatio = 0.8f,
     stiffness = Spring.StiffnessMediumLow,
 )
 
@@ -129,28 +125,42 @@ fun MorphPlayerSheet(
     onLyricsClick: () -> Unit = {},
     onActiveChange: (Boolean) -> Unit = {},
     hidden: Boolean = false,
-    backdrop: LayerBackdrop? = null,
     navMatchedWidth: Dp? = null,
     miniBottomPadding: Dp = 0.dp,
 ) {
-    val currentSong by PlaybackConnection.currentSong.collectAsState()
+    val song by PlaybackConnection.currentSong.collectAsState()
     val isPlaying by PlaybackConnection.isPlaying.collectAsState()
     val density = LocalDensity.current
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val expansion = remember { Animatable(0f) }
+    // 0 → 1 : capsule → full player.  0 → 1 : full player → queue.
+    val sheet = remember { Animatable(0f) }
     val queue = remember { Animatable(0f) }
 
-    val expanded by remember { derivedStateOf { expansion.value > 0.5f } }
-    val queueOpen by remember { derivedStateOf { queue.value > 0.5f } }
+    // Live drag values. Kept apart from the Animatables so a drag mutates a
+    // plain float (cheap) instead of starting a coroutine per finger movement.
+    var sheetDrag by remember { mutableFloatStateOf(0f) }
+    var queueDrag by remember { mutableFloatStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    var queueAxis by remember { mutableStateOf(false) }
 
-    // Tell the host when the player owns the screen, so the nav bar dissolves.
+    val currentOnActiveChange by rememberUpdatedState(onActiveChange)
+    val expanded by remember { derivedStateOf { (if (dragging) sheetDrag else sheet.value) >= 0.5f } }
+    val queueOpen by remember { derivedStateOf { (if (dragging) queueDrag else queue.value) >= 0.5f } }
+    val miniMounted by remember { derivedStateOf { (if (dragging) sheetDrag else sheet.value) < 0.4f } }
+    val fullMounted by remember { derivedStateOf { (if (dragging) sheetDrag else sheet.value) > 0.02f } }
+    val queueMounted by remember { derivedStateOf { (if (dragging) queueDrag else queue.value) > 0.001f } }
+    val show = (song != null || expanded) && !hidden
+
     LaunchedEffect(Unit) {
-        snapshotFlow { expansion.value > 0.02f }.collect { onActiveChange(it) }
+        snapshotFlow { if (dragging) sheetDrag else sheet.value }
+            .collect { currentOnActiveChange(it > 0.02f) }
+    }
+    LaunchedEffect(show) {
+        if (!show) currentOnActiveChange(false)
     }
 
-    // Keep the position clock ticking while the full player or queue is visible.
+    // Keep the clock ticking while the player is on screen.
     LaunchedEffect(expanded) {
         while (expanded) {
             PlaybackConnection.pollPosition()
@@ -158,391 +168,318 @@ fun MorphPlayerSheet(
         }
     }
 
-    // Back: queue closes first, then the player collapses.
+    fun settle(velocity: Float, sheetTravelPx: Float, queueTravelPx: Float) {
+        val f = sheetDrag
+        val q = queueDrag
+        val onQueue = queueAxis
+        scope.launch {
+            sheet.snapTo(f)
+            queue.snapTo(q)
+            dragging = false
+
+            if (onQueue) {
+                val target = when {
+                    q <= 0f -> 0f
+                    velocity < -500f -> 1f
+                    velocity > 500f -> if (q > 0.725f) 0.45f else 0f
+                    q < 0.225f -> 0f
+                    q < 0.725f -> 0.45f
+                    else -> 1f
+                }
+                if (target > 0f && f < 1f) sheet.animateTo(1f, SettleSpec)
+                queue.animateTo(
+                    target,
+                    SettleSpec,
+                    initialVelocity = (-velocity / queueTravelPx).coerceIn(-20f, 20f),
+                )
+            } else {
+                val target = when {
+                    velocity < -500f -> 1f
+                    velocity > 500f -> 0f
+                    f > 0.5f -> 1f
+                    else -> 0f
+                }
+                sheet.animateTo(
+                    target,
+                    SettleSpec,
+                    initialVelocity = (-velocity / sheetTravelPx).coerceIn(-20f, 20f),
+                )
+            }
+        }
+    }
+
+    val collapse: () -> Unit = {
+        if (!dragging) {
+            scope.launch {
+                queue.animateTo(0f, SettleSpec)
+                sheet.animateTo(0f, SettleSpec)
+            }
+        }
+    }
+    val expand: () -> Unit = {
+        if (!dragging) {
+            scope.launch { sheet.animateTo(1f, SettleSpec) }
+        }
+    }
+
+    // Back: queue first, then the player collapses to the capsule.
     BackHandler(enabled = queueOpen) {
         scope.launch { queue.animateTo(0f, SettleSpec) }
     }
-    BackHandler(enabled = expanded && !queueOpen) {
-        scope.launch { queue.snapTo(0f); expansion.animateTo(0f, SettleSpec) }
-    }
-
-    val seamColor by rememberCoverThemeColor(
-        coverUri = currentSong?.albumArtUri?.toString(),
-        fallbackSeed = currentSong?.id?.toString(),
-    )
+    BackHandler(enabled = expanded && !queueOpen) { collapse() }
 
     AnimatedVisibility(
-        visible = (currentSong != null || expanded) && !hidden,
-        enter = slideInVertically(animationSpec = tween(300)) { it } + fadeIn(),
-        exit = slideOutVertically(animationSpec = tween(300)) { it } + fadeOut(),
-        modifier = modifier,
+        visible = show,
+        enter = fadeIn(tween(180)),
+        exit = fadeOut(tween(180)),
+        modifier = modifier.fillMaxSize(),
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val maxW = maxWidth
             val maxH = maxHeight
-            val e = expansion.value
-            val q = queue.value
-            // Queue peek finishes at q = 0.55, the rest of the travel is the list
-            // sliding fully over the player.
-            val qPeek = (q / 0.55f).coerceIn(0f, 1f)
-
-            val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
-            val navBottom = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
-
             val capsuleW = navMatchedWidth ?: (maxW - 32.dp)
-            val sheetW = lerp(capsuleW, maxW, e)
-            val sheetH = lerp(MorphMiniHeight, maxH, e)
-            val sheetBottom = lerp(miniBottomPadding, 0.dp, e)
-            val sheetShape = RoundedCornerShape(lerp(MorphMiniHeight / 2f, 0.dp, e))
+            val insetDp = ((maxW - capsuleW) / 2f).coerceAtLeast(0.dp)
+            val collapsedTop = (maxH - miniBottomPadding - MiniHeight).coerceAtLeast(0.dp)
 
-            val glassAlpha = (1f - e * 4f).coerceIn(0f, 1f)
-            val darkAlpha = (e * 2.2f).coerceIn(0f, 1f)
-            val miniAlpha = (1f - e * 3.5f).coerceIn(0f, 1f)
-            val fullAlpha = ((e - 0.55f) / 0.35f).coerceIn(0f, 1f)
-            val blurAlpha = ((e - 0.25f) / 0.5f).coerceIn(0f, 1f)
+            val screenWpx = with(density) { maxW.toPx() }
+            val screenHpx = with(density) { maxH.toPx() }
+            val collapsedTopPx = with(density) { collapsedTop.toPx() }
+            val insetPx = with(density) { insetDp.toPx() }
+            // The top edge travels this far over a full 0 → 1 drag.
+            val sheetTravelPx = collapsedTopPx.coerceAtLeast(1f)
+            val queueTravelPx = screenHpx.coerceAtLeast(1f)
 
-            // ── Shared cover geometry ──
-            val miniArtSize = 40.dp
-            val miniArtInset = 12.dp
-            val heroArtSize = maxW
+            val sheetFrac: () -> Float = {
+                (if (dragging) sheetDrag else sheet.value).coerceIn(0f, 1f)
+            }
+            val queueFrac: () -> Float = {
+                (if (dragging) queueDrag else queue.value).coerceIn(0f, 1f)
+            }
+            val sheetTopPx: () -> Float = {
+                collapsedTopPx + (0f - collapsedTopPx) * sheetFrac()
+            }
+            val windowInsetPx: () -> Float = {
+                insetPx + (0f - insetPx) * sheetFrac()
+            }
+            val windowRadius: () -> Dp = { lerp(28.dp, 0.dp, sheetFrac()) }
 
-            // mini → hero (driven by expansion)
-            val artSizeE = lerp(miniArtSize, heroArtSize, e)
-            val artCxE = lerp(miniArtInset + miniArtSize / 2f, maxW / 2f, e)
-            val artCyE = lerp(MorphMiniHeight / 2f, maxW / 2f, e)
-            val artRadiusE = lerp(8.dp, 0.dp, e)
+            val statusTop = with(density) {
+                WindowInsets.statusBars.getTop(this).toDp()
+            }
+            val navBottom = with(density) {
+                WindowInsets.navigationBars.getBottom(this).toDp()
+            }
 
-            // hero → peek (driven by queue): the cover shrinks and drifts up, then
-            // fades as the queue list rises over it.
-            val coverLift = 72.dp
-            val artSize = lerp(artSizeE, heroArtSize * 0.82f, qPeek)
-            val artCx = artCxE
-            val artCy = artCyE - coverLift * qPeek
-            val artRadius = lerp(artRadiusE, 28.dp, qPeek)
-            val coverAlpha = (1f - qPeek)
-
-            val expandTravelPx = with(density) {
-                (maxH - MorphMiniHeight - miniBottomPadding).toPx()
-            }.coerceAtLeast(1f)
-            val queueTravelPx = with(density) { maxH.toPx() }.coerceAtLeast(1f)
-
-            // ── One drag, two axes ──
             val dragState = rememberDraggableState { dy ->
-                scope.launch {
-                    val onQueueAxis = queue.value > 0f || (expansion.value >= 0.999f && dy < 0f)
-                    if (onQueueAxis) {
-                        queue.snapTo((queue.value - dy / queueTravelPx).coerceIn(0f, 1f))
+                var d = dy
+                var guard = 0
+                while (guard++ < 4) {
+                    if (queueAxis) {
+                        val cur = queueDrag
+                        val next = (cur - d / queueTravelPx).coerceIn(0f, 1f)
+                        d -= (cur - next) * queueTravelPx
+                        queueDrag = next
+                        if (next <= 0f && d > 0f) {
+                            queueAxis = false
+                            continue
+                        }
                     } else {
-                        if (queue.value > 0f) queue.snapTo(0f)
-                        expansion.snapTo((expansion.value - dy / expandTravelPx).coerceIn(0f, 1f))
+                        val cur = sheetDrag
+                        val next = (cur - d / sheetTravelPx).coerceIn(0f, 1f)
+                        d -= (cur - next) * sheetTravelPx
+                        sheetDrag = next
+                        if (next >= 1f && d < 0f) {
+                            queueAxis = true
+                            continue
+                        }
                     }
-                }
-            }
-            val settle: (Float) -> Unit = { velocity ->
-                val onQueueAxis = queue.value > 0f
-                if (onQueueAxis) {
-                    val target = when {
-                        velocity < -1000f -> 1f
-                        velocity > 1000f -> 0f
-                        else -> if (queue.value > 0.4f) 1f else 0f
-                    }
-                    scope.launch {
-                        queue.animateTo(target, SettleSpec, initialVelocity = -velocity / queueTravelPx)
-                    }
-                } else {
-                    val target = when {
-                        velocity < -1200f -> 1f
-                        velocity > 1200f -> 0f
-                        else -> if (expansion.value > 0.4f) 1f else 0f
-                    }
-                    scope.launch {
-                        if (target == 0f && queue.value > 0f) queue.snapTo(0f)
-                        expansion.animateTo(target, SettleSpec, initialVelocity = -velocity / expandTravelPx)
-                    }
+                    break
                 }
             }
 
-            // ── Collapsed capsule glass ──
-            if (glassAlpha > 0f) {
-                MorphCapsuleGlass(
-                    backdrop = backdrop,
-                    width = capsuleW,
-                    bottomPadding = miniBottomPadding,
-                    alpha = glassAlpha,
-                )
+            val seamColor by rememberCoverThemeColor(
+                coverUri = song?.albumArtUri?.toString(),
+                fallbackSeed = song?.id?.toString(),
+            )
+            val darkSurface = remember(seamColor) {
+                Brush.verticalGradient(listOf(seamColor, Color(0xFF07070A)))
+            }
+            val capsuleGlass = remember {
+                Brush.verticalGradient(listOf(Color(0xF7FFFFFF), Color(0xE4E9E9EE)))
             }
 
-            // ── The morphing sheet ──
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = sheetBottom)
-                    .width(sheetW)
-                    .height(sheetH)
-                    .clip(sheetShape)
-                    .background(seamColor.copy(alpha = darkAlpha))
-                    .draggable(
-                        state = dragState,
-                        orientation = Orientation.Vertical,
-                        onDragStopped = { velocity -> settle(velocity) },
-                    )
-                    .then(
-                        if (expanded) Modifier.clickable(
+                    .fillMaxSize()
+                    .offset { IntOffset(0, sheetTopPx().roundToInt()) }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        // Reports the window size (moves with the drag).
+                        .layout { measurable, _ ->
+                            val w = (screenWpx - 2f * windowInsetPx()).roundToInt()
+                                .coerceIn(1, screenWpx.roundToInt())
+                            val h = (screenHpx - sheetTopPx()).roundToInt().coerceAtLeast(1)
+                            val placeable = measurable.measure(Constraints.fixed(w, h))
+                            layout(w, h) { placeable.place(0, 0) }
+                        }
+                        .graphicsLayer {
+                            shape = RoundedCornerShape(windowRadius())
+                            clip = sheetFrac() < 0.995f
+                        }
+                        // Lays the content out at full screen and pins it to the
+                        // window's top-left, so it is revealed, not squeezed.
+                        .layout { measurable, _ ->
+                            val w = screenWpx.roundToInt()
+                            val h = screenHpx.roundToInt()
+                            val placeable = measurable.measure(Constraints.fixed(w, h))
+                            layout(w, h) {
+                                placeable.place(-windowInsetPx().roundToInt(), 0)
+                            }
+                        }
+                        .draggable(
+                            state = dragState,
+                            orientation = Orientation.Vertical,
+                            onDragStarted = {
+                                dragging = true
+                                sheetDrag = sheet.value
+                                queueDrag = queue.value
+                                queueAxis = queue.value > 0.001f && sheet.value >= 0.999f
+                                scope.launch {
+                                    sheet.stop()
+                                    queue.stop()
+                                }
+                            },
+                            onDragStopped = { velocity ->
+                                settle(velocity, sheetTravelPx, queueTravelPx)
+                            },
+                        )
+                        .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                        ) {} else Modifier
-                    )
-            ) {
-                // Immersive blurred backdrop the cover melts into.
-                if (blurAlpha > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = blurAlpha }
-                            .background(seamColor)
-                    ) {
-                        currentSong?.albumArtUri?.let { artUri ->
-                            val blurRequest = remember(artUri) {
-                                ImageRequest.Builder(context).data(artUri).size(Size(540, 540)).build()
-                            }
-                            AsyncImage(
-                                model = blurRequest,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize().blur(96.dp),
+                        ) {},
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // ── Surface: white capsule → dark cover-tinted player ──
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .drawBehind {
+                                    val f = sheetFrac()
+                                    drawRect(
+                                        brush = darkSurface,
+                                        alpha = (f / 0.35f).coerceIn(0f, 1f),
+                                    )
+                                    drawRect(
+                                        brush = capsuleGlass,
+                                        alpha = (1f - f / 0.3f).coerceIn(0f, 1f),
+                                    )
+                                }
+                        )
+
+                        // ── Mini row — the top band of the content ──
+                        if (miniMounted) {
+                            MiniRow(
+                                song = song,
+                                isPlaying = isPlaying,
+                                alpha = { 1f - sheetFrac() / 0.3f },
+                                inset = insetDp,
+                                onExpand = expand,
+                            )
+                        }
+
+                        // ── Full player — fades in and drifts up ──
+                        if (fullMounted) {
+                            FullPlayer(
+                                song = song,
+                                isPlaying = isPlaying,
+                                alpha = { ((sheetFrac() - 0.25f) / 0.75f).coerceIn(0f, 1f) },
+                                shiftPx = { (1f - ((sheetFrac() - 0.25f) / 0.75f).coerceIn(0f, 1f)) * 150f },
+                                statusTop = statusTop,
+                                navBottom = navBottom,
+                                onCollapse = collapse,
+                                onLyricsClick = onLyricsClick,
+                                onQueueOpen = {
+                                    scope.launch { queue.animateTo(1f, SettleSpec) }
+                                },
+                            )
+                        }
+
+                        // ── Queue — slides up over the player ──
+                        if (queueMounted) {
+                            QueueLayer(
+                                current = song,
+                                fraction = queueFrac,
+                                travelPx = queueTravelPx,
+                                statusTop = statusTop,
+                                navBottom = navBottom,
+                                onClose = { scope.launch { queue.animateTo(0f, SettleSpec) } },
                             )
                         }
                     }
                 }
-
-                // One shared cover.
-                if (coverAlpha > 0.01f) {
-                    MorphSharedCover(
-                        artUri = currentSong?.albumArtUri,
-                        artSize = artSize,
-                        artCx = artCx,
-                        artCy = artCy,
-                        artRadius = artRadius,
-                        fadeStrength = e * (1f - qPeek),
-                        alpha = coverAlpha,
-                        density = density,
-                        context = context,
-                    )
-                }
-
-                // Mini row.
-                if (miniAlpha > 0f) {
-                    MorphMiniRow(
-                        song = currentSong,
-                        isPlaying = isPlaying,
-                        alpha = miniAlpha,
-                        onExpand = { scope.launch { expansion.animateTo(1f, SettleSpec) } },
-                    )
-                }
-
-                // Full player controls (fade/translate out as the queue opens).
-                if (fullAlpha > 0f) {
-                    MorphFullControls(
-                        song = currentSong,
-                        isPlaying = isPlaying,
-                        statusTop = statusTop,
-                        navBottom = navBottom,
-                        alpha = fullAlpha * (1f - qPeek),
-                        contentShift = qPeek,
-                        onClose = { scope.launch { expansion.animateTo(0f, SettleSpec) } },
-                        onLyricsClick = onLyricsClick,
-                        onQueueOpen = { scope.launch { queue.animateTo(1f, SettleSpec) } },
-                    )
-                }
-
-                // Queue layer — slides up over the player.
-                if (q > 0.001f) {
-                    MorphQueueLayer(
-                        current = currentSong,
-                        statusTop = statusTop,
-                        navBottom = navBottom,
-                        queueTravelPx = queueTravelPx,
-                        fractionProvider = { queue.value },
-                        onClose = { scope.launch { queue.animateTo(0f, SettleSpec) } },
-                    )
-                }
             }
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Collapsed capsule glass (kyant backdrop blur, white frosted glass).
+//  Mini row — the capsule contents. Positioned at the very top of the content,
+//  horizontally inset by the capsule margin.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun androidx.compose.foundation.layout.BoxScope.MorphCapsuleGlass(
-    backdrop: LayerBackdrop?,
-    width: Dp,
-    bottomPadding: Dp,
-    alpha: Float,
-) {
-    val shape = RoundedCornerShape(percent = 50)
-    val surface = if (backdrop != null) {
-        Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { shape },
-            effects = { blur(16.dp.toPx()) },
-            onDrawSurface = {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.80f), Color.White.copy(alpha = 0.64f))
-                    )
-                )
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.White.copy(alpha = 0.30f),
-                        0.55f to Color.Transparent,
-                        1f to Color.Transparent,
-                    )
-                )
-            },
-        )
-    } else {
-        Modifier.background(
-            brush = Brush.verticalGradient(listOf(Color.White, Color(0xFFD8D8DC))),
-            shape = shape,
-        )
-    }
-    Box(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .padding(bottom = bottomPadding)
-            .width(width)
-            .height(MorphMiniHeight)
-            .graphicsLayer { this.alpha = alpha }
-            .clip(shape)
-            .then(surface)
-            .border(
-                width = 0.8.dp,
-                brush = Brush.verticalGradient(
-                    0f to Color.White.copy(alpha = 0.95f),
-                    0.50f to Color.White.copy(alpha = 0.18f),
-                    1f to Color.White.copy(alpha = 0.55f),
-                ),
-                shape = shape,
-            )
-    )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  The one shared cover. Positioned by absolute offset + size so it grows
-//  rather than cross-fades; its bottom edge dissolves (DstIn) into the blur.
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun MorphSharedCover(
-    artUri: Uri?,
-    artSize: Dp,
-    artCx: Dp,
-    artCy: Dp,
-    artRadius: Dp,
-    fadeStrength: Float,
-    alpha: Float,
-    density: Density,
-    context: Context,
-) {
-    Box(
-        modifier = Modifier
-            .offset {
-                val half = with(density) { artSize.toPx() } / 2f
-                IntOffset(
-                    (with(density) { artCx.toPx() } - half).roundToInt(),
-                    (with(density) { artCy.toPx() } - half).roundToInt(),
-                )
-            }
-            .size(artSize)
-            .graphicsLayer {
-                this.alpha = alpha
-                compositingStrategy = CompositingStrategy.Offscreen
-            }
-            .clip(RoundedCornerShape(artRadius))
-            .background(Color(0xFF2A2A2A))
-            .drawWithContent {
-                drawContent()
-                if (fadeStrength > 0.01f) {
-                    val fadeHeight = (size.height * 0.45f).coerceAtMost(140.dp.toPx()).coerceAtLeast(0f)
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(Color.Black, Color.Transparent),
-                            startY = (size.height - fadeHeight).coerceAtLeast(0f),
-                            endY = size.height,
-                        ),
-                        blendMode = BlendMode.DstIn,
-                        alpha = fadeStrength,
-                    )
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        artUri?.let { uri ->
-            val request = remember(uri) {
-                ImageRequest.Builder(context).data(uri).size(Size(1080, 1080)).build()
-            }
-            AsyncImage(
-                model = request,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Mini row — sits beside the thumbnail in the collapsed capsule.
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun MorphMiniRow(
+private fun MiniRow(
     song: Song?,
     isPlaying: Boolean,
-    alpha: Float,
+    alpha: () -> Float,
+    inset: Dp,
     onExpand: () -> Unit,
 ) {
     Row(
         modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer { this.alpha = alpha }
+            .fillMaxWidth()
+            .height(MiniHeight)
+            .padding(horizontal = inset)
+            .graphicsLayer { this.alpha = alpha().coerceIn(0f, 1f) }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-            ) { onExpand() }
-            .padding(start = 64.dp, end = 12.dp),
+                onClick = onExpand,
+            )
+            .padding(start = 12.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Artwork(uri = song?.albumArtUri, size = MiniArt, radius = 8.dp)
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = song?.title ?: "",
                 color = MorphInk,
                 fontSize = 14.sp,
                 fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = song?.artist ?: "",
-                color = MorphInk.copy(alpha = 0.68f),
+                color = MorphInk.copy(alpha = 0.62f),
                 fontSize = 12.sp,
                 fontFamily = CalSansFamily,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(Modifier.width(8.dp))
-        MorphMiniButton(
+        Spacer(Modifier.width(6.dp))
+        MiniButton(
             iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
             contentDescription = if (isPlaying) "Pause" else "Play",
             onClick = { PlaybackConnection.playPause() },
         )
-        Spacer(Modifier.width(8.dp))
-        MorphMiniButton(
+        Spacer(Modifier.width(4.dp))
+        MiniButton(
             iconRes = R.drawable.ic_next,
             contentDescription = "Next",
             onClick = { PlaybackConnection.next() },
@@ -551,13 +488,12 @@ private fun MorphMiniRow(
 }
 
 @Composable
-private fun MorphMiniButton(iconRes: Int, contentDescription: String, onClick: () -> Unit) {
+private fun MiniButton(iconRes: Int, contentDescription: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(36.dp)
             .clip(CircleShape)
             .background(MorphInk.copy(alpha = 0.06f))
-            .border(0.6.dp, MorphInk.copy(alpha = 0.10f), CircleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -575,213 +511,163 @@ private fun MorphMiniButton(iconRes: Int, contentDescription: String, onClick: (
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Full player controls — top bar + bottom cluster (metadata, seek, transport).
-//  The hero cover (the shared element above) fills the top; these controls sit
-//  over the blurred lower half and translate + fade away as the queue rises.
+//  Full player — toolbar / cover / controls, all inside the window's content.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun MorphFullControls(
+private fun FullPlayer(
     song: Song?,
     isPlaying: Boolean,
+    alpha: () -> Float,
+    shiftPx: () -> Float,
     statusTop: Dp,
     navBottom: Dp,
-    alpha: Float,
-    contentShift: Float,
-    onClose: () -> Unit,
+    onCollapse: () -> Unit,
     onLyricsClick: () -> Unit,
     onQueueOpen: () -> Unit,
 ) {
-    val positionMs by PlaybackConnection.positionMs.collectAsState()
-    val durationMs by PlaybackConnection.durationMs.collectAsState()
-    val loopMode by PlaybackConnection.loopMode.collectAsState()
-    val favourites by FavouriteStore.favourites.collectAsState()
-    val density = LocalDensity.current
-
-    Box(modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }) {
-        // ── Top bar: collapse chevron / lyrics + queue ──
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                this.alpha = alpha()
+                translationY = shiftPx()
+            }
+            .drawBehind {
+                // Legibility scrims over the cover-tinted surface.
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.30f),
+                        0.28f to Color.Transparent,
+                        0.68f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.55f),
+                    )
+                )
+            },
+    ) {
+        // ── Toolbar ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = statusTop + 8.dp, start = 18.dp, end = 18.dp),
+                .padding(top = statusTop + 6.dp, start = 14.dp, end = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MorphIconButton(
+            IconButton(
                 iconRes = R.drawable.ic_chevron_up,
                 contentDescription = "Collapse player",
-                size = 22.dp,
                 rotationDeg = 180f,
-                onClick = onClose,
+                onClick = onCollapse,
             )
             Spacer(Modifier.weight(1f))
-            MorphIconButton(
+            IconButton(
                 iconRes = R.drawable.ic_lyrics,
                 contentDescription = "Lyrics",
-                size = 22.dp,
                 onClick = onLyricsClick,
             )
-            Spacer(Modifier.width(6.dp))
-            MorphIconButton(
+            Spacer(Modifier.width(4.dp))
+            IconButton(
                 iconRes = R.drawable.ic_queue,
                 contentDescription = "Queue",
-                size = 22.dp,
                 onClick = onQueueOpen,
             )
         }
 
-        // ── Bottom cluster ──
+        // ── Cover ──
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 24.dp)
+        ) {
+            val side = minOf(maxWidth, (maxHeight - 12.dp).coerceAtLeast(96.dp))
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(side)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Color(0xFF1B1B1E))
+                    .graphicsLayer {
+                        val a = alpha()
+                        alpha = a
+                        scaleX = 0.92f + 0.08f * a
+                        scaleY = 0.92f + 0.08f * a
+                    },
+            ) {
+                Artwork(
+                    uri = song?.albumArtUri,
+                    size = side,
+                    radius = 26.dp,
+                    crisp = true,
+                )
+            }
+        }
+
+        // ── Controls ──
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .graphicsLayer { translationY = contentShift * with(density) { 140.dp.toPx() } }
                 .padding(horizontal = 24.dp)
-                .padding(bottom = navBottom + 28.dp),
+                .padding(top = 20.dp, bottom = navBottom + 18.dp),
         ) {
-            // Title / artist + favourite
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = song?.title ?: "Nothing playing",
-                        color = Color.White,
-                        fontSize = 26.sp,
-                        fontFamily = BillieEilishFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = song?.artist ?: "",
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 15.sp,
-                        fontFamily = CalSansFamily,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                val isFav = song != null && song.id in favourites
-                MorphIconButton(
-                    iconRes = if (isFav) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline,
-                    contentDescription = if (isFav) "Unfavourite" else "Favourite",
-                    size = 24.dp,
-                    tint = if (isFav) Color(0xFFFF6B6B) else Color.White,
-                    onClick = { song?.let { FavouriteStore.toggle(it.id) } },
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            MorphSeekBar(
-                positionMs = positionMs,
-                durationMs = durationMs,
-                onSeek = { PlaybackConnection.seekTo(it) },
-            )
-
-            Spacer(Modifier.height(22.dp))
-
-            // Transport
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    MorphIconButton(
-                        iconRes = R.drawable.ic_skip_back_10,
-                        contentDescription = "Back 10 seconds",
-                        size = 26.dp,
-                        onClick = { PlaybackConnection.seekTo((positionMs - 10_000L).coerceAtLeast(0L)) },
-                    )
-                    Spacer(Modifier.width(18.dp))
-                    MorphIconButton(
-                        iconRes = R.drawable.ic_prev,
-                        contentDescription = "Previous",
-                        size = 30.dp,
-                        onClick = { PlaybackConnection.prev() },
-                    )
-                    Spacer(Modifier.width(22.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(68.dp)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { PlaybackConnection.playPause() },
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            painter = painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = Color.Black,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
-                    Spacer(Modifier.width(22.dp))
-                    MorphIconButton(
-                        iconRes = R.drawable.ic_next,
-                        contentDescription = "Next",
-                        size = 30.dp,
-                        onClick = { PlaybackConnection.next() },
-                    )
-                    Spacer(Modifier.width(18.dp))
-                    MorphIconButton(
-                        iconRes = R.drawable.ic_skip_forward_10,
-                        contentDescription = "Forward 10 seconds",
-                        size = 26.dp,
-                        onClick = {
-                            PlaybackConnection.seekTo((positionMs + 10_000L).coerceAtMost(durationMs.coerceAtLeast(0L)))
-                        },
-                    )
-                }
-                val loopActive = loopMode != LoopMode.OFF
-                MorphIconButton(
-                    iconRes = if (loopMode == LoopMode.ONE) R.drawable.ic_repeat_one else R.drawable.ic_repeat,
-                    contentDescription = when (loopMode) {
-                        LoopMode.OFF -> "Loop off"
-                        LoopMode.ALL -> "Loop queue"
-                        LoopMode.ONE -> "Loop this song"
-                    },
-                    size = 22.dp,
-                    tint = Color.White.copy(alpha = if (loopActive) 1f else 0.45f),
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    onClick = { PlaybackConnection.cycleLoopMode() },
-                )
-            }
+            MetadataRow(song = song)
+            Spacer(Modifier.height(18.dp))
+            SeekBar()
+            Spacer(Modifier.height(14.dp))
+            TransportRow(isPlaying = isPlaying)
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Seek bar — thin at rest, swells under the finger, white fill, time labels.
-// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun MetadataRow(song: Song?) {
+    val favourites by FavouriteStore.favourites.collectAsState()
+    val isFav = song != null && song.id in favourites
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = song?.title ?: "Nothing playing",
+                color = Color.White,
+                fontSize = 24.sp,
+                fontFamily = BillieEilishFamily,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = song?.artist ?: "",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 14.sp,
+                fontFamily = CalSansFamily,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        IconButton(
+            iconRes = if (isFav) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline,
+            contentDescription = if (isFav) "Unfavourite" else "Favourite",
+            tint = if (isFav) Color(0xFFFF6B6B) else Color.White,
+            onClick = { song?.let { FavouriteStore.toggle(it.id) } },
+        )
+    }
+}
 
 @Composable
-private fun MorphSeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
+private fun SeekBar() {
+    val positionMs by PlaybackConnection.positionMs.collectAsState()
+    val durationMs by PlaybackConnection.durationMs.collectAsState()
     val safeDuration = durationMs.coerceAtLeast(1L)
-    val fraction = (positionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+    val fraction = (positionMs.toFloat() / safeDuration).coerceIn(0f, 1f)
     var seeking by remember { mutableStateOf(false) }
-    var seekValue by remember { mutableStateOf(0f) }
-    val trackHeight by animateDpAsState(
-        targetValue = if (seeking) 6.dp else 3.dp,
-        animationSpec = tween(180),
-        label = "morphSeekTrack",
-    )
+    var seekValue by remember { mutableFloatStateOf(0f) }
+    val shown = if (seeking) seekValue else fraction
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(trackHeight)
-                .clip(RoundedCornerShape(trackHeight / 2f))
-                .background(Color.White.copy(alpha = 0.24f))
+                .height(22.dp)
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragStart = { offset ->
@@ -790,7 +676,7 @@ private fun MorphSeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> U
                         },
                         onDragEnd = {
                             if (seeking) {
-                                onSeek((seekValue * safeDuration).roundToLong())
+                                PlaybackConnection.seekTo((seekValue * safeDuration).roundToLong())
                                 seeking = false
                             }
                         },
@@ -799,31 +685,41 @@ private fun MorphSeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> U
                             seekValue = (change.position.x / size.width).coerceIn(0f, 1f)
                         },
                     )
-                }
+                },
+            contentAlignment = Alignment.CenterStart,
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(if (seeking) seekValue else fraction)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(trackHeight / 2f))
+                    .fillMaxWidth()
+                    .height(if (seeking) 6.dp else 3.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color.White.copy(alpha = 0.22f))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(shown)
+                    .height(if (seeking) 6.dp else 3.dp)
+                    .clip(RoundedCornerShape(3.dp))
                     .background(Color.White)
             )
         }
-        Spacer(Modifier.height(6.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 text = formatMs(if (seeking) (seekValue * safeDuration).roundToLong() else positionMs),
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 11.sp,
                 fontFamily = CalSansFamily,
             )
             Text(
-                text = "-" + formatMs((safeDuration - (if (seeking) (seekValue * safeDuration).roundToLong() else positionMs)).coerceAtLeast(0L)),
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 12.sp,
+                text = "-" + formatMs(
+                    (safeDuration - if (seeking) (seekValue * safeDuration).roundToLong() else positionMs)
+                        .coerceAtLeast(0L)
+                ),
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 11.sp,
                 fontFamily = CalSansFamily,
             )
         }
@@ -831,89 +727,134 @@ private fun MorphSeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> U
 }
 
 @Composable
-private fun MorphIconButton(
-    iconRes: Int,
-    contentDescription: String,
-    size: Dp,
-    modifier: Modifier = Modifier,
-    tint: Color = Color.White,
-    rotationDeg: Float = 0f,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painter = painterResource(iconRes),
-            contentDescription = contentDescription,
-            tint = tint,
-            modifier = Modifier.size(size).graphicsLayer { rotationZ = rotationDeg },
+private fun TransportRow(isPlaying: Boolean) {
+    val positionMs by PlaybackConnection.positionMs.collectAsState()
+    val durationMs by PlaybackConnection.durationMs.collectAsState()
+    val loopMode by PlaybackConnection.loopMode.collectAsState()
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.align(Alignment.Center),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                iconRes = R.drawable.ic_skip_back_10,
+                contentDescription = "Back 10 seconds",
+                iconSize = 24.dp,
+                onClick = {
+                    PlaybackConnection.seekTo((positionMs - 10_000L).coerceAtLeast(0L))
+                },
+            )
+            Spacer(Modifier.width(6.dp))
+            IconButton(
+                iconRes = R.drawable.ic_prev,
+                contentDescription = "Previous",
+                iconSize = 28.dp,
+                onClick = { PlaybackConnection.prev() },
+            )
+            Spacer(Modifier.width(10.dp))
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { PlaybackConnection.playPause() },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(
+                        if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+                    ),
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.Black,
+                    modifier = Modifier.size(30.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            IconButton(
+                iconRes = R.drawable.ic_next,
+                contentDescription = "Next",
+                iconSize = 28.dp,
+                onClick = { PlaybackConnection.next() },
+            )
+            Spacer(Modifier.width(6.dp))
+            IconButton(
+                iconRes = R.drawable.ic_skip_forward_10,
+                contentDescription = "Forward 10 seconds",
+                iconSize = 24.dp,
+                onClick = {
+                    PlaybackConnection.seekTo(
+                        (positionMs + 10_000L)
+                            .coerceAtMost(durationMs.coerceAtLeast(0L))
+                    )
+                },
+            )
+        }
+        val loopActive = loopMode != LoopMode.OFF
+        IconButton(
+            iconRes = if (loopMode == LoopMode.ONE) R.drawable.ic_repeat_one else R.drawable.ic_repeat,
+            contentDescription = when (loopMode) {
+                LoopMode.OFF -> "Loop off"
+                LoopMode.ALL -> "Loop queue"
+                LoopMode.ONE -> "Loop this song"
+            },
+            iconSize = 20.dp,
+            tint = Color.White.copy(alpha = if (loopActive) 1f else 0.4f),
+            modifier = Modifier.align(Alignment.CenterEnd),
+            onClick = { PlaybackConnection.cycleLoopMode() },
         )
     }
 }
 
-private fun formatMs(ms: Long): String {
-    val totalSec = (ms / 1000L).coerceAtLeast(0L)
-    val m = totalSec / 60L
-    val s = totalSec % 60L
-    return "%d:%02d".format(m, s)
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-//  Queue layer — the "Up Next" list that slides up over the full player. Its
-//  rise is driven by the same queue fraction the drag feeds, so letting go of a
-//  half-open queue springs it the rest of the way (or back down) with momentum.
+//  Queue — slides up over the player; 0.45 is the half-open "peek".
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun MorphQueueLayer(
+private fun QueueLayer(
     current: Song?,
+    fraction: () -> Float,
+    travelPx: Float,
     statusTop: Dp,
     navBottom: Dp,
-    queueTravelPx: Float,
-    fractionProvider: () -> Float,
     onClose: () -> Unit,
 ) {
-    val queueSongs = remember(current) { PlaybackConnection.currentQueue }
-    val currentIndex = remember(current) { PlaybackConnection.currentIndex }
+    val songs = remember(current) { PlaybackConnection.currentQueue }
+    val index = remember(current) { PlaybackConnection.currentIndex }
     val listState = rememberLazyListState()
 
-    // Keep the playing track in view whenever the queue is opened.
-    LaunchedEffect(currentIndex) {
-        if (currentIndex >= 0) listState.scrollToItem(currentIndex.coerceAtMost(queueSongs.lastIndex.coerceAtLeast(0)))
+    LaunchedEffect(index) {
+        if (index >= 0 && songs.isNotEmpty()) {
+            listState.scrollToItem(index.coerceAtMost(songs.lastIndex))
+        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer {
-                val f = fractionProvider().coerceIn(0f, 1f)
-                translationY = (1f - f) * queueTravelPx
-                alpha = (f / 0.3f).coerceIn(0f, 1f)
+                val f = fraction()
+                translationY = (1f - f) * travelPx
+                alpha = (f / 0.25f).coerceIn(0f, 1f)
             }
-            .background(Color(0xF2080808))
+            .background(Color(0xF7070709))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
             ) {},
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Header
+        Column(Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = statusTop + 14.dp, start = 24.dp, end = 18.dp, bottom = 10.dp),
+                    .padding(top = statusTop + 14.dp, start = 24.dp, end = 14.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(Modifier.weight(1f)) {
                     Text(
                         text = "Up Next",
                         color = Color.White,
@@ -922,17 +863,15 @@ private fun MorphQueueLayer(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = if (queueSongs.isEmpty()) "Queue is empty"
-                        else "${queueSongs.size} in queue",
+                        text = if (songs.isEmpty()) "Queue is empty" else "${songs.size} in queue",
                         color = Color.White.copy(alpha = 0.55f),
                         fontSize = 13.sp,
                         fontFamily = CalSansFamily,
                     )
                 }
-                MorphIconButton(
+                IconButton(
                     iconRes = R.drawable.ic_chevron_up,
                     contentDescription = "Close queue",
-                    size = 22.dp,
                     rotationDeg = 180f,
                     onClick = onClose,
                 )
@@ -941,15 +880,15 @@ private fun MorphQueueLayer(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 16.dp, end = 16.dp, top = 4.dp, bottom = navBottom + 32.dp,
+                contentPadding = PaddingValues(
+                    start = 16.dp, end = 16.dp, top = 4.dp, bottom = navBottom + 28.dp,
                 ),
             ) {
-                itemsIndexed(queueSongs, key = { index, song -> "${index}_${song.id}" }) { index, song ->
-                    MorphQueueItem(
-                        song = song,
-                        isCurrent = index == currentIndex,
-                        onClick = { PlaybackConnection.playQueueItem(index) },
+                itemsIndexed(songs, key = { i, s -> "$i_${s.id}" }) { i, s ->
+                    QueueRow(
+                        song = s,
+                        isCurrent = i == index,
+                        onClick = { PlaybackConnection.playQueueItem(i) },
                     )
                 }
             }
@@ -958,15 +897,12 @@ private fun MorphQueueLayer(
 }
 
 @Composable
-private fun MorphQueueItem(song: Song, isCurrent: Boolean, onClick: () -> Unit) {
-    val context = LocalContext.current
+private fun QueueRow(song: Song, isCurrent: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .then(
-                if (isCurrent) Modifier.background(Color.White.copy(alpha = 0.07f)) else Modifier
-            )
+            .background(if (isCurrent) Color.White.copy(alpha = 0.07f) else Color.Transparent)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -975,27 +911,9 @@ private fun MorphQueueItem(song: Song, isCurrent: Boolean, onClick: () -> Unit) 
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF1E1E1E)),
-            contentAlignment = Alignment.Center,
-        ) {
-            song.albumArtUri?.let { uri ->
-                val request = remember(uri) {
-                    ImageRequest.Builder(context).data(uri).size(Size(160, 160)).build()
-                }
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
+        Artwork(uri = song.albumArtUri, size = 48.dp, radius = 10.dp)
         Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Column(Modifier.weight(1f)) {
             Text(
                 text = song.title,
                 color = if (isCurrent) Color.White else Color.White.copy(alpha = 0.92f),
@@ -1020,8 +938,81 @@ private fun MorphQueueItem(song: Song, isCurrent: Boolean, onClick: () -> Unit) 
                 modifier = Modifier
                     .size(8.dp)
                     .clip(CircleShape)
-                    .background(Color.White),
+                    .background(Color.White)
             )
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Small shared pieces.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun Artwork(
+    uri: Uri?,
+    size: Dp,
+    radius: Dp,
+    crisp: Boolean = false,
+) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(radius))
+            .background(Color(0xFF1B1B1E)),
+        contentAlignment = Alignment.Center,
+    ) {
+        uri?.let {
+            val request = remember(it, crisp) {
+                ImageRequest.Builder(context)
+                    .data(it)
+                    .size(if (crisp) Size(1080, 1080) else Size(192, 192))
+                    .build()
+            }
+            AsyncImage(
+                model = request,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun IconButton(
+    iconRes: Int,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 22.dp,
+    tint: Color = Color.White,
+    rotationDeg: Float = 0f,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier
+                .size(iconSize)
+                .graphicsLayer { rotationZ = rotationDeg },
+        )
+    }
+}
+
+private fun formatMs(ms: Long): String {
+    val totalSec = (ms / 1000L).coerceAtLeast(0L)
+    return "%d:%02d".format(totalSec / 60L, totalSec % 60L)
 }

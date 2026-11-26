@@ -754,7 +754,6 @@ fun LuteaScaffold(
                 onLyricsClick = { showLyrics = true },
                 onActiveChange = { playerVisible = it },
                 hidden = imeOpen,
-                backdrop = glassBackdrop,
                 navMatchedWidth = navMatchedWidth,
                 miniBottomPadding = miniPlayerBottom,
             )

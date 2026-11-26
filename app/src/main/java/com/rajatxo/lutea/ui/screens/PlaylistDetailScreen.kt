@@ -888,7 +888,6 @@ fun PlaylistDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 onLyricsClick = { showLyrics = true },
                 onActiveChange = { playerVisible = it },
-                backdrop = pageBackdrop,
                 navMatchedWidth = navMetrics.navBarWidthFor(LuteaTab.entries.size),
                 miniBottomPadding = navBottom + 56.dp,
             )
