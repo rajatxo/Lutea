@@ -78,7 +78,6 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.rajatxo.lutea.R
 import com.rajatxo.lutea.playback.PlaybackConnection
-import com.rajatxo.lutea.ui.components.BillieEilishFamily
 import com.rajatxo.lutea.ui.components.CalSansFamily
 import com.rajatxo.lutea.ui.util.rememberCoverThemeColor
 import kotlinx.coroutines.launch
@@ -115,12 +114,6 @@ val LocalPlayerNavigation = staticCompositionLocalOf { PlayerNavigation() }
 fun PlayerSheet(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
-    /** LIVE 0f→1f expand progress, hoisted from the host. The host owns this
-     *  Animatable so the nav + control overlays can fade IN SYNC with the
-     *  cover during the drag — not on separate boolean-driven tweens that only
-     *  fire after the drag settles (the old "controls vanish last, nav appears
-     *  last" lag). This composable still drives it (LaunchedEffect + drag). */
-    expansion: Animatable<Float, *>,
     modifier: Modifier = Modifier,
     onLyricsClick: () -> Unit = {},
     onQueueOpen: () -> Unit = {},
@@ -137,8 +130,7 @@ fun PlayerSheet(
     val density = LocalDensity.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // expansion is HOISTED from the host (see param) so nav + controls can
-    // sync to the live drag. The host seeds its initial value.
+    val expansion = remember { Animatable(if (expanded) 1f else 0f) }
 
     // Themed seam colour = the cover's own dominant colour (Palette, cached).
     // Used as the dark surface's tint so a cold-start cover load shows a themed
@@ -151,15 +143,17 @@ fun PlayerSheet(
 
     LaunchedEffect(expanded) {
         // Critically-damped spring (dampingRatio = 1 → no overshoot/bounce),
-        // high stiffness → opens FAST and settles without sluggishness. A
-        // tween here ignored the finger's momentum on a tap-drag and always
-        // ran the full fixed duration, which read as slow/lagging. The spring
-        // starts from whatever velocity the drag left behind.
+        // bumped stiffness (16_000, above the standard StiffnessHigh 10_000) →
+        // opens FAST and settles without sluggishness. A tween here ignored the
+        // finger's momentum on a tap-drag and always ran the full fixed
+        // duration, which read as slow/lagging. The spring starts from whatever
+        // velocity the drag left behind. Critical damping keeps it smooth (no
+        // snap/bounce) even at the higher stiffness.
         expansion.animateTo(
             targetValue = if (expanded) 1f else 0f,
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessHigh,
+                stiffness = 16_000f,
             ),
         )
     }
@@ -246,7 +240,7 @@ fun PlayerSheet(
                         target,
                         spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessHigh,
+                            stiffness = 16_000f,
                         ),
                         initialVelocity = initialVel,
                     )
@@ -391,36 +385,43 @@ fun PlayerSheet(
                     density = density,
                     context = context,
                     eased = eased,
-                )
-
-                // ── The ONE shared title/artist ──
-                // Never vanishes. It is the mini row's title (beside the cover,
-                // 14sp, dark) AND the full player's title (below the cover, 22sp,
-                // white) — one element that lerps position + size + colour with
-                // the cover, so the text grows out of the mini spot as the cover
-                // shrinks. Tapping it (in mini form) opens the player.
-                SharedTitle(
-                    title = currentSong?.title ?: "",
-                    artist = currentSong?.artist ?: "",
-                    artCx = artCx,
-                    artCy = artCy,
-                    artSize = artSize,
-                    maxW = maxW,
-                    eased = eased,
-                    onMiniTap = { onExpandedChange(true) },
-                )
-
-                // ── Mini row: play/pause + next (mini-only, fade with miniAlpha) ──
+                )                // ── Mini row: title/artist + play/pause + next ──
                 if (miniAlpha > 0f) {
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { alpha = miniAlpha }
-                            .padding(end = 12.dp),
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { onExpandedChange(true) }
+                            .padding(start = 64.dp, end = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End,
                     ) {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = currentSong?.title ?: "",
+                                color = MiniInk,
+                                fontSize = 14.sp,
+                                fontFamily = CalSansFamily,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = currentSong?.artist ?: "",
+                                color = MiniInk.copy(alpha = 0.68f),
+                                fontSize = 12.sp,
+                                fontFamily = CalSansFamily,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
                         Spacer(Modifier.width(8.dp))
+
                         MiniButton(
                             iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
                             contentDescription = if (isPlaying) "Pause" else "Play",
@@ -537,95 +538,6 @@ private fun SharedCoverArt(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-    }
-}
-
-/**
- * The ONE shared title/artist text — the same element in the mini player and
- * the full player. It NEVER vanishes: it lerps position + size + colour in
- * lockstep with the morphing cover.
- *
- *  - Mini state (e=0): beside the cover. Title 14sp dark [MiniInk], artist
- *    12sp dark-faded. Left edge at the cover's right + a gap; vertically
- *    centred on the cover's centre line.
- *  - Full state (e=1): below the cover. Title 22sp white, artist 16sp
- *    white-faded. Left edge at 24dp; top edge just below the cover.
- *
- * Tapping the title in mini form opens the player. In full form the tap is a
- * no-op (the cover/controls handle interaction).
- */
-@Composable
-private fun SharedTitle(
-    title: String,
-    artist: String,
-    artCx: Dp,
-    artCy: Dp,
-    artSize: Dp,
-    maxW: Dp,
-    eased: Float,
-    onMiniTap: () -> Unit,
-) {
-    val density = LocalDensity.current
-
-    // ── Mini title anchor: beside the cover, centred on its vertical mid ──
-    val miniLeft = artCx + artSize / 2f + 12.dp          // cover right edge + gap
-    val miniCenterY = artCy                              // cover vertical centre
-    val miniTitleSp = 14f
-    val miniArtistSp = 12f
-
-    // ── Full title anchor: below the cover, left-aligned at 24dp ──
-    val fullLeft = 24.dp
-    val fullTop = maxW + 16.dp                           // cover bottom + gap
-    val fullTitleSp = 22f
-    val fullArtistSp = 16f
-
-    val left = lerp(miniLeft, fullLeft, eased)
-    val top = lerp(miniCenterY - 12.dp, fullTop, eased)  // mini: shift up by ~half line
-    // Inline float lerp (androidx.compose.animation.core.lerp is internal).
-    val titleSp = miniTitleSp + (fullTitleSp - miniTitleSp) * eased
-    val artistSp = miniArtistSp + (fullArtistSp - miniArtistSp) * eased
-
-    // Colour: dark ink (mini) → white (full).
-    val titleColor = lerpColor(MiniInk, Color.White, eased)
-    val artistColor = lerpColor(MiniInk.copy(alpha = 0.68f), Color.White.copy(alpha = 0.68f), eased)
-
-    // Tap-to-open only meaningful in mini form.
-    val tapMod = if (eased < 0.5f) {
-        Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            onClick = onMiniTap,
-        )
-    } else Modifier
-
-    Column(
-        modifier = Modifier
-            .offset {
-                IntOffset(
-                    with(density) { left.toPx() }.roundToInt(),
-                    with(density) { top.toPx() }.roundToInt(),
-                )
-            }
-            .then(tapMod),
-    ) {
-        Text(
-            text = title,
-            color = titleColor,
-            fontSize = titleSp.sp,
-            fontFamily = BillieEilishFamily,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = artist,
-            color = artistColor,
-            fontSize = artistSp.sp,
-            fontFamily = BillieEilishFamily,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
